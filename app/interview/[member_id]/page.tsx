@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
-import type { CoordinationFrequency, Member, Team } from "@/types/database";
+import type {
+  CoordinationFrequency,
+  Member,
+  PsLabel,
+  PsStatement,
+  Team,
+} from "@/types/database";
 import type { InterviewStep } from "@/components/interview/types";
 import ProgressBar from "@/components/interview/ProgressBar";
 import BackButton from "@/components/interview/BackButton";
@@ -16,6 +22,10 @@ import PersonalContextStep from "@/components/interview/steps/PersonalContextSte
 import PurposeStep from "@/components/interview/steps/PurposeStep";
 import RosterStep from "@/components/interview/steps/RosterStep";
 import CoordinationStep from "@/components/interview/steps/CoordinationStep";
+import PsIntroStep from "@/components/interview/steps/PsIntroStep";
+import PsFrameStep from "@/components/interview/steps/PsFrameStep";
+import PsDiagnosticStep from "@/components/interview/steps/PsDiagnosticStep";
+import PsReflectStep from "@/components/interview/steps/PsReflectStep";
 import EndOfPass1Step from "@/components/interview/steps/EndOfPass1Step";
 
 // Linear order this pass moves through — used both for the back button and
@@ -30,8 +40,16 @@ const STEP_ORDER: InterviewStep[] = [
   "purpose",
   "roster",
   "coordination",
+  "ps_intro",
+  "ps_frame",
+  "ps_diagnostic",
+  "ps_reflect",
   "end_of_pass1",
 ];
+
+// ps_diagnostic breaks out of the centred max-w-2xl column to go full-bleed
+// (the ocean background needs the full viewport width to feel right).
+const FULL_BLEED_STEPS: InterviewStep[] = ["ps_diagnostic"];
 
 // Draft state for steps whose input shouldn't be lost if the member goes
 // back and then forward again. Step components stay mount/unmount
@@ -48,6 +66,8 @@ type InterviewDraft = {
   rosterNoted: boolean;
   coordRatings: Record<string, CoordinationFrequency>;
   coordRowIds: Record<string, string>;
+  psRatings: Record<number, PsLabel>;
+  psRowIds: Record<number, string>;
 };
 
 const INITIAL_DRAFT: InterviewDraft = {
@@ -60,6 +80,8 @@ const INITIAL_DRAFT: InterviewDraft = {
   rosterNoted: false,
   coordRatings: {},
   coordRowIds: {},
+  psRatings: {},
+  psRowIds: {},
 };
 
 // Public page — members reach this via their private link, not a Wavelength
@@ -71,6 +93,7 @@ export default function InterviewPage() {
   const [member, setMember] = useState<Member | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [psStatements, setPsStatements] = useState<PsStatement[]>([]);
 
   const [step, setStep] = useState<InterviewStep>("landing");
   const [draft, setDraft] = useState<InterviewDraft>(INITIAL_DRAFT);
@@ -97,6 +120,7 @@ export default function InterviewPage() {
       const [
         { data: teamData, error: teamError },
         { data: membersData, error: membersError },
+        { data: statementsData, error: statementsError },
       ] = await Promise.all([
         supabase
           .from("teams")
@@ -108,6 +132,10 @@ export default function InterviewPage() {
           .select("*")
           .eq("team_id", memberData.team_id)
           .order("created_at", { ascending: true }),
+        supabase
+          .from("ps_statements")
+          .select("*")
+          .order("statement_id", { ascending: true }),
       ]);
 
       if (teamError) {
@@ -116,10 +144,17 @@ export default function InterviewPage() {
       if (membersError) {
         console.error("[interview] failed to load team roster:", membersError);
       }
+      if (statementsError) {
+        console.error(
+          "[interview] failed to load ps_statements:",
+          statementsError
+        );
+      }
 
       setMember(memberData);
       setTeam(teamData ?? null);
       setAllMembers(membersData ?? []);
+      setPsStatements(statementsData ?? []);
 
       const { error: updateError } = await supabase
         .from("members")
@@ -215,21 +250,24 @@ export default function InterviewPage() {
     (m) => m.member_id !== member.member_id
   );
   const smallTeam = allMembers.length < 5;
+  const fullBleed = FULL_BLEED_STEPS.includes(step);
 
   return (
     <main
-      className="flex-1 flex flex-col items-center px-6 py-16"
+      className="flex-1 flex flex-col items-center"
       data-member-id={member.member_id}
       data-team-id={team.team_id}
     >
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-2xl px-6 pt-16">
         <div className="flex items-center justify-between mb-2">
           {step !== "landing" ? <BackButton onBack={goBack} /> : <span />}
           <ReadAloudToggle enabled={readAloud} onToggle={toggleReadAloud} />
         </div>
 
         <ProgressBar step={step} />
+      </div>
 
+      <div className={fullBleed ? "w-full" : "w-full max-w-2xl px-6 pb-16"}>
         {step === "landing" && (
           <LandingStep
             readAloud={readAloud}
@@ -329,6 +367,46 @@ export default function InterviewPage() {
             onRatingsChange={(ratings) => updateDraft({ coordRatings: ratings })}
             rowIds={draft.coordRowIds}
             onRowIdsChange={(rowIds) => updateDraft({ coordRowIds: rowIds })}
+            onAdvance={() => goToStep("ps_intro")}
+          />
+        )}
+
+        {step === "ps_intro" && (
+          <PsIntroStep
+            readAloud={readAloud}
+            onAdvance={() => goToStep("ps_frame")}
+          />
+        )}
+
+        {step === "ps_frame" && (
+          <PsFrameStep
+            readAloud={readAloud}
+            onAdvance={() => goToStep("ps_diagnostic")}
+          />
+        )}
+
+        {step === "ps_diagnostic" && (
+          <PsDiagnosticStep
+            member={member}
+            team={team}
+            statements={psStatements}
+            supabase={supabase}
+            ratings={draft.psRatings}
+            onRatingsChange={(ratings) => updateDraft({ psRatings: ratings })}
+            rowIds={draft.psRowIds}
+            onRowIdsChange={(rowIds) => updateDraft({ psRowIds: rowIds })}
+            onAdvance={() => goToStep("ps_reflect")}
+          />
+        )}
+
+        {step === "ps_reflect" && (
+          <PsReflectStep
+            member={member}
+            team={team}
+            statements={psStatements}
+            ratings={draft.psRatings}
+            supabase={supabase}
+            readAloud={readAloud}
             onAdvance={() => goToStep("end_of_pass1")}
           />
         )}

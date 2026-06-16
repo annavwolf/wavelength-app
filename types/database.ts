@@ -149,6 +149,9 @@ export type PsResponse = {
   statement_id: number;
   zone: Zone;
   label: PsLabel;
+  // green=3, yellow=2, red=1 — feeds the Tier 1 per-zone mean calculation
+  // directly, so it's stored alongside the label rather than derived later.
+  response_value: number;
   round: number;
   created_at: string;
 }
@@ -160,11 +163,32 @@ export type PsResponseInsert = {
   statement_id: number;
   zone: Zone;
   label: PsLabel;
+  response_value: number;
   round?: number;
   created_at?: string;
 }
 
 export type PsResponseUpdate = Partial<PsResponseInsert>;
+
+// Whether the member agreed with Wavelength's zone-level reflection
+// (ps_reflect step) — surfaced to the consultant later.
+export type PsReflectionCheck = {
+  id: string;
+  team_id: string;
+  member_id: string;
+  matches_reflection: boolean;
+  created_at: string;
+}
+
+export type PsReflectionCheckInsert = {
+  id?: string;
+  team_id: string;
+  member_id: string;
+  matches_reflection: boolean;
+  created_at?: string;
+}
+
+export type PsReflectionCheckUpdate = Partial<PsReflectionCheckInsert>;
 
 export type PurposeResponse = {
   id: string;
@@ -423,6 +447,12 @@ export type Database = {
         Row: PsResponse;
         Insert: PsResponseInsert;
         Update: PsResponseUpdate;
+        Relationships: [];
+      };
+      ps_reflection_checks: {
+        Row: PsReflectionCheck;
+        Insert: PsReflectionCheckInsert;
+        Update: PsReflectionCheckUpdate;
         Relationships: [];
       };
       purpose_responses: {

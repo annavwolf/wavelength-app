@@ -16,7 +16,10 @@ export type InterviewStep =
   | "purpose"
   | "roster"
   | "coordination"
-  | "end_of_pass1"
+  | "ps_intro"
+  | "ps_frame"
   | "ps_diagnostic"
+  | "ps_reflect"
+  | "end_of_pass1"
   | "fish"
   | "close";

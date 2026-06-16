@@ -13,6 +13,11 @@
   --color-grey: #6B6B6B;
   --color-teal: #085041;
   --color-amber: #9A5B06;
+
+  /* Psychological safety diagnostic — calm, not traffic-light harsh. */
+  --color-safety-green: #4F9C82;
+  --color-safety-yellow: #D9A441;
+  --color-safety-red: #C97064;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

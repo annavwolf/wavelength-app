@@ -11,6 +11,10 @@ const STEP_ORDER: InterviewStep[] = [
   "purpose",
   "roster",
   "coordination",
+  "ps_intro",
+  "ps_frame",
+  "ps_diagnostic",
+  "ps_reflect",
 ];
 
 export default function ProgressBar({ step }: { step: InterviewStep }) {
