@@ -22,7 +22,9 @@ import PersonalContextStep from "@/components/interview/steps/PersonalContextSte
 import PurposeStep from "@/components/interview/steps/PurposeStep";
 import RosterStep from "@/components/interview/steps/RosterStep";
 import CoordinationStep from "@/components/interview/steps/CoordinationStep";
-import PsIntroStep from "@/components/interview/steps/PsIntroStep";
+import PsIntroOpenStep from "@/components/interview/steps/PsIntroOpenStep";
+import PsDescentStep from "@/components/interview/steps/PsDescentStep";
+import PsIntroCloseStep from "@/components/interview/steps/PsIntroCloseStep";
 import PsFrameStep from "@/components/interview/steps/PsFrameStep";
 import PsDiagnosticStep from "@/components/interview/steps/PsDiagnosticStep";
 import PsReflectStep from "@/components/interview/steps/PsReflectStep";
@@ -40,7 +42,9 @@ const STEP_ORDER: InterviewStep[] = [
   "purpose",
   "roster",
   "coordination",
-  "ps_intro",
+  "ps_intro_open",
+  "ps_descent",
+  "ps_intro_close",
   "ps_frame",
   "ps_diagnostic",
   "ps_reflect",
@@ -49,7 +53,9 @@ const STEP_ORDER: InterviewStep[] = [
 
 // ps_diagnostic breaks out of the centred max-w-2xl column to go full-bleed
 // (the ocean background needs the full viewport width to feel right).
-const FULL_BLEED_STEPS: InterviewStep[] = ["ps_intro", "ps_diagnostic"];
+// Only ps_diagnostic needs to break the centred column — the other PS
+// steps use the standard layout (portrait image constrains itself fine).
+const FULL_BLEED_STEPS: InterviewStep[] = ["ps_diagnostic"];
 
 // Draft state for steps whose input shouldn't be lost if the member goes
 // back and then forward again. Step components stay mount/unmount
@@ -365,12 +371,26 @@ export default function InterviewPage() {
             onRatingsChange={(ratings) => updateDraft({ coordRatings: ratings })}
             rowIds={draft.coordRowIds}
             onRowIdsChange={(rowIds) => updateDraft({ coordRowIds: rowIds })}
-            onAdvance={() => goToStep("ps_intro")}
+            onAdvance={() => goToStep("ps_intro_open")}
           />
         )}
 
-        {step === "ps_intro" && (
-          <PsIntroStep
+        {step === "ps_intro_open" && (
+          <PsIntroOpenStep
+            readAloud={readAloud}
+            onAdvance={() => goToStep("ps_descent")}
+          />
+        )}
+
+        {step === "ps_descent" && (
+          <PsDescentStep
+            readAloud={readAloud}
+            onAdvance={() => goToStep("ps_intro_close")}
+          />
+        )}
+
+        {step === "ps_intro_close" && (
+          <PsIntroCloseStep
             readAloud={readAloud}
             onAdvance={() => goToStep("ps_frame")}
           />
