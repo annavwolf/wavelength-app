@@ -48,12 +48,12 @@ function RatingButton({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
-      className={`inline-flex items-center gap-2 text-sm px-4 py-2.5 rounded-full border-2 transition-all ${
-        selected ? "scale-105 text-white" : "text-white/85"
+      className={`inline-flex items-center justify-center gap-2 text-sm px-4 py-2.5 rounded-full border-2 text-left transition-all ${
+        selected ? "scale-105 text-white" : "text-white/90"
       } disabled:opacity-60`}
       style={{
         borderColor: `var(${colorVar})`,
-        backgroundColor: selected ? `var(${colorVar})` : "rgba(255,255,255,0.08)",
+        backgroundColor: selected ? `var(${colorVar})` : "rgba(255,255,255,0.12)",
       }}
     >
       {selected && <span>✓</span>}
@@ -69,8 +69,6 @@ export default function PsDiagnosticStep({
   supabase,
   ratings,
   onRatingsChange,
-  rowIds,
-  onRowIdsChange,
   onAdvance,
 }: {
   member: Member;
@@ -79,8 +77,6 @@ export default function PsDiagnosticStep({
   supabase: AppSupabaseClient;
   ratings: Record<number, PsLabel>;
   onRatingsChange: (ratings: Record<number, PsLabel>) => void;
-  rowIds: Record<number, string>;
-  onRowIdsChange: (rowIds: Record<number, string>) => void;
   onAdvance: () => void;
 }) {
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -90,59 +86,41 @@ export default function PsDiagnosticStep({
     setSavingId(statement.statement_id);
     setError(null);
 
-    const responseValue = LABEL_VALUE[label];
-    const existingRowId = rowIds[statement.statement_id];
-
-    if (existingRowId) {
-      const { error: updateError } = await supabase
-        .from("ps_responses")
-        .update({ label, response_value: responseValue })
-        .eq("id", existingRowId);
-
-      if (updateError) {
-        console.error("[interview/ps_diagnostic] failed to update rating:", {
-          message: updateError.message,
-          details: updateError.details,
-          hint: updateError.hint,
-          code: updateError.code,
-        });
-        setError("Something went wrong saving that. Please try again.");
-        setSavingId(null);
-        return;
-      }
-
-      onRatingsChange({ ...ratings, [statement.statement_id]: label });
-      setSavingId(null);
-      return;
-    }
-
-    const { data, error: insertError } = await supabase
+    // Upsert keyed on (member_id, statement_id, round) — requires the
+    // matching unique constraint in Postgres. Re-rating updates the same
+    // row instead of erroring or creating a duplicate, and this survives a
+    // page reload (unlike tracking the row id only in React state).
+    const { data, error: upsertError } = await supabase
       .from("ps_responses")
-      .insert({
-        member_id: member.member_id,
-        team_id: team.team_id,
-        statement_id: statement.statement_id,
-        zone: statement.zone,
-        label,
-        response_value: responseValue,
-        round: 1,
-      })
+      .upsert(
+        {
+          member_id: member.member_id,
+          team_id: team.team_id,
+          statement_id: statement.statement_id,
+          zone: statement.zone,
+          label,
+          response_value: LABEL_VALUE[label],
+          round: 1,
+        },
+        { onConflict: "member_id,statement_id,round" }
+      )
       .select("id")
       .single();
 
-    if (insertError || !data) {
+    if (upsertError || !data) {
       console.error("[interview/ps_diagnostic] failed to save rating:", {
-        message: insertError?.message,
-        details: insertError?.details,
-        hint: insertError?.hint,
-        code: insertError?.code,
+        message: upsertError?.message,
+        details: upsertError?.details,
+        hint: upsertError?.hint,
+        code: upsertError?.code,
       });
-      setError("Something went wrong saving that. Please try again.");
+      setError(
+        `That didn't save${upsertError?.code ? ` (${upsertError.code})` : ""}. Please try again.`
+      );
       setSavingId(null);
       return;
     }
 
-    onRowIdsChange({ ...rowIds, [statement.statement_id]: data.id });
     onRatingsChange({ ...ratings, [statement.statement_id]: label });
     setSavingId(null);
   }
@@ -171,11 +149,11 @@ export default function PsDiagnosticStep({
               className="absolute inset-0"
               style={{
                 background:
-                  "linear-gradient(to right, rgba(6,18,28,0.7), rgba(6,18,28,0.35) 50%, rgba(6,18,28,0.05) 85%)",
+                  "linear-gradient(to right, rgba(6,18,28,0.5), rgba(6,18,28,0.2) 55%, rgba(6,18,28,0.05) 90%)",
               }}
             />
 
-            <div className="relative z-10 max-w-md">
+            <div className="relative z-10 max-w-2xl">
               <p className="text-xs uppercase tracking-widest text-white/60 mb-2">
                 {zoneConfig.eyebrow}
               </p>
@@ -186,16 +164,19 @@ export default function PsDiagnosticStep({
                 {zoneConfig.label}
               </h2>
 
-              <div className="space-y-10">
+              <div className="space-y-6">
                 {zoneStatements.map((statement) => (
-                  <div key={statement.statement_id}>
+                  <div
+                    key={statement.statement_id}
+                    className="rounded-2xl border border-white/20 bg-white/[0.16] backdrop-blur-md p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-5"
+                  >
                     <p
-                      className="text-white text-lg leading-relaxed mb-4"
-                      style={{ textShadow: "0 1px 8px rgba(0,0,0,0.45)" }}
+                      className="text-white text-base sm:text-lg leading-relaxed flex-1"
+                      style={{ textShadow: "0 1px 6px rgba(0,0,0,0.35)" }}
                     >
                       {statement.statement_text}
                     </p>
-                    <div className="flex flex-wrap gap-3">
+                    <div className="flex flex-wrap sm:flex-col gap-2 sm:w-56 sm:flex-shrink-0">
                       {RATING_OPTIONS.map((opt) => (
                         <RatingButton
                           key={opt.label}

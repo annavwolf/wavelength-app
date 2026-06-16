@@ -49,7 +49,7 @@ const STEP_ORDER: InterviewStep[] = [
 
 // ps_diagnostic breaks out of the centred max-w-2xl column to go full-bleed
 // (the ocean background needs the full viewport width to feel right).
-const FULL_BLEED_STEPS: InterviewStep[] = ["ps_diagnostic"];
+const FULL_BLEED_STEPS: InterviewStep[] = ["ps_intro", "ps_diagnostic"];
 
 // Draft state for steps whose input shouldn't be lost if the member goes
 // back and then forward again. Step components stay mount/unmount
@@ -67,7 +67,6 @@ type InterviewDraft = {
   coordRatings: Record<string, CoordinationFrequency>;
   coordRowIds: Record<string, string>;
   psRatings: Record<number, PsLabel>;
-  psRowIds: Record<number, string>;
 };
 
 const INITIAL_DRAFT: InterviewDraft = {
@@ -81,7 +80,6 @@ const INITIAL_DRAFT: InterviewDraft = {
   coordRatings: {},
   coordRowIds: {},
   psRatings: {},
-  psRowIds: {},
 };
 
 // Public page — members reach this via their private link, not a Wavelength
@@ -393,8 +391,6 @@ export default function InterviewPage() {
             supabase={supabase}
             ratings={draft.psRatings}
             onRatingsChange={(ratings) => updateDraft({ psRatings: ratings })}
-            rowIds={draft.psRowIds}
-            onRowIdsChange={(rowIds) => updateDraft({ psRowIds: rowIds })}
             onAdvance={() => goToStep("ps_reflect")}
           />
         )}
