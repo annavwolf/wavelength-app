@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
+import LocationAutocomplete from "@/components/LocationAutocomplete";
 import type { Member, Team } from "@/types/database";
 
 function statusBadgeClasses(status: string) {
@@ -209,11 +210,10 @@ export default function TeamMembersPage() {
 
           <div>
             <label className="form-label">Location</label>
-            <input
-              type="text"
+            <LocationAutocomplete
               value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="form-input"
+              onChange={setLocation}
+              onTimezoneSelect={setTimezone}
             />
           </div>
 
@@ -223,7 +223,7 @@ export default function TeamMembersPage() {
               type="text"
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
-              placeholder="e.g. GMT+7, EST"
+              placeholder="Auto-filled from location, or enter manually"
               className="form-input"
             />
           </div>

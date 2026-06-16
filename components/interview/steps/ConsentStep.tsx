@@ -17,31 +17,71 @@ function choiceFromMember(member: Member): ShareChoice | null {
   return null;
 }
 
+function RadioCard({
+  selected,
+  onSelect,
+  children,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={`card w-full text-left py-4 flex items-start gap-4 transition-colors ${
+        selected
+          ? "border-2 border-[var(--color-purple)] bg-[var(--color-purple)]/5"
+          : "border-2 border-transparent"
+      }`}
+    >
+      <span
+        className={`mt-0.5 flex-shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center text-xs ${
+          selected
+            ? "border-[var(--color-purple)] bg-[var(--color-purple)] text-white"
+            : "border-black/20 text-transparent"
+        }`}
+      >
+        ✓
+      </span>
+      <span>{children}</span>
+    </button>
+  );
+}
+
 export default function ConsentStep({
   member,
   smallTeam,
   supabase,
+  readAloud,
   onSaved,
   onAdvance,
 }: {
   member: Member;
   smallTeam: boolean;
   supabase: AppSupabaseClient;
+  readAloud: boolean;
   onSaved: (fields: Partial<Member>) => void;
   onAdvance: () => void;
 }) {
+  // Selecting a card is purely local — instant feedback, no network round
+  // trip in the way of the click. The actual save happens on Continue.
   const [choice, setChoice] = useState<ShareChoice | null>(
     choiceFromMember(member)
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function selectChoice(next: ShareChoice) {
+  async function handleContinue() {
+    if (!choice) return;
+
     setSaving(true);
     setError(null);
 
     const fields =
-      next === "open"
+      choice === "open"
         ? { share_verbatim_with_team: true, share_name_with_team: true }
         : { share_verbatim_with_team: false, share_name_with_team: false };
 
@@ -62,34 +102,34 @@ export default function ConsentStep({
       return;
     }
 
-    setChoice(next);
     onSaved(fields);
     setSaving(false);
+    onAdvance();
   }
 
   return (
     <div>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         Before we go any further, I want to be clear about how I handle what
         you share with me.
       </ChatBubble>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         Everything you say in this conversation is private. Your exact words
         are never shared with your manager, your team leader, or anyone else
         on your team.
       </ChatBubble>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         When I produce a report for the team, I describe patterns across the
         whole group — not what any individual person said. Where I do
         reference specific experiences, I paraphrase rather than quote.
       </ChatBubble>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         Your responses are stored securely and linked to a private code, not
         your name, so that individual answers cannot be traced back to you
         in the team report.
       </ChatBubble>
       {smallTeam && (
-        <ChatBubble>
+        <ChatBubble readAloud={readAloud}>
           If your team has fewer than five members, I&apos;ll flag that some
           patterns may be easier to trace, and give you the option to review
           before anything is shared.
@@ -97,39 +137,31 @@ export default function ConsentStep({
       )}
 
       <div className="space-y-3 mt-6 mb-6">
-        <button
-          type="button"
-          onClick={() => selectChoice("private")}
-          disabled={saving}
-          className={`card w-full text-left py-4 transition-shadow ${
-            choice === "private" ? "ring-2 ring-[var(--color-purple)]" : ""
-          }`}
+        <RadioCard
+          selected={choice === "private"}
+          onSelect={() => setChoice("private")}
         >
           Keep my responses fully private — describe patterns, don&apos;t
           quote me, don&apos;t attach my name.
-        </button>
-        <button
-          type="button"
-          onClick={() => selectChoice("open")}
-          disabled={saving}
-          className={`card w-full text-left py-4 transition-shadow ${
-            choice === "open" ? "ring-2 ring-[var(--color-purple)]" : ""
-          }`}
+        </RadioCard>
+        <RadioCard
+          selected={choice === "open"}
+          onSelect={() => setChoice("open")}
         >
           I&apos;m comfortable sharing my exact words, and my name, with my
           team — as a step toward open conversation.
-        </button>
+        </RadioCard>
       </div>
 
       {error && <p className="text-[var(--color-grey)] mb-4">{error}</p>}
 
       <button
         type="button"
-        onClick={onAdvance}
+        onClick={handleContinue}
         disabled={!choice || saving}
         className="btn-primary"
       >
-        Continue
+        {saving ? "Saving..." : "Continue"}
       </button>
     </div>
   );

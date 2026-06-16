@@ -7,6 +7,7 @@ const STEP_ORDER: InterviewStep[] = [
   "foreshadow",
   "consent",
   "profile",
+  "personal_context",
   "purpose",
   "roster",
   "coordination",

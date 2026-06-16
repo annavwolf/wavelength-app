@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
+import VoiceTextarea from "@/components/interview/VoiceTextarea";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member, Team } from "@/types/database";
 
@@ -9,14 +10,19 @@ export default function PurposeStep({
   member,
   team,
   supabase,
+  readAloud,
+  text,
+  onTextChange,
   onAdvance,
 }: {
   member: Member;
   team: Team;
   supabase: AppSupabaseClient;
+  readAloud: boolean;
+  text: string;
+  onTextChange: (value: string) => void;
   onAdvance: () => void;
 }) {
-  const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,27 +56,28 @@ export default function PurposeStep({
 
   return (
     <div>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         Now I&apos;d like to understand how you see your team.
       </ChatBubble>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         In your own words — what do you understand to be your team&apos;s
         shared purpose? Why does this team exist, what is it working toward,
         and how does it connect to the broader organisation you&apos;re part
         of?
       </ChatBubble>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         Take your time. There&apos;s no right answer — I want to understand
         how you see it.
       </ChatBubble>
 
-      <textarea
-        rows={5}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Share what comes to mind..."
-        className="form-input mt-6 mb-6"
-      />
+      <div className="mt-6 mb-6">
+        <VoiceTextarea
+          value={text}
+          onChange={onTextChange}
+          rows={5}
+          placeholder="Share what comes to mind..."
+        />
+      </div>
 
       {error && <p className="text-[var(--color-grey)] mb-4">{error}</p>}
 

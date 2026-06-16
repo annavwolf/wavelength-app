@@ -12,6 +12,7 @@ export type InterviewStep =
   | "foreshadow"
   | "consent"
   | "profile"
+  | "personal_context"
   | "purpose"
   | "roster"
   | "coordination"

@@ -2,36 +2,76 @@
 
 import { useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
-import type { Member } from "@/types/database";
+import VoiceTextInput from "@/components/interview/VoiceTextInput";
+import type { AppSupabaseClient } from "@/components/interview/types";
+import type { Member, Team } from "@/types/database";
 
 export default function RosterStep({
   member,
+  team,
   allMembers,
+  supabase,
+  readAloud,
+  showMissingField,
+  onShowMissingFieldChange,
+  missingName,
+  onMissingNameChange,
+  missingRole,
+  onMissingRoleChange,
+  noted,
+  onNotedChange,
   onAdvance,
 }: {
   member: Member;
+  team: Team;
   allMembers: Member[];
+  supabase: AppSupabaseClient;
+  readAloud: boolean;
+  showMissingField: boolean;
+  onShowMissingFieldChange: (value: boolean) => void;
+  missingName: string;
+  onMissingNameChange: (value: string) => void;
+  missingRole: string;
+  onMissingRoleChange: (value: string) => void;
+  noted: boolean;
+  onNotedChange: (value: boolean) => void;
   onAdvance: () => void;
 }) {
-  const [showMissingField, setShowMissingField] = useState(false);
-  const [missingName, setMissingName] = useState("");
-  const [missingRole, setMissingRole] = useState("");
-  const [noted, setNoted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleMissingSubmit() {
-    // V2: route this to the consultant / update the roster for real.
-    // For this pass, just capture the note so nothing is lost.
-    console.log("[interview/roster] reported missing member:", {
-      reportedBy: member.member_id,
-      name: missingName,
-      role: missingRole,
-    });
-    setNoted(true);
+  async function handleMissingSubmit() {
+    setSaving(true);
+    setError(null);
+
+    const { error: insertError } = await supabase
+      .from("missing_member_flags")
+      .insert({
+        team_id: team.team_id,
+        reported_by_member_id: member.member_id,
+        missing_name: missingName,
+        missing_role: missingRole || null,
+      });
+
+    if (insertError) {
+      console.error("[interview/roster] failed to save missing member flag:", {
+        message: insertError.message,
+        details: insertError.details,
+        hint: insertError.hint,
+        code: insertError.code,
+      });
+      setError("Something went wrong saving that. Please try again.");
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+    onNotedChange(true);
   }
 
   return (
     <div>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         Here&apos;s everyone I know about on this team. Does this look right
         to you?
       </ChatBubble>
@@ -66,7 +106,7 @@ export default function RosterStep({
           </button>
           <button
             type="button"
-            onClick={() => setShowMissingField(true)}
+            onClick={() => onShowMissingFieldChange(true)}
             className="btn-secondary"
           >
             Someone&apos;s missing
@@ -78,34 +118,27 @@ export default function RosterStep({
         <div className="card space-y-4">
           <div>
             <label className="form-label">Their name</label>
-            <input
-              type="text"
-              value={missingName}
-              onChange={(e) => setMissingName(e.target.value)}
-              className="form-input"
-            />
+            <VoiceTextInput value={missingName} onChange={onMissingNameChange} />
           </div>
           <div>
             <label className="form-label">Their role</label>
-            <input
-              type="text"
-              value={missingRole}
-              onChange={(e) => setMissingRole(e.target.value)}
-              className="form-input"
-            />
+            <VoiceTextInput value={missingRole} onChange={onMissingRoleChange} />
           </div>
+
+          {error && <p className="text-[var(--color-grey)]">{error}</p>}
+
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={handleMissingSubmit}
-              disabled={!missingName.trim()}
+              disabled={!missingName.trim() || saving}
               className="btn-primary"
             >
-              Add note
+              {saving ? "Saving..." : "Add note"}
             </button>
             <button
               type="button"
-              onClick={() => setShowMissingField(false)}
+              onClick={() => onShowMissingFieldChange(false)}
               className="btn-secondary"
             >
               Cancel

@@ -17,20 +17,27 @@ export default function CoordinationStep({
   team,
   otherMembers,
   supabase,
+  readAloud,
+  ratings,
+  onRatingsChange,
+  rowIds,
+  onRowIdsChange,
   onAdvance,
 }: {
   member: Member;
   team: Team;
   otherMembers: Member[];
   supabase: AppSupabaseClient;
+  readAloud: boolean;
+  ratings: Record<string, CoordinationFrequency>;
+  onRatingsChange: (ratings: Record<string, CoordinationFrequency>) => void;
+  // Row ids are tracked client-side only — the live coordination_ratings
+  // table has no target_member_id column, so this is the only way to know
+  // which row belongs to which target without inserting a duplicate.
+  rowIds: Record<string, string>;
+  onRowIdsChange: (rowIds: Record<string, string>) => void;
   onAdvance: () => void;
 }) {
-  const [ratings, setRatings] = useState<Record<string, CoordinationFrequency>>(
-    {}
-  );
-  // Tracks the row id we already inserted for each target, so re-tapping a
-  // different option updates that row instead of inserting a duplicate.
-  const [rowIds, setRowIds] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +68,7 @@ export default function CoordinationStep({
         return;
       }
 
-      setRatings((prev) => ({ ...prev, [target.member_id]: frequency }));
+      onRatingsChange({ ...ratings, [target.member_id]: frequency });
       setSavingId(null);
       return;
     }
@@ -71,7 +78,6 @@ export default function CoordinationStep({
       .insert({
         member_id: member.member_id,
         team_id: team.team_id,
-        target_member_id: target.member_id,
         target_member_name: target.display_name,
         frequency,
       })
@@ -90,8 +96,8 @@ export default function CoordinationStep({
       return;
     }
 
-    setRowIds((prev) => ({ ...prev, [target.member_id]: data.id }));
-    setRatings((prev) => ({ ...prev, [target.member_id]: frequency }));
+    onRowIdsChange({ ...rowIds, [target.member_id]: data.id });
+    onRatingsChange({ ...ratings, [target.member_id]: frequency });
     setSavingId(null);
   }
 
@@ -99,7 +105,7 @@ export default function CoordinationStep({
 
   return (
     <div>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         One more thing. I want to understand how closely you work with each
         person on this team. For each person, just tell me how often you
         need to coordinate with them to do your work.

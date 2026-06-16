@@ -2,17 +2,20 @@
 
 import { useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
+import VoiceTextInput from "@/components/interview/VoiceTextInput";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member } from "@/types/database";
 
 export default function ProfileStep({
   member,
   supabase,
+  readAloud,
   onSaved,
   onAdvance,
 }: {
   member: Member;
   supabase: AppSupabaseClient;
+  readAloud: boolean;
   onSaved: (fields: Partial<Member>) => void;
   onAdvance: () => void;
 }) {
@@ -59,7 +62,9 @@ export default function ProfileStep({
 
   return (
     <div>
-      <ChatBubble>Let me make sure I have you right.</ChatBubble>
+      <ChatBubble readAloud={readAloud}>
+        Let me make sure I have you right.
+      </ChatBubble>
 
       {!editing ? (
         <>
@@ -91,39 +96,19 @@ export default function ProfileStep({
         <div className="card space-y-4 mt-6">
           <div>
             <label className="form-label">Name</label>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="form-input"
-            />
+            <VoiceTextInput value={displayName} onChange={setDisplayName} />
           </div>
           <div>
             <label className="form-label">Role</label>
-            <input
-              type="text"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="form-input"
-            />
+            <VoiceTextInput value={role} onChange={setRole} />
           </div>
           <div>
             <label className="form-label">Location</label>
-            <input
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="form-input"
-            />
+            <VoiceTextInput value={location} onChange={setLocation} />
           </div>
           <div>
             <label className="form-label">Time zone</label>
-            <input
-              type="text"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              className="form-input"
-            />
+            <VoiceTextInput value={timezone} onChange={setTimezone} />
           </div>
 
           {error && <p className="text-[var(--color-grey)]">{error}</p>}

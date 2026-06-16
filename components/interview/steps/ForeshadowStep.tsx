@@ -7,14 +7,20 @@ const JOURNEY = [
   "Later, once everyone's done, I'll share back what I'm seeing and we'll make sense of it together.",
 ];
 
-export default function ForeshadowStep({ onAdvance }: { onAdvance: () => void }) {
+export default function ForeshadowStep({
+  readAloud,
+  onAdvance,
+}: {
+  readAloud: boolean;
+  onAdvance: () => void;
+}) {
   return (
     <div>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         Here&apos;s what this process looks like — and what your involvement
         will be.
       </ChatBubble>
-      <ChatBubble>
+      <ChatBubble readAloud={readAloud}>
         Today&apos;s conversation — this first one — will take around 20 to
         30 minutes. You can take a break and come back at any point.
       </ChatBubble>

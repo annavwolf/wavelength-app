@@ -67,7 +67,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12">
       <img
-        src="/logo-octopus.png"
+        src="/octopus-logo.png"
         alt=""
         className="h-20 w-auto mx-auto mb-8"
       />

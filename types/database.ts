@@ -63,6 +63,11 @@ export type Member = {
   share_verbatim_with_team: boolean;
   share_name_with_team: boolean;
   status: string;
+  // Optional, member-volunteered context (interview step 2.5). Deliberately
+  // excludes gender/ethnicity/age — GDPR special-category data with no
+  // validated relevance to this flow.
+  primary_language: string | null;
+  personal_context: string | null;
   completed_at: string | null;
   created_at: string;
 }
@@ -81,6 +86,8 @@ export type MemberInsert = {
   share_verbatim_with_team?: boolean;
   share_name_with_team?: boolean;
   status?: string;
+  primary_language?: string | null;
+  personal_context?: string | null;
   completed_at?: string | null;
   created_at?: string;
 }
@@ -177,11 +184,13 @@ export type PurposeResponseInsert = {
 
 export type PurposeResponseUpdate = Partial<PurposeResponseInsert>;
 
+// Note: there is no target_member_id column on the live table — only the
+// target's name is stored. Code that needs to track *which* member a rating
+// belongs to (e.g. to avoid duplicate inserts) must do so client-side only.
 export type CoordinationRating = {
   id: string;
   member_id: string;
   team_id: string;
-  target_member_id: string;
   target_member_name: string;
   frequency: CoordinationFrequency;
   created_at: string;
@@ -191,13 +200,32 @@ export type CoordinationRatingInsert = {
   id?: string;
   member_id: string;
   team_id: string;
-  target_member_id: string;
   target_member_name: string;
   frequency: CoordinationFrequency;
   created_at?: string;
 }
 
 export type CoordinationRatingUpdate = Partial<CoordinationRatingInsert>;
+
+export type MissingMemberFlag = {
+  id: string;
+  team_id: string;
+  reported_by_member_id: string;
+  missing_name: string;
+  missing_role: string | null;
+  created_at: string;
+}
+
+export type MissingMemberFlagInsert = {
+  id?: string;
+  team_id: string;
+  reported_by_member_id: string;
+  missing_name: string;
+  missing_role?: string | null;
+  created_at?: string;
+}
+
+export type MissingMemberFlagUpdate = Partial<MissingMemberFlagInsert>;
 
 export type FishResponse = {
   id: string;
@@ -407,6 +435,12 @@ export type Database = {
         Row: CoordinationRating;
         Insert: CoordinationRatingInsert;
         Update: CoordinationRatingUpdate;
+        Relationships: [];
+      };
+      missing_member_flags: {
+        Row: MissingMemberFlag;
+        Insert: MissingMemberFlagInsert;
+        Update: MissingMemberFlagUpdate;
         Relationships: [];
       };
       fish_responses: {
