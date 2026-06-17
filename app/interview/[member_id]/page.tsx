@@ -95,7 +95,6 @@ type InterviewDraft = {
   psRatings: Record<number, PsLabel>;
   // dead fish
   deadfishRatings: Record<string, number>;
-  deadfishRowIds: Record<string, string>;
   deadfishCustomText: string;
   deadfishCustomSeverity: number | null;
 };
@@ -119,7 +118,6 @@ const INITIAL_DRAFT: InterviewDraft = {
   coordRowIds: {},
   psRatings: {},
   deadfishRatings: {},
-  deadfishRowIds: {},
   deadfishCustomText: "",
   deadfishCustomSeverity: null,
 };
@@ -142,6 +140,8 @@ export default function InterviewPage() {
 
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [alreadyComplete, setAlreadyComplete] = useState(false);
+  const [resuming, setResuming] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -162,6 +162,8 @@ export default function InterviewPage() {
         { data: teamData, error: teamError },
         { data: membersData, error: membersError },
         { data: statementsData, error: statementsError },
+        { count: psCount },
+        { count: purposeCount },
       ] = await Promise.all([
         supabase
           .from("teams")
@@ -177,6 +179,15 @@ export default function InterviewPage() {
           .from("ps_statements")
           .select("*")
           .order("statement_id", { ascending: true }),
+        supabase
+          .from("ps_responses")
+          .select("*", { count: "exact", head: true })
+          .eq("member_id", memberData.member_id)
+          .eq("round", 1),
+        supabase
+          .from("purpose_responses")
+          .select("*", { count: "exact", head: true })
+          .eq("member_id", memberData.member_id),
       ]);
 
       if (teamError) console.error("[interview] team load failed:", teamError);
@@ -199,18 +210,36 @@ export default function InterviewPage() {
         setTeamFish(fishData ?? []);
       }
 
-      // Mark this member as in progress.
-      const { error: statusError } = await supabase
-        .from("members")
-        .update({ status: "in_progress" })
-        .eq("member_id", memberData.member_id);
-      if (statusError) {
-        console.error("[interview] failed to mark in_progress:", {
-          message: statusError.message,
-          details: statusError.details,
-          hint: statusError.hint,
-          code: statusError.code,
-        });
+      // Resume at the right step based on what's already saved in the DB.
+      if (memberData.status === "complete") {
+        setAlreadyComplete(true);
+        setStep("review");
+      } else if ((psCount ?? 0) > 0) {
+        setStep("deadfish_intro");
+        setResuming(true);
+      } else if ((purposeCount ?? 0) > 0) {
+        setStep("ps_intro_open");
+        setResuming(true);
+      } else if ((memberData.share_verbatim_with_team as boolean | null) !== null) {
+        setStep("purpose");
+        setResuming(true);
+      }
+      // else: default "landing" step stays
+
+      // Mark in progress only when the interview is actively underway.
+      if (memberData.status !== "complete") {
+        const { error: statusError } = await supabase
+          .from("members")
+          .update({ status: "in_progress" })
+          .eq("member_id", memberData.member_id);
+        if (statusError) {
+          console.error("[interview] failed to mark in_progress:", {
+            message: statusError.message,
+            details: statusError.details,
+            hint: statusError.hint,
+            code: statusError.code,
+          });
+        }
       }
 
       setLoading(false);
@@ -281,6 +310,32 @@ export default function InterviewPage() {
   const fullBleed = FULL_BLEED_STEPS.includes(step);
   const showBack = !NO_BACK_STEPS.includes(step);
 
+  if (alreadyComplete) {
+    return (
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
+        <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
+        <h1
+          className="text-4xl font-serif mb-4"
+          style={{ fontFamily: "Playfair Display, serif" }}
+        >
+          You&apos;ve already finished,{" "}
+          <span className="purple">{member.display_name.split(" ")[0]}.</span>
+        </h1>
+        <p className="text-[var(--color-grey)] max-w-md mx-auto mb-8">
+          Your responses have been saved. Thank you for completing the
+          interview.
+        </p>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => setAlreadyComplete(false)}
+        >
+          Review my responses
+        </button>
+      </main>
+    );
+  }
+
   return (
     <main
       className="flex-1 flex flex-col items-center"
@@ -294,6 +349,24 @@ export default function InterviewPage() {
         </div>
         <ProgressBar step={step} />
       </div>
+
+      {resuming && (
+        <div className="w-full max-w-2xl px-6 pt-4">
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--color-purple)]/8 border border-[var(--color-purple)]/20 px-4 py-3">
+            <p className="text-sm text-[var(--color-purple)]">
+              Welcome back — picking up where you left off.
+            </p>
+            <button
+              type="button"
+              onClick={() => setResuming(false)}
+              className="text-[var(--color-purple)] text-lg leading-none flex-shrink-0"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className={fullBleed ? "w-full" : "w-full max-w-2xl px-6 pb-16"}>
         {step === "landing" && (
@@ -453,8 +526,6 @@ export default function InterviewPage() {
             supabase={supabase}
             ratings={draft.deadfishRatings}
             onRatingsChange={(v) => updateDraft({ deadfishRatings: v })}
-            rowIds={draft.deadfishRowIds}
-            onRowIdsChange={(v) => updateDraft({ deadfishRowIds: v })}
             onAdvance={() => goToStep("deadfish_open")}
           />
         )}

@@ -32,11 +32,10 @@ export default function PurposeStep({
 
     const { error: insertError } = await supabase
       .from("purpose_responses")
-      .insert({
-        member_id: member.member_id,
-        team_id: team.team_id,
-        purpose_text: text,
-      });
+      .upsert(
+        { member_id: member.member_id, team_id: team.team_id, purpose_text: text },
+        { onConflict: "member_id" }
+      );
 
     if (insertError) {
       console.error("[interview/purpose] failed to save purpose response:", {

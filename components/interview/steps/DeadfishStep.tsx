@@ -62,8 +62,6 @@ export default function DeadfishStep({
   supabase,
   ratings,
   onRatingsChange,
-  rowIds,
-  onRowIdsChange,
   onAdvance,
 }: {
   member: Member;
@@ -72,8 +70,6 @@ export default function DeadfishStep({
   supabase: AppSupabaseClient;
   ratings: Record<string, number>;
   onRatingsChange: (ratings: Record<string, number>) => void;
-  rowIds: Record<string, string>;
-  onRowIdsChange: (rowIds: Record<string, string>) => void;
   onAdvance: () => void;
 }) {
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -83,55 +79,34 @@ export default function DeadfishStep({
     setSavingId(f.fish_id);
     setError(null);
 
-    const existingRowId = rowIds[f.fish_id];
-
-    if (existingRowId) {
-      const { error: updateError } = await supabase
-        .from("fish_responses")
-        .update({ severity_label: severity as SeverityLabel })
-        .eq("id", existingRowId);
-
-      if (updateError) {
-        console.error("[interview/deadfish] failed to update rating:", {
-          message: updateError.message,
-          details: updateError.details,
-          hint: updateError.hint,
-          code: updateError.code,
-        });
-        setError("That didn't save. Please try again.");
-        setSavingId(null);
-        return;
-      }
-
-      onRatingsChange({ ...ratings, [f.fish_id]: severity });
-      setSavingId(null);
-      return;
-    }
-
-    const { data, error: insertError } = await supabase
+    // Upsert keyed on (member_id, fish_id) — requires the matching unique
+    // constraint in Postgres. Re-rating updates the same row rather than
+    // inserting a duplicate, and survives a page reload without needing to
+    // track row IDs in React state.
+    const { error: upsertError } = await supabase
       .from("fish_responses")
-      .insert({
-        member_id: member.member_id,
-        team_id: team.team_id,
-        fish_id: f.fish_id,
-        severity_label: severity as SeverityLabel,
-      })
-      .select("id")
-      .single();
+      .upsert(
+        {
+          member_id: member.member_id,
+          team_id: team.team_id,
+          fish_id: f.fish_id,
+          severity_label: severity as SeverityLabel,
+        },
+        { onConflict: "member_id,fish_id" }
+      );
 
-    if (insertError || !data) {
+    if (upsertError) {
       console.error("[interview/deadfish] failed to save rating:", {
-        message: insertError?.message,
-        details: insertError?.details,
-        hint: insertError?.hint,
-        code: insertError?.code,
+        message: upsertError.message,
+        details: upsertError.details,
+        hint: upsertError.hint,
+        code: upsertError.code,
       });
       setError("That didn't save. Please try again.");
       setSavingId(null);
       return;
     }
 
-    onRowIdsChange({ ...rowIds, [f.fish_id]: data.id });
     onRatingsChange({ ...ratings, [f.fish_id]: severity });
     setSavingId(null);
   }

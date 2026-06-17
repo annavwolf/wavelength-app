@@ -11,7 +11,9 @@ function statusBadgeClasses(status: string) {
   switch (status) {
     case "invited":
       return "bg-amber-100 text-amber-700";
-    case "completed":
+    case "in_progress":
+      return "bg-blue-100 text-blue-700";
+    case "complete":
       return "bg-green-100 text-green-700";
     case "pending":
       return "bg-gray-200 text-[var(--color-ink)]";
@@ -24,7 +26,9 @@ function statusLabel(status: string) {
   switch (status) {
     case "invited":
       return "Invited";
-    case "completed":
+    case "in_progress":
+      return "In progress";
+    case "complete":
       return "Complete";
     case "pending":
       return "Not yet invited";
@@ -49,6 +53,16 @@ export default function TeamMembersPage() {
   const [timezone, setTimezone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  async function fetchMembers() {
+    const { data, error } = await supabase
+      .from("members")
+      .select("*")
+      .eq("team_id", teamId)
+      .order("created_at", { ascending: true });
+    if (error) console.error("[members] failed to load members:", error);
+    if (data) setMembers(data);
+  }
 
   useEffect(() => {
     async function load() {
@@ -77,6 +91,13 @@ export default function TeamMembersPage() {
     }
 
     load();
+  }, [teamId, supabase]);
+
+  // Poll for status updates every 30 seconds.
+  useEffect(() => {
+    const interval = setInterval(fetchMembers, 30000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, supabase]);
 
   async function handleAddMember(e: FormEvent<HTMLFormElement>) {
@@ -242,6 +263,16 @@ export default function TeamMembersPage() {
         </form>
 
         <section className="mt-16">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-medium">Team members</h2>
+            <button
+              type="button"
+              onClick={fetchMembers}
+              className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline"
+            >
+              Refresh
+            </button>
+          </div>
           <div className="space-y-3">
             {members.map((member) => (
               <div

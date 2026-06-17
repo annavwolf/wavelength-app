@@ -19,7 +19,7 @@ export default function CloseStep({
     async function complete() {
       const { error } = await supabase
         .from("members")
-        .update({ status: "complete" })
+        .update({ status: "complete", completed_at: new Date().toISOString() })
         .eq("member_id", member.member_id);
 
       if (error) {
