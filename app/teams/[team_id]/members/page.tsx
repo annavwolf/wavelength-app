@@ -183,8 +183,8 @@ export default function TeamMembersPage() {
   return (
     <main className="px-6 py-16">
       <div className="max-w-2xl mx-auto">
-        <Link href="/" className="text-[var(--color-grey)]">
-          ← Back to dashboard
+        <Link href={`/teams/${teamId}`} className="text-[var(--color-grey)]">
+          ← Back to team
         </Link>
 
         <h1 className="text-4xl sm:text-5xl leading-tight mt-10">

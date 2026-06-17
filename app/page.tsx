@@ -137,7 +137,7 @@ export default function Home() {
                     {team.status}
                   </span>
                   <button
-                    onClick={() => router.push(`/teams/${team.team_id}/members`)}
+                    onClick={() => router.push(`/teams/${team.team_id}`)}
                     className="btn-secondary"
                   >
                     Continue →
