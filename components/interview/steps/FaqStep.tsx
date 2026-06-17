@@ -10,7 +10,7 @@ const FAQ_ITEMS = [
   {
     question: "Who will see my answers?",
     answer:
-      "Nobody sees your exact words. Your manager, team leader, and teammates only see patterns across the whole group — never what you said individually.",
+      "Nobody sees your exact words unless you're okay with it. Otherwise, your teammates only see patterns across the whole group — never what you said individually.",
   },
   {
     question: "Can I stop and come back?",

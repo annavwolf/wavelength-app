@@ -51,6 +51,8 @@ export default function RosterStep({
   const [tenureError, setTenureError] = useState<string | null>(null);
   const [savingFlag, setSavingFlag] = useState(false);
   const [flagError, setFlagError] = useState<string | null>(null);
+  // Tracks whether the roster check is complete; initialise true on back-nav.
+  const [rosterDone, setRosterDone] = useState(tenureSaved || noted);
 
   async function handleSaveTenure() {
     if (!tenureStart.trim()) {
@@ -109,55 +111,11 @@ export default function RosterStep({
 
     setSavingFlag(false);
     onNotedChange(true);
+    setRosterDone(true);
   }
 
   return (
     <div>
-      {/* ── Tenure question ── */}
-      <ChatBubble readAloud={readAloud}>
-        Roughly when did you join this team, or start working with them?
-      </ChatBubble>
-
-      {!tenureSaved ? (
-        <div className="mt-4 mb-8 space-y-3">
-          <VoiceTextInput
-            value={tenureStart}
-            onChange={onTenureStartChange}
-            placeholder="e.g. January 2024, early 2023..."
-          />
-          {tenureError && (
-            <p className="text-[var(--color-grey)] text-sm">{tenureError}</p>
-          )}
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={handleSaveTenure}
-              disabled={savingTenure}
-              className="btn-primary"
-            >
-              {savingTenure ? "Saving..." : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={onTenureSaved}
-              className="btn-secondary"
-            >
-              Skip
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="mb-8">
-          {tenureStart ? (
-            <p className="text-[var(--color-grey)]">
-              ✓ {tenureStart}
-            </p>
-          ) : (
-            <p className="text-[var(--color-grey)] text-sm">Skipped.</p>
-          )}
-        </div>
-      )}
-
       {/* ── Team roster check ── */}
       <ChatBubble readAloud={readAloud}>
         Here&apos;s everyone I know about on this team. I want to check I
@@ -194,9 +152,13 @@ export default function RosterStep({
         ))}
       </div>
 
-      {!showMissingField && !noted && (
+      {!rosterDone && !showMissingField && (
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={onAdvance} className="btn-primary">
+          <button
+            type="button"
+            onClick={() => setRosterDone(true)}
+            className="btn-primary"
+          >
             Yes, this is the team
           </button>
           <button
@@ -244,15 +206,54 @@ export default function RosterStep({
         </div>
       )}
 
-      {noted && (
+      {/* ── Tenure question (shown after roster is confirmed) ── */}
+      {rosterDone && !tenureSaved && (
         <>
-          <p className="text-[var(--color-grey)] mb-6">
-            Thanks — I&apos;ve made a note of that.
-          </p>
+          <ChatBubble readAloud={readAloud}>
+            Roughly when did you join this team, or start working with them?
+          </ChatBubble>
+
+          <div className="mt-4 mb-8 space-y-3">
+            <VoiceTextInput
+              value={tenureStart}
+              onChange={onTenureStartChange}
+              placeholder="e.g. January 2024, early 2023..."
+            />
+            {tenureError && (
+              <p className="text-[var(--color-grey)] text-sm">{tenureError}</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleSaveTenure}
+                disabled={savingTenure}
+                className="btn-primary"
+              >
+                {savingTenure ? "Saving..." : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={onTenureSaved}
+                className="btn-secondary"
+              >
+                Skip
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {rosterDone && tenureSaved && (
+        <div className="mt-4">
+          {tenureStart ? (
+            <p className="text-[var(--color-grey)] mb-6">✓ {tenureStart}</p>
+          ) : (
+            <p className="text-[var(--color-grey)] text-sm mb-6">Skipped.</p>
+          )}
           <button type="button" onClick={onAdvance} className="btn-primary">
             Continue
           </button>
-        </>
+        </div>
       )}
     </div>
   );

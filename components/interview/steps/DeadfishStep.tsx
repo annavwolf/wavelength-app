@@ -6,10 +6,10 @@ import type { Fish, Member, SeverityLabel, Team } from "@/types/database";
 
 // 4-point severity scale — rated for each fish the team is being assessed on.
 const SEVERITY_OPTIONS: { value: number; label: string }[] = [
-  { value: 1, label: "Not really us" },
-  { value: 2, label: "Occasionally" },
-  { value: 3, label: "A real pattern" },
-  { value: 4, label: "A big problem" },
+  { value: 1, label: "This doesn't concern me" },
+  { value: 2, label: "Maybe worth watching" },
+  { value: 3, label: "This could be a dead fish" },
+  { value: 4, label: "This is definitely a dead fish" },
 ];
 
 function SeverityButton({
