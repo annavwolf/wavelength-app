@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
 import VoiceTextarea from "@/components/interview/VoiceTextarea";
 import type { AppSupabaseClient } from "@/components/interview/types";
@@ -26,23 +26,52 @@ export default function PurposeStep({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Pre-populate textarea with any existing response so a resuming member
+  // can review and update their answer rather than seeing a blank field.
+  useEffect(() => {
+    if (text) return;
+    supabase
+      .from("purpose_responses")
+      .select("purpose_text")
+      .eq("member_id", member.member_id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.purpose_text) onTextChange(data.purpose_text);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleSubmit() {
     setSaving(true);
     setError(null);
 
-    const { error: insertError } = await supabase
+    // Check for an existing row first so we can update in place rather than
+    // relying on a DB unique constraint for the upsert's ON CONFLICT clause.
+    const { data: existing } = await supabase
       .from("purpose_responses")
-      .upsert(
-        { member_id: member.member_id, team_id: team.team_id, purpose_text: text },
-        { onConflict: "member_id" }
-      );
+      .select("id")
+      .eq("member_id", member.member_id)
+      .maybeSingle();
 
-    if (insertError) {
+    const saveError = existing
+      ? (
+          await supabase
+            .from("purpose_responses")
+            .update({ purpose_text: text })
+            .eq("member_id", member.member_id)
+        ).error
+      : (
+          await supabase
+            .from("purpose_responses")
+            .insert({ member_id: member.member_id, team_id: team.team_id, purpose_text: text })
+        ).error;
+
+    if (saveError) {
       console.error("[interview/purpose] failed to save purpose response:", {
-        message: insertError.message,
-        details: insertError.details,
-        hint: insertError.hint,
-        code: insertError.code,
+        message: saveError.message,
+        details: saveError.details,
+        hint: saveError.hint,
+        code: saveError.code,
       });
       setError("Something went wrong saving your answer. Please try again.");
       setSaving(false);
