@@ -268,7 +268,7 @@ export default function TeamDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [runningAnalysis, setRunningAnalysis] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  const [openZone, setOpenZone] = useState<1 | 2 | 3 | null>(null);
+  const [openZones, setOpenZones] = useState<Set<1 | 2 | 3>>(new Set());
   const [priorityOverride, setPriorityOverride] = useState<1 | 2 | 3 | null>(null);
   const [approving, setApproving] = useState(false);
   const [approved, setApproved] = useState(false);
@@ -616,14 +616,18 @@ export default function TeamDashboardPage() {
           <h2 className="text-3xl mb-6">Statement breakdown</h2>
           <div className="space-y-2">
             {([1, 2, 3] as const).map((zoneNum) => {
-              const isOpen = openZone === zoneNum;
+              const isOpen = openZones.has(zoneNum);
               const zoneStmts = tier1.ps_statements
                 .filter((s) => stmtMap.get(s.statement_id)?.zone === zoneNum)
                 .sort((a, b) => b.counts.red - a.counts.red);
               return (
                 <div key={zoneNum} className="card overflow-hidden" style={{ padding: 0 }}>
                   <button type="button"
-                    onClick={() => setOpenZone(isOpen ? null : zoneNum)}
+                    onClick={() => setOpenZones((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(zoneNum)) next.delete(zoneNum); else next.add(zoneNum);
+                      return next;
+                    })}
                     className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-black/5 transition-colors">
                     <div className="flex items-center gap-3">
                       <span className={ZONE_BADGE[zoneNum]}>{ZONE_SHORT[zoneNum]}</span>
@@ -639,6 +643,10 @@ export default function TeamDashboardPage() {
                       ) : zoneStmts.map((s) => {
                         const st = stmtMap.get(s.statement_id);
                         const total = s.counts.green + s.counts.yellow + s.counts.red;
+                        const mean = total > 0
+                          ? (s.counts.green * 3 + s.counts.yellow * 2 + s.counts.red * 1) / total
+                          : 0;
+                        const isMixed = s.counts.green >= 1 && s.counts.red >= 1;
                         return (
                           <div key={s.statement_id} className="pt-4 pb-3 border-b border-black/5 last:border-0">
                             <div className="flex items-start justify-between gap-4">
@@ -654,9 +662,21 @@ export default function TeamDashboardPage() {
                                 ))}
                               </div>
                             </div>
-                            <p className="text-xs text-[var(--color-grey)] mt-1">
-                              {s.counts.green} of {total} answered green
+                            <p className="text-xs text-[var(--color-grey)] mt-1.5">
+                              Mean: {mean.toFixed(1)} / 3.0
                             </p>
+                            <p className="text-xs mt-0.5">
+                              <span style={{ color: PS_GREEN }}>Green: {s.counts.green}</span>
+                              {" · "}
+                              <span style={{ color: PS_YELLOW }}>Yellow: {s.counts.yellow}</span>
+                              {" · "}
+                              <span style={{ color: PS_RED }}>Red: {s.counts.red}</span>
+                            </p>
+                            {isMixed && (
+                              <p className="text-xs italic mt-1" style={{ color: PS_YELLOW }}>
+                                Mixed responses — members experience this differently.
+                              </p>
+                            )}
                           </div>
                         );
                       })}
@@ -677,6 +697,7 @@ export default function TeamDashboardPage() {
           {tier1.fish.ranked.length === 0 ? (
             <p className="text-sm text-[var(--color-grey)]">No fish response data yet.</p>
           ) : (
+            <>
             <div className="space-y-2">
               {tier1.fish.ranked.slice(0, 5).map((fish, idx) => {
                 const fd = fishMap.get(fish.fish_id);
@@ -707,6 +728,10 @@ export default function TeamDashboardPage() {
                 );
               })}
             </div>
+            <p className="text-xs text-[var(--color-grey)] mt-4 leading-relaxed">
+              &lsquo;Flagged&rsquo; means the member rated this pattern as &ldquo;This could be a dead fish&rdquo; or &ldquo;This is definitely a dead fish&rdquo; (options 3 or 4 on the scale).
+            </p>
+            </>
           )}
         </section>
 
@@ -735,6 +760,15 @@ export default function TeamDashboardPage() {
               ))}
             </div>
           )}
+
+          <div className="mt-6 rounded-xl border border-dashed border-black/20 px-6 py-5">
+            <p className="text-sm italic text-[var(--color-grey)]">
+              Wavelength&apos;s purpose alignment analysis appears here after running the full AI interpretation. Click &ldquo;Run AI interpretation&rdquo; to generate.
+            </p>
+            <p className="text-xs text-[var(--color-grey)] mt-3">
+              Members who chose to keep their words private still contribute to the alignment analysis — their responses inform the interpretation but are never quoted directly.
+            </p>
+          </div>
         </section>
 
         {/* ── Panel 6: Coordination map ─────────────────────────────────── */}
@@ -743,6 +777,60 @@ export default function TeamDashboardPage() {
           <p className="text-sm text-[var(--color-grey)] mb-6">
             Lines show coordination frequency. Dashed circles are peripheral members. Amber lines indicate asymmetric pairs.
           </p>
+          {tier1.coordination.pairs.length > 0 && (() => {
+            const n = completedCodes.length;
+            const totalPossible = n * (n - 1);
+            const activePairs = tier1.coordination.pairs.filter(
+              (p) => p.to_private_code && (p.frequency === "daily" || p.frequency === "weekly")
+            ).length;
+            const density = totalPossible > 0 ? Math.round((activePairs / totalPossible) * 100) : 0;
+
+            const incomingCounts = new Map<string, number>(completedCodes.map((c) => [c, 0]));
+            for (const p of tier1.coordination.pairs) {
+              if (p.to_private_code && (p.frequency === "daily" || p.frequency === "weekly")) {
+                incomingCounts.set(p.to_private_code, (incomingCounts.get(p.to_private_code) ?? 0) + 1);
+              }
+            }
+            const sorted = [...completedCodes].sort(
+              (a, b) => (incomingCounts.get(b) ?? 0) - (incomingCounts.get(a) ?? 0)
+            );
+            const mostConnected = sorted[0] ?? null;
+            const leastConnected = sorted[sorted.length - 1] ?? null;
+            const asymCount = tier1.coordination.asymmetric_pairs.length;
+
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                <div className="card" style={{ padding: "16px 20px" }}>
+                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-3">Network summary</p>
+                  <p className="text-sm mb-1.5">
+                    <span className="font-medium">Team density:</span>{" "}
+                    <span className="text-[var(--color-grey)]">{density}% of possible connections are active (weekly or more)</span>
+                  </p>
+                  {asymCount > 0 && (
+                    <p className="text-sm" style={{ color: PS_YELLOW }}>
+                      {asymCount} asymmetric pair{asymCount !== 1 ? "s" : ""} detected — where one member reports coordinating more frequently than the other.
+                    </p>
+                  )}
+                </div>
+                <div className="card" style={{ padding: "16px 20px" }}>
+                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-3">Connectivity</p>
+                  {mostConnected && (
+                    <p className="text-sm mb-1.5">
+                      <span className="font-medium">Most connected:</span>{" "}
+                      <span className="bg-[var(--color-navy)] text-white text-xs px-2 py-0.5 rounded-full">{mostConnected}</span>
+                    </p>
+                  )}
+                  {leastConnected && leastConnected !== mostConnected && (
+                    <p className="text-sm">
+                      <span className="font-medium">Least connected:</span>{" "}
+                      <span className="bg-[var(--color-navy)] text-white text-xs px-2 py-0.5 rounded-full">{leastConnected}</span>
+                      <span className="text-[var(--color-grey)] text-xs ml-2">— may be working in relative isolation</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           {tier1.coordination.pairs.length === 0 ? (
             <p className="text-sm text-[var(--color-grey)]">No coordination data yet.</p>
           ) : (
