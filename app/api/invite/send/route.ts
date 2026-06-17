@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const firstName = member.display_name.split(" ")[0];
 
   const { error: sendError } = await resend.emails.send({
-    from: "Wavelength <noreply@wavelength.team>",
+    from: "Wavelength <onboarding@resend.dev>",
     to: member.email,
     subject: `Your Wavelength assessment — ${team.team_name}`,
     html: `
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
 
   if (sendError) {
     console.error("[invite/send] Resend error:", sendError);
-    return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
+    return NextResponse.json({ error: `Failed to send email: ${sendError.message}` }, { status: 500 });
   }
 
   const now = new Date().toISOString();
