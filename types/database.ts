@@ -306,6 +306,7 @@ export type Analysis = {
   id: string;
   team_id: string;
   tier1_json: Json | null;
+  tier2_json: Json | null;
   assumptions: string | null;
   focus_issue: string | null;
   inout_plan: string | null;
@@ -326,6 +327,7 @@ export type AnalysisInsert = {
   id?: string;
   team_id: string;
   tier1_json?: Json | null;
+  tier2_json?: Json | null;
   assumptions?: string | null;
   focus_issue?: string | null;
   inout_plan?: string | null;
