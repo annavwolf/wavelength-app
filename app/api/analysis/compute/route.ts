@@ -220,6 +220,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  try {
+    return await runCompute(teamId);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[analysis/compute] unexpected error:", err);
+    return NextResponse.json({ error: "unexpected_error", detail: msg }, { status: 500 });
+  }
+}
+
+async function runCompute(teamId: string): Promise<NextResponse> {
+
   // ── Team ──────────────────────────────────────────────────────────────────
   const { data: team, error: teamError } = await supabase
     .from("teams")
@@ -434,7 +445,7 @@ export async function POST(req: NextRequest) {
   };
 
   // ── Upsert to analysis table ──────────────────────────────────────────────
-  // Requires a unique constraint on analysis.team_id — see SQL note below.
+  // Requires a unique constraint on analysis.team_id.
   const { error: upsertError } = await supabase
     .from("analysis")
     .upsert(
@@ -443,13 +454,13 @@ export async function POST(req: NextRequest) {
     );
 
   if (upsertError) {
-    console.error("[analysis/compute] upsert failed:", {
-      message: upsertError.message,
-      details: upsertError.details,
-      hint: upsertError.hint,
-      code: upsertError.code,
-    });
-    // Return result even if save fails — caller can retry
+    console.error("[analysis/compute] upsert failed:", upsertError);
+    return NextResponse.json({
+      error: "upsert_failed",
+      detail: upsertError.message,
+      hint: upsertError.hint ?? null,
+      code: upsertError.code ?? null,
+    }, { status: 500 });
   }
 
   return NextResponse.json(result);

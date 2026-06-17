@@ -327,11 +327,12 @@ export default function TeamDashboardPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setRunError(
-          data.error === "insufficient_responses"
-            ? `Not enough responses — ${data.n_completed ?? 0} complete, need at least 3.`
-            : "Something went wrong. Please try again."
-        );
+        if (data.error === "insufficient_responses") {
+          setRunError(`Not enough responses — ${data.n_completed ?? 0} complete, need at least 3.`);
+        } else {
+          const detail = [data.error, data.detail, data.hint].filter(Boolean).join(" — ");
+          setRunError(`Analysis failed: ${detail || "unknown error"}`);
+        }
         setRunningAnalysis(false);
         return;
       }
