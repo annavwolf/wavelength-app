@@ -72,6 +72,7 @@ export type Member = {
   age: string | null;
   // When the member joined this team (free text, e.g. "January 2024").
   tenure_start: string | null;
+  invited_at: string | null;
   completed_at: string | null;
   created_at: string;
 }
@@ -96,6 +97,7 @@ export type MemberInsert = {
   ethnicity_cultural?: string | null;
   age?: string | null;
   tenure_start?: string | null;
+  invited_at?: string | null;
   completed_at?: string | null;
   created_at?: string;
 }

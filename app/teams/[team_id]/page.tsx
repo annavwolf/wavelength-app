@@ -97,17 +97,23 @@ const CONF_CLS: Record<string, string> = {
   provisional: "bg-amber-100 text-amber-800",
 };
 
-function memberStatusCls(s: string) {
-  if (s === "invited") return "bg-amber-100 text-amber-700";
-  if (s === "in_progress") return "bg-blue-100 text-blue-700";
-  if (s === "complete") return "bg-green-100 text-green-700";
+function memberStatusCls(m: Member) {
+  if (m.status === "complete") return "bg-green-100 text-green-700";
+  if (m.status === "in_progress") return "bg-blue-100 text-blue-700";
+  if (m.status === "invited") return "bg-amber-100 text-amber-700";
   return "bg-gray-200 text-[var(--color-ink)]";
 }
-function memberStatusLabel(s: string) {
-  if (s === "invited") return "Invited";
-  if (s === "in_progress") return "In progress";
-  if (s === "complete") return "Complete";
-  return "Pending";
+function memberStatusLabel(m: Member) {
+  if (m.status === "complete") return "Complete ✓";
+  if (m.status === "in_progress") return "In progress";
+  if (m.status === "invited") {
+    if (m.invited_at) {
+      const d = new Date(m.invited_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+      return `Invite sent ${d}`;
+    }
+    return "Invited";
+  }
+  return "Not invited yet";
 }
 function formatVirtuality(v: Team["virtuality_level"]) {
   if (v === "fully_remote") return "Fully remote";
@@ -266,6 +272,9 @@ export default function TeamDashboardPage() {
   const [priorityOverride, setPriorityOverride] = useState<1 | 2 | 3 | null>(null);
   const [approving, setApproving] = useState(false);
   const [approved, setApproved] = useState(false);
+  const [inviteSending, setInviteSending] = useState<Set<string>>(new Set());
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [sendingAll, setSendingAll] = useState(false);
 
   useEffect(() => { load(); }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -350,6 +359,40 @@ export default function TeamDashboardPage() {
     setApproving(false);
   }
 
+  async function handleSendInvite(memberId: string) {
+    setInviteSending((prev) => new Set(prev).add(memberId));
+    setInviteError(null);
+    try {
+      const res = await fetch("/api/invite/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, team_id: teamId }),
+      });
+      if (res.ok) {
+        const { invited_at } = await res.json();
+        setMembers((prev) =>
+          prev.map((m) => m.member_id === memberId ? { ...m, invited_at, status: "invited" } : m)
+        );
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setInviteError(data.error ?? "Failed to send invite. Please try again.");
+      }
+    } catch {
+      setInviteError("Failed to send invite. Please try again.");
+    }
+    setInviteSending((prev) => { const next = new Set(prev); next.delete(memberId); return next; });
+  }
+
+  async function handleSendAllPending() {
+    const eligible = members.filter((m) => m.email && !m.invited_at && m.status !== "in_progress" && m.status !== "complete");
+    setSendingAll(true);
+    for (const m of eligible) {
+      await handleSendInvite(m.member_id);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    setSendingAll(false);
+  }
+
   // ── Loading / not found ───────────────────────────────────────────────────
   if (loading) {
     return (
@@ -386,6 +429,17 @@ export default function TeamDashboardPage() {
                 {team.team_name} <span className="accent">team.</span>
               </h1>
               {subtitle && <p className="text-sm text-[var(--color-grey)] mt-2">{subtitle}</p>}
+              <div className="flex items-center gap-4 mt-3">
+                <Link href={`/teams/${teamId}/members`} className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+                  Edit members
+                </Link>
+                <Link href={`/teams/${teamId}/fish`} className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+                  Fish settings
+                </Link>
+                <Link href={`/teams/${teamId}/invite`} className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+                  Invite page
+                </Link>
+              </div>
             </div>
             <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] whitespace-nowrap mt-2">
               ← Back to dashboard
@@ -397,17 +451,10 @@ export default function TeamDashboardPage() {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl">Team members</h2>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={fetchMembers}
-                    className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
-                    Refresh
-                  </button>
-                  <Link href={`/teams/${teamId}/members`}
-                    className="btn-secondary"
-                    style={{ padding: "8px 20px", fontSize: "14px" }}>
-                    Add member
-                  </Link>
-                </div>
+                <button type="button" onClick={fetchMembers}
+                  className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+                  Refresh
+                </button>
               </div>
 
               <div className="space-y-2">
@@ -423,15 +470,37 @@ export default function TeamDashboardPage() {
                         {m.role && <p className="text-xs text-[var(--color-grey)]">{m.role}</p>}
                       </div>
                     </div>
-                    <span className={`text-xs px-3 py-1 rounded-full flex-shrink-0 ${memberStatusCls(m.status)}`}>
-                      {memberStatusLabel(m.status)}
-                    </span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {m.email && !m.invited_at && m.status !== "in_progress" && m.status !== "complete" && (
+                        <button type="button"
+                          onClick={() => handleSendInvite(m.member_id)}
+                          disabled={inviteSending.has(m.member_id)}
+                          className="btn-secondary whitespace-nowrap"
+                          style={{ padding: "4px 12px", fontSize: "12px" }}>
+                          {inviteSending.has(m.member_id) ? "Sending..." : "Send invite"}
+                        </button>
+                      )}
+                      <span className={`text-xs px-3 py-1 rounded-full ${memberStatusCls(m)}`}>
+                        {memberStatusLabel(m)}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
-              <p className="mt-4 text-sm text-[var(--color-grey)]">
-                {completeCount} of {totalCount} members complete
-              </p>
+
+              {inviteError && <p className="mt-3 text-sm text-red-600">{inviteError}</p>}
+
+              <div className="mt-4 flex items-center gap-4">
+                <p className="text-sm text-[var(--color-grey)]">
+                  {completeCount} of {totalCount} complete
+                </p>
+                {members.some((m) => m.email && !m.invited_at && m.status !== "in_progress" && m.status !== "complete") && (
+                  <button type="button" onClick={handleSendAllPending} disabled={sendingAll}
+                    className="text-sm text-[var(--color-purple)] font-medium hover:underline">
+                    {sendingAll ? "Sending..." : "Send all pending invites"}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Progress panel */}
@@ -502,6 +571,12 @@ export default function TeamDashboardPage() {
             <span className={`text-xs px-3 py-1 rounded-full font-medium ${CONF_CLS[tier1.participation.confidence]}`}>
               {CONF_LABEL[tier1.participation.confidence]}
             </span>
+            <Link href={`/teams/${teamId}/members`} className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+              Edit members
+            </Link>
+            <Link href={`/teams/${teamId}/fish`} className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+              Fish settings
+            </Link>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-xs text-[var(--color-grey)]">

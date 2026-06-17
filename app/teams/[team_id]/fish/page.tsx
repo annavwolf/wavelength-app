@@ -133,11 +133,15 @@ export default function FishSelectionPage() {
     <main className="px-6 py-16">
       <div className="max-w-2xl mx-auto">
         <Link
-          href={`/teams/${teamId}/members`}
+          href={`/teams/${teamId}`}
           className="text-[var(--color-grey)]"
         >
-          ← Back to members
+          ← Back to team
         </Link>
+
+        <div className="mt-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong>Heads up:</strong> Changing fish patterns after members have started their assessments will affect consistency. Only change these settings if no members have begun yet.
+        </div>
 
         <h1 className="text-4xl sm:text-5xl leading-tight mt-10">
           Which <span className="accent">patterns</span> should I look for?
