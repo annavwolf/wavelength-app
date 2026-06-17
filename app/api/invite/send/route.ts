@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { supabase } from "@/lib/supabase";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const { member_id, team_id } = body ?? {};
@@ -12,6 +9,13 @@ export async function POST(req: NextRequest) {
   if (!member_id || !team_id) {
     return NextResponse.json({ error: "member_id and team_id are required" }, { status: 400 });
   }
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: "Email service not configured" }, { status: 500 });
+  }
+  const resend = new Resend(apiKey);
+  const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
   const [{ data: member, error: memberError }, { data: team, error: teamError }] =
     await Promise.all([
