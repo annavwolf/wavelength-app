@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { CoordinationFrequency, Member, Team } from "@/types/database";
@@ -20,8 +20,6 @@ export default function CoordinationStep({
   readAloud,
   ratings,
   onRatingsChange,
-  rowIds,
-  onRowIdsChange,
   onAdvance,
 }: {
   member: Member;
@@ -31,72 +29,73 @@ export default function CoordinationStep({
   readAloud: boolean;
   ratings: Record<string, CoordinationFrequency>;
   onRatingsChange: (ratings: Record<string, CoordinationFrequency>) => void;
-  // Row ids are tracked client-side only — the live coordination_ratings
-  // table has no target_member_id column, so this is the only way to know
-  // which row belongs to which target without inserting a duplicate.
-  rowIds: Record<string, string>;
-  onRowIdsChange: (rowIds: Record<string, string>) => void;
   onAdvance: () => void;
 }) {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function selectFrequency(
-    target: Member,
-    frequency: CoordinationFrequency
-  ) {
+  // Pre-populate saved ratings so a resuming member sees their previous answers.
+  useEffect(() => {
+    if (Object.keys(ratings).length > 0) return;
+    supabase
+      .from("coordination_ratings")
+      .select("target_member_name, frequency")
+      .eq("member_id", member.member_id)
+      .then(({ data }) => {
+        if (!data?.length) return;
+        const populated: Record<string, CoordinationFrequency> = {};
+        for (const row of data) {
+          const match = otherMembers.find(
+            (m) => m.display_name.toLowerCase() === row.target_member_name.toLowerCase()
+          );
+          if (match) populated[match.member_id] = row.frequency as CoordinationFrequency;
+        }
+        if (Object.keys(populated).length > 0) onRatingsChange(populated);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function selectFrequency(target: Member, frequency: CoordinationFrequency) {
     setSavingId(target.member_id);
     setError(null);
 
-    const existingRowId = rowIds[target.member_id];
-
-    if (existingRowId) {
-      const { error: updateError } = await supabase
-        .from("coordination_ratings")
-        .update({ frequency })
-        .eq("id", existingRowId);
-
-      if (updateError) {
-        console.error("[interview/coordination] failed to update rating:", {
-          message: updateError.message,
-          details: updateError.details,
-          hint: updateError.hint,
-          code: updateError.code,
-        });
-        setError("Something went wrong saving that. Please try again.");
-        setSavingId(null);
-        return;
-      }
-
-      onRatingsChange({ ...ratings, [target.member_id]: frequency });
-      setSavingId(null);
-      return;
-    }
-
-    const { data, error: insertError } = await supabase
+    // Check for an existing row keyed on (member_id, target_member_name)
+    // so we update in place instead of inserting a duplicate.
+    const { data: existing } = await supabase
       .from("coordination_ratings")
-      .insert({
-        member_id: member.member_id,
-        team_id: team.team_id,
-        target_member_name: target.display_name,
-        frequency,
-      })
       .select("id")
-      .single();
+      .eq("member_id", member.member_id)
+      .eq("target_member_name", target.display_name)
+      .maybeSingle();
 
-    if (insertError || !data) {
+    const saveError = existing
+      ? (
+          await supabase
+            .from("coordination_ratings")
+            .update({ frequency })
+            .eq("id", existing.id)
+        ).error
+      : (
+          await supabase.from("coordination_ratings").insert({
+            member_id: member.member_id,
+            team_id: team.team_id,
+            target_member_name: target.display_name,
+            frequency,
+          })
+        ).error;
+
+    if (saveError) {
       console.error("[interview/coordination] failed to save rating:", {
-        message: insertError?.message,
-        details: insertError?.details,
-        hint: insertError?.hint,
-        code: insertError?.code,
+        message: saveError.message,
+        details: saveError.details,
+        hint: saveError.hint,
+        code: saveError.code,
       });
       setError("Something went wrong saving that. Please try again.");
       setSavingId(null);
       return;
     }
 
-    onRowIdsChange({ ...rowIds, [target.member_id]: data.id });
     onRatingsChange({ ...ratings, [target.member_id]: frequency });
     setSavingId(null);
   }

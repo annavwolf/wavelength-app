@@ -25,7 +25,11 @@ const STEP_ORDER: InterviewStep[] = [
 export default function ProgressBar({ step }: { step: InterviewStep }) {
   const index = STEP_ORDER.indexOf(step);
   const fraction =
-    step === "close" ? 1 : index === -1 ? 0 : (index + 1) / STEP_ORDER.length;
+    step === "close" || step === "already_complete"
+      ? 1
+      : index === -1
+        ? 0
+        : (index + 1) / STEP_ORDER.length;
 
   return (
     <div className="w-full h-1.5 bg-black/10 rounded-full overflow-hidden mb-12">

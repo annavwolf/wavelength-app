@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Fish, Member, SeverityLabel, Team } from "@/types/database";
 
-// 4-point severity scale — rated for each fish the team is being assessed on.
 const SEVERITY_OPTIONS: { value: number; label: string }[] = [
   { value: 1, label: "This doesn't concern me" },
   { value: 2, label: "Maybe worth watching" },
@@ -25,15 +24,8 @@ function SeverityButton({
   disabled: boolean;
   onClick: () => void;
 }) {
-  // Colour ramps from neutral → warm amber → coral as severity rises.
   const color =
-    value === 1
-      ? "#7AA8A0"
-      : value === 2
-      ? "#D9A441"
-      : value === 3
-      ? "#C97064"
-      : "#A03A2E";
+    value === 1 ? "#7AA8A0" : value === 2 ? "#D9A441" : value === 3 ? "#C97064" : "#A03A2E";
 
   return (
     <button
@@ -75,32 +67,58 @@ export default function DeadfishStep({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Pre-populate saved ratings so a resuming member sees their previous answers.
+  useEffect(() => {
+    if (Object.keys(ratings).length > 0) return;
+    supabase
+      .from("fish_responses")
+      .select("fish_id, severity_label")
+      .eq("member_id", member.member_id)
+      .then(({ data }) => {
+        if (!data?.length) return;
+        const populated: Record<string, number> = {};
+        for (const row of data) {
+          if (row.fish_id !== null) populated[row.fish_id] = row.severity_label;
+        }
+        if (Object.keys(populated).length > 0) onRatingsChange(populated);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function selectRating(f: Fish, severity: number) {
     setSavingId(f.fish_id);
     setError(null);
 
-    // Upsert keyed on (member_id, fish_id) — requires the matching unique
-    // constraint in Postgres. Re-rating updates the same row rather than
-    // inserting a duplicate, and survives a page reload without needing to
-    // track row IDs in React state.
-    const { error: upsertError } = await supabase
+    // Check for an existing row so we update in place instead of inserting a duplicate.
+    const { data: existing } = await supabase
       .from("fish_responses")
-      .upsert(
-        {
-          member_id: member.member_id,
-          team_id: team.team_id,
-          fish_id: f.fish_id,
-          severity_label: severity as SeverityLabel,
-        },
-        { onConflict: "member_id,fish_id" }
-      );
+      .select("id")
+      .eq("member_id", member.member_id)
+      .eq("fish_id", f.fish_id)
+      .maybeSingle();
 
-    if (upsertError) {
+    const saveError = existing
+      ? (
+          await supabase
+            .from("fish_responses")
+            .update({ severity_label: severity as SeverityLabel })
+            .eq("id", existing.id)
+        ).error
+      : (
+          await supabase.from("fish_responses").insert({
+            member_id: member.member_id,
+            team_id: team.team_id,
+            fish_id: f.fish_id,
+            severity_label: severity as SeverityLabel,
+          })
+        ).error;
+
+    if (saveError) {
       console.error("[interview/deadfish] failed to save rating:", {
-        message: upsertError.message,
-        details: upsertError.details,
-        hint: upsertError.hint,
-        code: upsertError.code,
+        message: saveError.message,
+        details: saveError.details,
+        hint: saveError.hint,
+        code: saveError.code,
       });
       setError("That didn't save. Please try again.");
       setSavingId(null);

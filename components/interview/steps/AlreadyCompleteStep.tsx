@@ -1,0 +1,288 @@
+"use client";
+
+import { useState } from "react";
+import type { AppSupabaseClient } from "@/components/interview/types";
+import type { Fish, Member, PsLabel, PsStatement } from "@/types/database";
+
+type ShareChoice = "private" | "open";
+
+function choiceFromMember(m: Member): ShareChoice | null {
+  if (m.share_verbatim_with_team && m.share_name_with_team) return "open";
+  if (!m.share_verbatim_with_team && !m.share_name_with_team) return "private";
+  return null;
+}
+
+const LABEL_SYMBOL: Record<PsLabel, string> = {
+  green: "🟢",
+  yellow: "🟡",
+  red: "🔴",
+};
+
+const LABEL_WORD: Record<PsLabel, string> = {
+  green: "Sounds like my team",
+  yellow: "Sometimes / not sure",
+  red: "Doesn't sound like my team",
+};
+
+const FISH_SEVERITY: Record<number, string> = {
+  1: "Not really us",
+  2: "Occasionally",
+  3: "A real pattern",
+  4: "A big problem",
+};
+
+function buildPrintableHTML(
+  member: Member,
+  purposeText: string,
+  psStatements: PsStatement[],
+  psRatings: Record<number, PsLabel>,
+  teamFish: Fish[],
+  deadfishRatings: Record<string, number>,
+  deadfishCustomText: string,
+  deadfishCustomSeverity: number | null,
+  rosterMissingName: string,
+  rosterMissingRole: string,
+  rosterNoted: boolean
+): string {
+  const date = new Date().toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const consentText =
+    choiceFromMember(member) === "open"
+      ? "Sharing my exact words and name with my team"
+      : "Keeping responses fully private";
+
+  const psSection = psStatements
+    .map((s) => {
+      const rating = psRatings[s.statement_id];
+      const symbol = rating ? LABEL_SYMBOL[rating] : "○";
+      const word = rating ? LABEL_WORD[rating] : "Not answered";
+      return `<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:14px">${s.statement_text}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:14px;white-space:nowrap">${symbol} ${word}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const fishSection = teamFish
+    .map((f) => {
+      const sev = deadfishRatings[f.fish_id];
+      return `<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:14px">${f.name}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:14px">${sev ? FISH_SEVERITY[sev] : "Not rated"}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const customFishRow = deadfishCustomText
+    ? `<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:14px;font-style:italic">${deadfishCustomText}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:14px">${deadfishCustomSeverity ? FISH_SEVERITY[deadfishCustomSeverity] : ""}</td>
+      </tr>`
+    : "";
+
+  const missingRow =
+    rosterNoted && rosterMissingName
+      ? `<p style="font-size:14px;color:#555">I flagged that <strong>${rosterMissingName}</strong>${rosterMissingRole ? ` (${rosterMissingRole})` : ""} may be missing from the team roster.</p>`
+      : "";
+
+  const demographics = [
+    member.primary_language ? `Language: ${member.primary_language}` : null,
+    member.gender_identity ? `Gender identity: ${member.gender_identity}` : null,
+    member.ethnicity_cultural ? `Cultural background: ${member.ethnicity_cultural}` : null,
+    member.age ? `Age: ${member.age}` : null,
+    member.personal_context ? `Other context: ${member.personal_context}` : null,
+  ]
+    .filter(Boolean)
+    .join("<br>");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My Wavelength session — ${member.display_name}</title>
+<style>
+  body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:760px;margin:0 auto;padding:40px 32px;color:#1F1F1F;line-height:1.5}
+  h1{color:#6B4EA8;margin-bottom:4px}
+  h2{color:#1A1A2E;font-size:16px;text-transform:uppercase;letter-spacing:.06em;border-bottom:2px solid #eee;padding-bottom:6px;margin-top:36px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  td{vertical-align:top}
+  .meta{color:#6B6B6B;font-size:14px;margin-bottom:8px}
+  @media print{body{padding:16px}h2{page-break-after:avoid}}
+</style>
+</head>
+<body>
+<h1>My Wavelength session</h1>
+<p class="meta">${member.display_name} · ${date}</p>
+
+<h2>Privacy choice</h2>
+<p style="font-size:14px">${consentText}</p>
+
+<h2>Profile</h2>
+<p style="font-size:14px">
+  <strong>${member.display_name}</strong><br>
+  ${[member.role, member.location, member.timezone].filter(Boolean).join(" · ")}<br>
+  ${member.tenure_start ? `Joined: ${member.tenure_start}<br>` : ""}
+  ${demographics || ""}
+</p>
+
+<h2>Shared purpose</h2>
+<p style="font-size:14px">${purposeText || "<em>Not answered</em>"}</p>
+
+${missingRow ? `<h2>Roster note</h2>${missingRow}` : ""}
+
+<h2>Psychological safety — 12 statements</h2>
+<table>${psSection}</table>
+
+<h2>Dead fish — team patterns</h2>
+<table>${fishSection}${customFishRow}</table>
+
+<p style="margin-top:48px;font-size:12px;color:#999">Generated by Wavelength · wavelength-app.vercel.app</p>
+</body>
+</html>`;
+}
+
+export default function AlreadyCompleteStep({
+  member,
+  supabase,
+  psStatements,
+  teamFish,
+}: {
+  member: Member;
+  supabase: AppSupabaseClient;
+  psStatements: PsStatement[];
+  teamFish: Fish[];
+}) {
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    setDownloading(true);
+
+    const [
+      { data: purposeData },
+      { data: psData },
+      { data: fishData },
+      { data: flagData },
+    ] = await Promise.all([
+      supabase
+        .from("purpose_responses")
+        .select("purpose_text")
+        .eq("member_id", member.member_id)
+        .maybeSingle(),
+      supabase
+        .from("ps_responses")
+        .select("statement_id, label")
+        .eq("member_id", member.member_id)
+        .eq("round", 1),
+      supabase
+        .from("fish_responses")
+        .select("fish_id, custom_text, severity_label")
+        .eq("member_id", member.member_id),
+      supabase
+        .from("missing_member_flags")
+        .select("missing_name, missing_role")
+        .eq("reported_by_member_id", member.member_id)
+        .maybeSingle(),
+    ]);
+
+    const purposeText = purposeData?.purpose_text ?? "";
+
+    const psRatings: Record<number, PsLabel> = {};
+    for (const row of psData ?? []) {
+      psRatings[row.statement_id] = row.label as PsLabel;
+    }
+
+    const deadfishRatings: Record<string, number> = {};
+    let deadfishCustomText = "";
+    let deadfishCustomSeverity: number | null = null;
+    for (const row of fishData ?? []) {
+      if (row.fish_id !== null) {
+        deadfishRatings[row.fish_id] = row.severity_label;
+      } else if (row.custom_text) {
+        deadfishCustomText = row.custom_text;
+        deadfishCustomSeverity = row.severity_label;
+      }
+    }
+
+    const rosterNoted = !!flagData?.missing_name;
+    const rosterMissingName = flagData?.missing_name ?? "";
+    const rosterMissingRole = flagData?.missing_role ?? "";
+
+    const html = buildPrintableHTML(
+      member,
+      purposeText,
+      psStatements,
+      psRatings,
+      teamFish,
+      deadfishRatings,
+      deadfishCustomText,
+      deadfishCustomSeverity,
+      rosterMissingName,
+      rosterMissingRole,
+      rosterNoted
+    );
+
+    setDownloading(false);
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+  }
+
+  const firstName = member.display_name.split(" ")[0];
+
+  return (
+    <div className="text-center py-8">
+      <img
+        src="/octopus-logo.png"
+        alt=""
+        className="h-20 w-auto mx-auto mb-8"
+      />
+
+      <h1
+        className="text-4xl font-serif mb-4"
+        style={{ fontFamily: "Playfair Display, serif" }}
+      >
+        You&apos;re all{" "}
+        <span className="purple">done.</span>
+      </h1>
+
+      <p
+        className="text-xl italic mb-6"
+        style={{ color: "var(--color-purple)" }}
+      >
+        That was a real contribution, {firstName}.
+      </p>
+
+      <p className="text-[var(--color-grey)] max-w-md mx-auto mb-8">
+        I&apos;ll bring your responses together with those from your
+        teammates. Once everyone has spoken with me, your consultant will be
+        in touch with what I found.
+      </p>
+
+      <button
+        type="button"
+        onClick={handleDownload}
+        disabled={downloading}
+        className="btn-secondary"
+      >
+        {downloading ? "Preparing..." : "Download my responses"}
+      </button>
+
+      <p className="mt-8 text-xs text-[var(--color-grey)]">
+        Need to change something? Reach Dr. Wolf at{" "}
+        <a
+          href="mailto:anna.v.wolf@gmail.com"
+          className="underline"
+        >
+          anna.v.wolf@gmail.com
+        </a>
+        .
+      </p>
+    </div>
+  );
+}

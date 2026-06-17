@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member } from "@/types/database";
 
@@ -8,36 +8,41 @@ export default function CloseStep({
   member,
   supabase,
   onSaved,
+  onFinish,
 }: {
   member: Member;
   supabase: AppSupabaseClient;
   onSaved: (fields: Partial<Member>) => void;
+  onFinish: () => void;
 }) {
-  const [statusSet, setStatusSet] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function complete() {
-      const { error } = await supabase
-        .from("members")
-        .update({ status: "complete", completed_at: new Date().toISOString() })
-        .eq("member_id", member.member_id);
+  async function handleFinish() {
+    setSaving(true);
+    setError(null);
 
-      if (error) {
-        console.error("[interview/close] failed to set status=complete:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-      } else {
-        onSaved({ status: "complete" });
-      }
-      setStatusSet(true);
+    const completedAt = new Date().toISOString();
+    const { error: updateError } = await supabase
+      .from("members")
+      .update({ status: "complete", completed_at: completedAt })
+      .eq("member_id", member.member_id);
+
+    if (updateError) {
+      console.error("[interview/close] failed to set status=complete:", {
+        message: updateError.message,
+        details: updateError.details,
+        hint: updateError.hint,
+        code: updateError.code,
+      });
+      setError("Something went wrong. Please try again.");
+      setSaving(false);
+      return;
     }
 
-    complete();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    onSaved({ status: "complete", completed_at: completedAt });
+    onFinish();
+  }
 
   return (
     <div className="text-center py-8">
@@ -59,29 +64,24 @@ export default function CloseStep({
         That was a meaningful conversation.
       </p>
 
-      <p className="text-[var(--color-grey)] max-w-md mx-auto mb-4">
+      <p className="text-[var(--color-grey)] max-w-md mx-auto mb-8">
         I&apos;m going to sit with what you&apos;ve shared and bring it
         together with your team&apos;s responses. Once everyone has spoken
         with me, I&apos;ll come back to you.
       </p>
 
-      <p className="text-[var(--color-grey)] max-w-md mx-auto">
-        You can close this window. If you need to change anything or get in
-        touch, reach Dr. Wolf at{" "}
-        <a
-          href="mailto:anna.v.wolf@gmail.com"
-          className="underline text-[var(--color-purple)]"
-        >
-          anna.v.wolf@gmail.com
-        </a>
-        .
-      </p>
-
-      {statusSet && (
-        <p className="mt-8 text-xs text-[var(--color-grey)]">
-          ✓ Your responses have been saved.
-        </p>
+      {error && (
+        <p className="text-sm text-[var(--color-grey)] mb-4">{error}</p>
       )}
+
+      <button
+        type="button"
+        onClick={handleFinish}
+        disabled={saving}
+        className="btn-primary"
+      >
+        {saving ? "Saving..." : "Finish"}
+      </button>
     </div>
   );
 }

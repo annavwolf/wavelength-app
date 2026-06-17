@@ -34,6 +34,7 @@ import DeadfishStep from "@/components/interview/steps/DeadfishStep";
 import DeadfishOpenStep from "@/components/interview/steps/DeadfishOpenStep";
 import ReviewStep from "@/components/interview/steps/ReviewStep";
 import CloseStep from "@/components/interview/steps/CloseStep";
+import AlreadyCompleteStep from "@/components/interview/steps/AlreadyCompleteStep";
 
 // landing → foreshadow → faq → consent → profile → personal_context →
 // purpose → roster → coordination → ps_intro_open → ps_descent →
@@ -59,13 +60,14 @@ const STEP_ORDER: InterviewStep[] = [
   "deadfish_open",
   "review",
   "close",
+  "already_complete",
 ];
 
 // Steps that need full viewport width — only the ocean-background diagnostic.
 const FULL_BLEED_STEPS: InterviewStep[] = ["ps_diagnostic"];
 
 // Steps where the back button is hidden (start and terminal).
-const NO_BACK_STEPS: InterviewStep[] = ["landing", "close"];
+const NO_BACK_STEPS: InterviewStep[] = ["landing", "close", "already_complete"];
 
 // All input state that must survive back/forward navigation lives here
 // rather than in individual step components (which unmount on step change).
@@ -90,7 +92,6 @@ type InterviewDraft = {
   rosterNoted: boolean;
   // coordination
   coordRatings: Record<string, CoordinationFrequency>;
-  coordRowIds: Record<string, string>;
   // ps diagnostic
   psRatings: Record<number, PsLabel>;
   // dead fish
@@ -115,7 +116,6 @@ const INITIAL_DRAFT: InterviewDraft = {
   rosterMissingRole: "",
   rosterNoted: false,
   coordRatings: {},
-  coordRowIds: {},
   psRatings: {},
   deadfishRatings: {},
   deadfishCustomText: "",
@@ -140,7 +140,6 @@ export default function InterviewPage() {
 
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [alreadyComplete, setAlreadyComplete] = useState(false);
   const [resuming, setResuming] = useState(false);
 
   useEffect(() => {
@@ -164,6 +163,8 @@ export default function InterviewPage() {
         { data: statementsData, error: statementsError },
         { count: psCount },
         { count: purposeCount },
+        { count: fishCount },
+        { count: coordCount },
       ] = await Promise.all([
         supabase
           .from("teams")
@@ -186,6 +187,15 @@ export default function InterviewPage() {
           .eq("round", 1),
         supabase
           .from("purpose_responses")
+          .select("*", { count: "exact", head: true })
+          .eq("member_id", memberData.member_id),
+        supabase
+          .from("fish_responses")
+          .select("*", { count: "exact", head: true })
+          .eq("member_id", memberData.member_id)
+          .not("fish_id", "is", null),
+        supabase
+          .from("coordination_ratings")
           .select("*", { count: "exact", head: true })
           .eq("member_id", memberData.member_id),
       ]);
@@ -212,16 +222,27 @@ export default function InterviewPage() {
 
       // Resume at the right step based on what's already saved in the DB.
       if (memberData.status === "complete") {
-        setAlreadyComplete(true);
-        setStep("review");
+        setStep("already_complete");
+      } else if ((fishCount ?? 0) > 0) {
+        setStep("deadfish_open");
+        setResuming(true);
       } else if ((psCount ?? 0) > 0) {
         setStep("deadfish_intro");
         setResuming(true);
       } else if ((purposeCount ?? 0) > 0) {
         setStep("ps_intro_open");
         setResuming(true);
+      } else if ((coordCount ?? 0) > 0) {
+        setStep("ps_intro_open");
+        setResuming(true);
       } else if ((memberData.share_verbatim_with_team as boolean | null) !== null) {
         setStep("purpose");
+        setResuming(true);
+      } else if (
+        memberData.primary_language !== null ||
+        memberData.personal_context !== null
+      ) {
+        setStep("roster");
         setResuming(true);
       }
       // else: default "landing" step stays
@@ -310,32 +331,6 @@ export default function InterviewPage() {
   const fullBleed = FULL_BLEED_STEPS.includes(step);
   const showBack = !NO_BACK_STEPS.includes(step);
 
-  if (alreadyComplete) {
-    return (
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
-        <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
-        <h1
-          className="text-4xl font-serif mb-4"
-          style={{ fontFamily: "Playfair Display, serif" }}
-        >
-          You&apos;ve already finished,{" "}
-          <span className="purple">{member.display_name.split(" ")[0]}.</span>
-        </h1>
-        <p className="text-[var(--color-grey)] max-w-md mx-auto mb-8">
-          Your responses have been saved. Thank you for completing the
-          interview.
-        </p>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => setAlreadyComplete(false)}
-        >
-          Review my responses
-        </button>
-      </main>
-    );
-  }
-
   return (
     <main
       className="flex-1 flex flex-col items-center"
@@ -354,7 +349,7 @@ export default function InterviewPage() {
         <div className="w-full max-w-2xl px-6 pt-4">
           <div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--color-purple)]/8 border border-[var(--color-purple)]/20 px-4 py-3">
             <p className="text-sm text-[var(--color-purple)]">
-              Welcome back — picking up where you left off.
+              Welcome back. I&apos;ve saved your progress — picking up where we left off.
             </p>
             <button
               type="button"
@@ -477,8 +472,6 @@ export default function InterviewPage() {
             readAloud={readAloud}
             ratings={draft.coordRatings}
             onRatingsChange={(v) => updateDraft({ coordRatings: v })}
-            rowIds={draft.coordRowIds}
-            onRowIdsChange={(v) => updateDraft({ coordRowIds: v })}
             onAdvance={() => goToStep("ps_intro_open")}
           />
         )}
@@ -568,6 +561,16 @@ export default function InterviewPage() {
             member={member}
             supabase={supabase}
             onSaved={applyMemberFields}
+            onFinish={() => goToStep("already_complete")}
+          />
+        )}
+
+        {step === "already_complete" && (
+          <AlreadyCompleteStep
+            member={member}
+            supabase={supabase}
+            psStatements={psStatements}
+            teamFish={teamFish}
           />
         )}
       </div>

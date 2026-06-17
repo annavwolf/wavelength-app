@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member, PsLabel, PsStatement, Team, Zone } from "@/types/database";
 
@@ -15,11 +15,7 @@ const ZONE_CONFIG: Record<
   { label: string; eyebrow: string; backgroundPositionY: number }
 > = {
   1: { label: "Safe to Belong", eyebrow: "Zone 1", backgroundPositionY: 0 },
-  2: {
-    label: "Safe to Speak Freely",
-    eyebrow: "Zone 2",
-    backgroundPositionY: 50,
-  },
+  2: { label: "Safe to Speak Freely", eyebrow: "Zone 2", backgroundPositionY: 50 },
   3: { label: "Safe to Innovate", eyebrow: "Zone 3", backgroundPositionY: 100 },
 };
 
@@ -82,40 +78,64 @@ export default function PsDiagnosticStep({
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Pre-populate saved ratings so a resuming member sees their previous answers.
+  useEffect(() => {
+    if (Object.keys(ratings).length > 0) return;
+    supabase
+      .from("ps_responses")
+      .select("statement_id, label")
+      .eq("member_id", member.member_id)
+      .eq("round", 1)
+      .then(({ data }) => {
+        if (!data?.length) return;
+        const populated: Record<number, PsLabel> = {};
+        for (const row of data) populated[row.statement_id] = row.label as PsLabel;
+        onRatingsChange(populated);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function selectRating(statement: PsStatement, label: PsLabel) {
     setSavingId(statement.statement_id);
     setError(null);
 
-    // Upsert keyed on (member_id, statement_id, round) — requires the
-    // matching unique constraint in Postgres. Re-rating updates the same
-    // row instead of erroring or creating a duplicate, and this survives a
-    // page reload (unlike tracking the row id only in React state).
-    const { data, error: upsertError } = await supabase
+    // Check for an existing row so we update in place instead of inserting a duplicate.
+    const { data: existing } = await supabase
       .from("ps_responses")
-      .upsert(
-        {
-          member_id: member.member_id,
-          team_id: team.team_id,
-          statement_id: statement.statement_id,
-          zone: statement.zone,
-          label,
-          response_value: LABEL_VALUE[label],
-          round: 1,
-        },
-        { onConflict: "member_id,statement_id,round" }
-      )
       .select("id")
-      .single();
+      .eq("member_id", member.member_id)
+      .eq("statement_id", statement.statement_id)
+      .eq("round", 1)
+      .maybeSingle();
 
-    if (upsertError || !data) {
+    const saveError = existing
+      ? (
+          await supabase
+            .from("ps_responses")
+            .update({ label, response_value: LABEL_VALUE[label] })
+            .eq("id", existing.id)
+        ).error
+      : (
+          await supabase.from("ps_responses").insert({
+            member_id: member.member_id,
+            team_id: team.team_id,
+            statement_id: statement.statement_id,
+            zone: statement.zone,
+            label,
+            response_value: LABEL_VALUE[label],
+            round: 1,
+          })
+        ).error;
+
+    if (saveError) {
       console.error("[interview/ps_diagnostic] failed to save rating:", {
-        message: upsertError?.message,
-        details: upsertError?.details,
-        hint: upsertError?.hint,
-        code: upsertError?.code,
+        message: saveError.message,
+        details: saveError.details,
+        hint: saveError.hint,
+        code: saveError.code,
       });
       setError(
-        `That didn't save${upsertError?.code ? ` (${upsertError.code})` : ""}. Please try again.`
+        `That didn't save${saveError.code ? ` (${saveError.code})` : ""}. Please try again.`
       );
       setSavingId(null);
       return;

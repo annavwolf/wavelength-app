@@ -27,6 +27,7 @@ export type InterviewStep =
   | "deadfish_open"
   | "review"
   | "close"
+  | "already_complete"
   // Legacy — kept in union but no longer wired in the flow.
   | "ps_reflect"
   | "end_of_pass1"
