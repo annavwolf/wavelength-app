@@ -48,6 +48,7 @@ type RankedFish = {
   flagged_count: number;
   flagged_pct: number;
   rank: number;
+  responses: Array<{ private_code: string; severity_label: number }>;
 };
 
 type CustomFish = {
@@ -359,12 +360,16 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     const meanSeverity = resps.reduce((s, r) => s + r.severity_label, 0) / resps.length;
     const flaggedCount = resps.filter((r) => HIGH_FLAG_SEVERITIES.includes(r.severity_label)).length;
     const flaggedPct = (flaggedCount / nCompleted) * 100;
+    const memberResponses = resps
+      .map((r) => ({ private_code: memberIdToCode.get(r.member_id) ?? "?", severity_label: r.severity_label }))
+      .sort((a, b) => b.severity_label - a.severity_label);
     unranked.push({
       fish_id: fishId,
       name: fishById.get(fishId)?.name ?? fishId,
       mean_severity: Math.round(meanSeverity * 100) / 100,
       flagged_count: flaggedCount,
       flagged_pct: Math.round(flaggedPct * 10) / 10,
+      responses: memberResponses,
     });
   }
   unranked.sort((a, b) => b.flagged_pct - a.flagged_pct);

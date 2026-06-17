@@ -34,6 +34,7 @@ type RankedFish = {
   flagged_count: number;
   flagged_pct: number;
   rank: number;
+  responses: Array<{ private_code: string; severity_label: number }>;
 };
 type DirectedPair = {
   from_private_code: string;
@@ -135,9 +136,19 @@ function zoneBadge(status: ZoneStatus) {
   if (status === "Mixed") return { label: "Mixed", cls: "bg-amber-100 text-amber-700" };
   return { label: "Needs attention", cls: "bg-red-100 text-red-700" };
 }
-function severityColor(mean: number) {
-  return mean < 2 ? PS_GREEN : mean <= 3 ? PS_YELLOW : PS_RED;
-}
+
+const SEVERITY_COLOR: Record<number, string> = {
+  1: "#9CA3AF",   // not a problem
+  2: PS_YELLOW,   // slightly concerning
+  3: "#F97316",   // could be a dead fish
+  4: PS_RED,      // definitely a dead fish
+};
+const SEVERITY_LABEL: Record<number, string> = {
+  1: "Not a problem",
+  2: "Slightly concerning",
+  3: "Could be a dead fish",
+  4: "Definitely a dead fish",
+};
 
 // ── Zone card ─────────────────────────────────────────────────────────────────
 
@@ -710,19 +721,26 @@ export default function TeamDashboardPage() {
                       {fish.rank}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <p className="font-medium text-sm">{fish.name}</p>
                         <span className={ZONE_BADGE[zone]}>{ZONE_SHORT[zone]}</span>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 h-2 rounded-full bg-black/10 overflow-hidden max-w-xs">
-                          <div className="h-full rounded-full"
-                            style={{ width: `${Math.min(fish.flagged_pct, 100)}%`, backgroundColor: severityColor(fish.mean_severity) }} />
+                      {fish.responses && fish.responses.length > 0 && (
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
+                          {fish.responses.map((r, i) => (
+                            <span key={i}
+                              title={`${r.private_code}: ${SEVERITY_LABEL[r.severity_label] ?? r.severity_label}`}
+                              className="flex items-center gap-1 cursor-help">
+                              <span className="w-3 h-3 rounded-full inline-block flex-shrink-0"
+                                style={{ backgroundColor: SEVERITY_COLOR[r.severity_label] ?? "#9CA3AF" }} />
+                              <span className="text-xs text-[var(--color-grey)]">{r.private_code}</span>
+                            </span>
+                          ))}
                         </div>
-                        <p className="text-xs text-[var(--color-grey)] flex-shrink-0">
-                          {Math.round(fish.flagged_pct)}% of members flagged this
-                        </p>
-                      </div>
+                      )}
+                      <p className="text-xs text-[var(--color-grey)]">
+                        Mean severity: {fish.mean_severity.toFixed(1)} / 4.0 · {Math.round(fish.flagged_pct)}% flagged
+                      </p>
                     </div>
                   </div>
                 );
