@@ -192,7 +192,7 @@ export default function ReviewStep({
   psRatings,
   teamFish,
   deadfishRatings,
-  deadfishRowIds,
+  deadfishRowIds: _deadfishRowIds,
   deadfishCustomText,
   deadfishCustomSeverity,
   purposeText,
