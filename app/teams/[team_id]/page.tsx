@@ -80,12 +80,63 @@ type Tier1Result = {
   purpose: PurposeEntry[];
 };
 
+// ── Tier 2 interpretation shape ─────────────────────────────────────────────────
+type Tier2Assumption = {
+  assumption: string;
+  supporting_evidence?: string[];
+  confidence?: "high" | "moderate" | "low";
+  sure_or_unsure?: "sure" | "unsure";
+  why_it_matters?: string;
+  what_would_resonate_or_not?: string;
+};
+type Tier2FocusIssue = {
+  target_rung?: string;
+  fish?: string;
+  vehicle?: string | null;
+  buy_in_sentence?: string;
+};
+type Tier2PurposeAlignment = {
+  level?: "strong" | "partial" | "divergent";
+  description?: string;
+};
+type Tier2Result = {
+  headline_read?: string;
+  assumptions?: Tier2Assumption[];
+  focus_issue?: Tier2FocusIssue;
+  inout_plan?: string;
+  deferred_for_later?: string[];
+  messy_or_insufficient_flag?: boolean;
+  focus_questions_for_feedback_round?: string[];
+  context_questions_for_consultant?: string[];
+  divergence_notes?: string;
+  welfare_or_sensitive_note?: string;
+  proposed_member_facing_summary?: string;
+  purpose_alignment?: Tier2PurposeAlignment;
+  data_quality_note?: string;
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function computeConfidence(n: number, rosterSize: number | null): "high" | "moderate" | "provisional" {
   if (rosterSize !== null && n >= rosterSize * 0.7 && n >= 3) return n >= 6 ? "high" : "moderate";
   return "provisional";
 }
+
+// True when a model-returned string carries real content (not empty, not "none").
+function hasText(s?: string | null): s is string {
+  return !!s && s.trim() !== "" && s.trim().toLowerCase() !== "none";
+}
+
+const TIER2_CONF_CLS: Record<string, string> = {
+  high: "bg-green-100 text-green-800",
+  moderate: "bg-amber-100 text-amber-700",
+  low: "bg-red-100 text-red-700",
+};
+const PURPOSE_LEVEL_CLS: Record<string, string> = {
+  strong: "bg-green-100 text-green-800",
+  partial: "bg-amber-100 text-amber-700",
+  divergent: "bg-red-100 text-red-700",
+};
 
 const CONF_LABEL: Record<string, string> = {
   high: "High confidence",
@@ -286,6 +337,9 @@ export default function TeamDashboardPage() {
   const [inviteSending, setInviteSending] = useState<Set<string>>(new Set());
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [sendingAll, setSendingAll] = useState(false);
+  const [interpretation, setInterpretation] = useState<Tier2Result | null>(null);
+  const [interpreting, setInterpreting] = useState(false);
+  const [interpretError, setInterpretError] = useState<string | null>(null);
 
   useEffect(() => { load(); }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -311,6 +365,7 @@ export default function TeamDashboardPage() {
       setApproved(aRow.consultant_approved);
       const fi = aRow.focus_issue;
       if (fi === "1" || fi === "2" || fi === "3") setPriorityOverride(parseInt(fi) as 1 | 2 | 3);
+      setInterpretation((aRow.tier2_json as unknown as Tier2Result | null) ?? null);
     }
 
     if (teamData.selected_fish_ids.length > 0) {
@@ -353,6 +408,29 @@ export default function TeamDashboardPage() {
       setRunningAnalysis(false);
     }
     setRunningAnalysis(false);
+  }
+
+  async function handleRunInterpretation() {
+    setInterpreting(true);
+    setInterpretError(null);
+    try {
+      const res = await fetch("/api/analysis/interpret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_id: teamId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const detail = [data.error, data.detail, data.hint].filter(Boolean).join(" — ");
+        setInterpretError(`Interpretation failed: ${detail || "unknown error"}`);
+        setInterpreting(false);
+        return;
+      }
+      setInterpretation(data as Tier2Result);
+    } catch {
+      setInterpretError("Something went wrong reaching Wavelength. Please try again.");
+    }
+    setInterpreting(false);
   }
 
   async function handlePriorityChange(zone: 1 | 2 | 3) {
@@ -622,6 +700,206 @@ export default function TeamDashboardPage() {
           </div>
         </section>
 
+        {/* ── Panel 2b: Wavelength's interpretation (Tier 2 AI) ─────────────── */}
+        <section id="wavelength-read">
+          <div className="flex items-center justify-between gap-4 mb-2 flex-wrap">
+            <h2 className="text-3xl">Wavelength&apos;s read</h2>
+            {interpretation && (
+              <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
+                className="btn-secondary" style={{ padding: "8px 18px", fontSize: "13px" }}>
+                {interpreting ? "Thinking..." : "Re-run interpretation"}
+              </button>
+            )}
+          </div>
+          <p className="text-sm text-[var(--color-grey)] mb-6">
+            Wavelength reads the numbers and the words together, then proposes assumptions to check with the team. Everything here is provisional until you approve it.
+          </p>
+
+          {!interpretation ? (
+            <div className="card border border-dashed border-black/20 text-center" style={{ padding: "32px 24px" }}>
+              <img src="/wavelength-mark.png" alt="" className="h-10 w-auto mx-auto mb-4 opacity-80"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+              <p className="text-sm text-[var(--color-grey)] max-w-md mx-auto mb-6">
+                Ask Wavelength to interpret this team&apos;s results. It will surface strengths, name the focus issue, and draft questions for the feedback round.
+              </p>
+              <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
+                className="btn-primary">
+                {interpreting ? "Wavelength is reading..." : "Run AI interpretation"}
+              </button>
+              {interpretError && <p className="text-sm text-red-600 mt-4">{interpretError}</p>}
+              <p className="text-xs text-[var(--color-grey)] mt-6 max-w-md mx-auto">
+                Members who kept their words private still inform the analysis — their responses shape the read but are never quoted.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {interpretError && <p className="text-sm text-red-600">{interpretError}</p>}
+
+              {interpretation.messy_or_insufficient_flag && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Wavelength flagged this data as messy or insufficient for a confident read. Treat the focus below as a starting point and lean on the feedback round.
+                </div>
+              )}
+
+              {/* Headline */}
+              {hasText(interpretation.headline_read) && (
+                <div className="card" style={{ padding: "20px 24px" }}>
+                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">The honest gist</p>
+                  <p className="text-lg leading-relaxed" style={{ fontFamily: "Playfair Display, serif" }}>
+                    {interpretation.headline_read}
+                  </p>
+                </div>
+              )}
+
+              {/* Purpose alignment + Focus issue */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {interpretation.purpose_alignment && (hasText(interpretation.purpose_alignment.description) || interpretation.purpose_alignment.level) && (
+                  <div className="card" style={{ padding: "18px 20px" }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-xs uppercase tracking-widest text-[var(--color-grey)]">Shared purpose</p>
+                      {interpretation.purpose_alignment.level && (
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full capitalize ${PURPOSE_LEVEL_CLS[interpretation.purpose_alignment.level] ?? "bg-gray-100 text-gray-700"}`}>
+                          {interpretation.purpose_alignment.level}
+                        </span>
+                      )}
+                    </div>
+                    {hasText(interpretation.purpose_alignment.description) && (
+                      <p className="text-sm leading-relaxed">{interpretation.purpose_alignment.description}</p>
+                    )}
+                  </div>
+                )}
+
+                {interpretation.focus_issue && (
+                  <div className="card border border-[var(--color-purple)]/40" style={{ padding: "18px 20px" }}>
+                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Focus issue</p>
+                    {hasText(interpretation.focus_issue.buy_in_sentence) && (
+                      <p className="text-sm font-medium leading-relaxed mb-3">&ldquo;{interpretation.focus_issue.buy_in_sentence}&rdquo;</p>
+                    )}
+                    <dl className="text-xs text-[var(--color-grey)] space-y-1">
+                      {hasText(interpretation.focus_issue.target_rung) && (
+                        <div><span className="font-medium text-[var(--color-ink)]">Target rung:</span> {interpretation.focus_issue.target_rung}</div>
+                      )}
+                      {hasText(interpretation.focus_issue.fish) && (
+                        <div><span className="font-medium text-[var(--color-ink)]">Fish:</span> {interpretation.focus_issue.fish}</div>
+                      )}
+                      {hasText(interpretation.focus_issue.vehicle) && (
+                        <div><span className="font-medium text-[var(--color-ink)]">Vehicle:</span> {interpretation.focus_issue.vehicle}</div>
+                      )}
+                    </dl>
+                  </div>
+                )}
+              </div>
+
+              {/* Assumptions */}
+              {interpretation.assumptions && interpretation.assumptions.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-medium mb-3">Assumptions to check with the team</h3>
+                  <div className="space-y-3">
+                    {interpretation.assumptions.map((a, i) => (
+                      <div key={i} className="card" style={{ padding: "16px 20px" }}>
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <p className="text-sm font-medium leading-relaxed flex-1">{a.assumption}</p>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {a.confidence && (
+                              <span className={`text-xs px-2.5 py-0.5 rounded-full capitalize ${TIER2_CONF_CLS[a.confidence] ?? "bg-gray-100 text-gray-700"}`}>
+                                {a.confidence}
+                              </span>
+                            )}
+                            {a.sure_or_unsure && (
+                              <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--color-navy)] text-white capitalize">
+                                {a.sure_or_unsure}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {a.supporting_evidence && a.supporting_evidence.length > 0 && (
+                          <ul className="text-xs text-[var(--color-grey)] list-disc pl-4 space-y-0.5 mb-2">
+                            {a.supporting_evidence.map((e, j) => <li key={j}>{e}</li>)}
+                          </ul>
+                        )}
+                        {hasText(a.why_it_matters) && (
+                          <p className="text-xs text-[var(--color-grey)]"><span className="font-medium text-[var(--color-ink)]">Why it matters:</span> {a.why_it_matters}</p>
+                        )}
+                        {hasText(a.what_would_resonate_or_not) && (
+                          <p className="text-xs text-[var(--color-grey)] mt-1"><span className="font-medium text-[var(--color-ink)]">What would resonate or not:</span> {a.what_would_resonate_or_not}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* In/out plan + questions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {hasText(interpretation.inout_plan) && (
+                  <div className="card" style={{ padding: "16px 20px" }}>
+                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">More-of / less-of framing</p>
+                    <p className="text-sm leading-relaxed">{interpretation.inout_plan}</p>
+                  </div>
+                )}
+                {interpretation.focus_questions_for_feedback_round && interpretation.focus_questions_for_feedback_round.length > 0 && (
+                  <div className="card" style={{ padding: "16px 20px" }}>
+                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Questions for the feedback round</p>
+                    <ul className="text-sm list-disc pl-4 space-y-1">
+                      {interpretation.focus_questions_for_feedback_round.map((q, i) => <li key={i}>{q}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* Context questions for consultant */}
+              {interpretation.context_questions_for_consultant && interpretation.context_questions_for_consultant.length > 0 && (
+                <div className="card" style={{ padding: "16px 20px" }}>
+                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">What would sharpen the read (for you)</p>
+                  <ul className="text-sm list-disc pl-4 space-y-1">
+                    {interpretation.context_questions_for_consultant.map((q, i) => <li key={i}>{q}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {/* Divergence + deferred */}
+              {(hasText(interpretation.divergence_notes) || (interpretation.deferred_for_later && interpretation.deferred_for_later.length > 0)) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {hasText(interpretation.divergence_notes) && (
+                    <div className="card" style={{ padding: "16px 20px" }}>
+                      <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Divergence</p>
+                      <p className="text-sm leading-relaxed">{interpretation.divergence_notes}</p>
+                    </div>
+                  )}
+                  {interpretation.deferred_for_later && interpretation.deferred_for_later.length > 0 && (
+                    <div className="card" style={{ padding: "16px 20px" }}>
+                      <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Deferred for a future round</p>
+                      <ul className="text-sm list-disc pl-4 space-y-1">
+                        {interpretation.deferred_for_later.map((d, i) => <li key={i}>{d}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Welfare note — private to consultant */}
+              {hasText(interpretation.welfare_or_sensitive_note) && (
+                <div className="rounded-lg border border-[var(--color-navy)]/30 bg-[var(--color-navy)]/5 px-4 py-3">
+                  <p className="text-xs uppercase tracking-widest text-[var(--color-navy)] mb-1.5 font-medium">Private welfare note — for you only</p>
+                  <p className="text-sm leading-relaxed">{interpretation.welfare_or_sensitive_note}</p>
+                </div>
+              )}
+
+              {/* Proposed member-facing summary */}
+              {hasText(interpretation.proposed_member_facing_summary) && (
+                <div className="card border border-dashed border-black/20" style={{ padding: "18px 20px" }}>
+                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Draft summary for members — pending your approval</p>
+                  <p className="text-sm leading-relaxed italic">{interpretation.proposed_member_facing_summary}</p>
+                </div>
+              )}
+
+              {hasText(interpretation.data_quality_note) && (
+                <p className="text-xs text-[var(--color-grey)]">{interpretation.data_quality_note}</p>
+              )}
+            </div>
+          )}
+        </section>
+
         {/* ── Panel 3: Statement breakdown ──────────────────────────────── */}
         <section>
           <h2 className="text-3xl mb-6">Statement breakdown</h2>
@@ -779,14 +1057,11 @@ export default function TeamDashboardPage() {
             </div>
           )}
 
-          <div className="mt-6 rounded-xl border border-dashed border-black/20 px-6 py-5">
-            <p className="text-sm italic text-[var(--color-grey)]">
-              Wavelength&apos;s purpose alignment analysis appears here after running the full AI interpretation. Click &ldquo;Run AI interpretation&rdquo; to generate.
-            </p>
-            <p className="text-xs text-[var(--color-grey)] mt-3">
-              Members who chose to keep their words private still contribute to the alignment analysis — their responses inform the interpretation but are never quoted directly.
-            </p>
-          </div>
+          <p className="mt-6 text-xs text-[var(--color-grey)]">
+            Wavelength&apos;s purpose alignment read is in the{" "}
+            <a href="#wavelength-read" className="underline">Wavelength&apos;s read</a> panel above.
+            Members who kept their words private still inform the alignment analysis — their responses are never quoted directly.
+          </p>
         </section>
 
         {/* ── Panel 6: Coordination map ─────────────────────────────────── */}
