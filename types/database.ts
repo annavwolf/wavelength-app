@@ -63,11 +63,15 @@ export type Member = {
   share_verbatim_with_team: boolean;
   share_name_with_team: boolean;
   status: string;
-  // Optional, member-volunteered context (interview step 2.5). Deliberately
-  // excludes gender/ethnicity/age — GDPR special-category data with no
-  // validated relevance to this flow.
+  // Optional member-volunteered context collected in the interview.
   primary_language: string | null;
   personal_context: string | null;
+  // Optional demographics — all voluntary, never shared individually.
+  gender_identity: string | null;
+  ethnicity_cultural: string | null;
+  age: string | null;
+  // When the member joined this team (free text, e.g. "January 2024").
+  tenure_start: string | null;
   completed_at: string | null;
   created_at: string;
 }
@@ -88,6 +92,10 @@ export type MemberInsert = {
   status?: string;
   primary_language?: string | null;
   personal_context?: string | null;
+  gender_identity?: string | null;
+  ethnicity_cultural?: string | null;
+  age?: string | null;
+  tenure_start?: string | null;
   completed_at?: string | null;
   created_at?: string;
 }
@@ -250,6 +258,25 @@ export type MissingMemberFlagInsert = {
 }
 
 export type MissingMemberFlagUpdate = Partial<MissingMemberFlagInsert>;
+
+// Custom question typed by a member during the FAQ step.
+export type MemberQuestion = {
+  id: string;
+  member_id: string;
+  team_id: string;
+  question_text: string;
+  created_at: string;
+}
+
+export type MemberQuestionInsert = {
+  id?: string;
+  member_id: string;
+  team_id: string;
+  question_text: string;
+  created_at?: string;
+}
+
+export type MemberQuestionUpdate = Partial<MemberQuestionInsert>;
 
 export type FishResponse = {
   id: string;
@@ -453,6 +480,12 @@ export type Database = {
         Row: PsReflectionCheck;
         Insert: PsReflectionCheckInsert;
         Update: PsReflectionCheckUpdate;
+        Relationships: [];
+      };
+      member_questions: {
+        Row: MemberQuestion;
+        Insert: MemberQuestionInsert;
+        Update: MemberQuestionUpdate;
         Relationships: [];
       };
       purpose_responses: {

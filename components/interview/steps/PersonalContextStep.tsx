@@ -7,9 +7,8 @@ import VoiceTextarea from "@/components/interview/VoiceTextarea";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member } from "@/types/database";
 
-// Optional, member-volunteered context. Deliberately excludes gender,
-// ethnicity, and age — GDPR special-category data with no validated
-// relevance to this flow.
+// Optional, member-volunteered context. The demographic fields are explicitly
+// opt-in and never shared individually — the consent note above them says so.
 export default function PersonalContextStep({
   member,
   supabase,
@@ -18,6 +17,12 @@ export default function PersonalContextStep({
   onLanguageChange,
   context,
   onContextChange,
+  genderIdentity,
+  onGenderIdentityChange,
+  ethnicityCultural,
+  onEthnicityCulturalChange,
+  ageText,
+  onAgeTextChange,
   onSaved,
   onAdvance,
 }: {
@@ -28,16 +33,19 @@ export default function PersonalContextStep({
   onLanguageChange: (value: string) => void;
   context: string;
   onContextChange: (value: string) => void;
+  genderIdentity: string;
+  onGenderIdentityChange: (value: string) => void;
+  ethnicityCultural: string;
+  onEthnicityCulturalChange: (value: string) => void;
+  ageText: string;
+  onAgeTextChange: (value: string) => void;
   onSaved: (fields: Partial<Member>) => void;
   onAdvance: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function save(fields: {
-    primary_language: string | null;
-    personal_context: string | null;
-  }) {
+  async function save(fields: Partial<Member>) {
     setSaving(true);
     setError(null);
 
@@ -67,6 +75,9 @@ export default function PersonalContextStep({
     const ok = await save({
       primary_language: language.trim() || null,
       personal_context: context.trim() || null,
+      gender_identity: genderIdentity.trim() || null,
+      ethnicity_cultural: ethnicityCultural.trim() || null,
+      age: ageText.trim() || null,
     });
     if (ok) onAdvance();
   }
@@ -89,7 +100,7 @@ export default function PersonalContextStep({
         you&apos;d like.
       </ChatBubble>
 
-      <div className="mt-6 mb-6 space-y-4">
+      <div className="mt-6 mb-4 space-y-4">
         <div>
           <label className="form-label">
             Language you work in (optional)
@@ -105,8 +116,48 @@ export default function PersonalContextStep({
           <VoiceTextarea
             value={context}
             onChange={onContextChange}
-            rows={4}
+            rows={3}
             placeholder="Share anything that would help me understand you better..."
+          />
+        </div>
+      </div>
+
+      {/* Demographic fields — with explicit consent note */}
+      <div className="card mt-6 mb-6 space-y-4">
+        <p className="text-sm text-[var(--color-grey)] leading-relaxed">
+          These next few are completely optional. I ask because team
+          experience can sometimes differ across backgrounds, and it helps
+          me understand the whole team. You&apos;re free to skip any or all
+          of them, and they&apos;re never shared individually.
+        </p>
+
+        <div>
+          <label className="form-label">
+            How would you describe your gender identity? (optional)
+          </label>
+          <VoiceTextInput
+            value={genderIdentity}
+            onChange={onGenderIdentityChange}
+            placeholder="e.g. woman, man, non-binary, prefer not to say..."
+          />
+        </div>
+        <div>
+          <label className="form-label">
+            How would you describe your cultural background or ethnicity?
+            (optional)
+          </label>
+          <VoiceTextInput
+            value={ethnicityCultural}
+            onChange={onEthnicityCulturalChange}
+            placeholder="Describe in your own words..."
+          />
+        </div>
+        <div>
+          <label className="form-label">Your age (optional)</label>
+          <VoiceTextInput
+            value={ageText}
+            onChange={onAgeTextChange}
+            placeholder="e.g. 34"
           />
         </div>
       </div>

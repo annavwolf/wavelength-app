@@ -12,6 +12,10 @@ export default function RosterStep({
   allMembers,
   supabase,
   readAloud,
+  tenureStart,
+  onTenureStartChange,
+  tenureSaved,
+  onTenureSaved,
   showMissingField,
   onShowMissingFieldChange,
   missingName,
@@ -20,6 +24,7 @@ export default function RosterStep({
   onMissingRoleChange,
   noted,
   onNotedChange,
+  onSaved,
   onAdvance,
 }: {
   member: Member;
@@ -27,6 +32,10 @@ export default function RosterStep({
   allMembers: Member[];
   supabase: AppSupabaseClient;
   readAloud: boolean;
+  tenureStart: string;
+  onTenureStartChange: (value: string) => void;
+  tenureSaved: boolean;
+  onTenureSaved: () => void;
   showMissingField: boolean;
   onShowMissingFieldChange: (value: boolean) => void;
   missingName: string;
@@ -35,14 +44,47 @@ export default function RosterStep({
   onMissingRoleChange: (value: string) => void;
   noted: boolean;
   onNotedChange: (value: boolean) => void;
+  onSaved: (fields: Partial<Member>) => void;
   onAdvance: () => void;
 }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [savingTenure, setSavingTenure] = useState(false);
+  const [tenureError, setTenureError] = useState<string | null>(null);
+  const [savingFlag, setSavingFlag] = useState(false);
+  const [flagError, setFlagError] = useState<string | null>(null);
+
+  async function handleSaveTenure() {
+    if (!tenureStart.trim()) {
+      onTenureSaved();
+      return;
+    }
+    setSavingTenure(true);
+    setTenureError(null);
+
+    const { error: updateError } = await supabase
+      .from("members")
+      .update({ tenure_start: tenureStart })
+      .eq("member_id", member.member_id);
+
+    if (updateError) {
+      console.error("[interview/roster] failed to save tenure:", {
+        message: updateError.message,
+        details: updateError.details,
+        hint: updateError.hint,
+        code: updateError.code,
+      });
+      setTenureError("Couldn't save that — please try again.");
+      setSavingTenure(false);
+      return;
+    }
+
+    onSaved({ tenure_start: tenureStart });
+    setSavingTenure(false);
+    onTenureSaved();
+  }
 
   async function handleMissingSubmit() {
-    setSaving(true);
-    setError(null);
+    setSavingFlag(true);
+    setFlagError(null);
 
     const { error: insertError } = await supabase
       .from("missing_member_flags")
@@ -60,20 +102,73 @@ export default function RosterStep({
         hint: insertError.hint,
         code: insertError.code,
       });
-      setError("Something went wrong saving that. Please try again.");
-      setSaving(false);
+      setFlagError("Something went wrong saving that. Please try again.");
+      setSavingFlag(false);
       return;
     }
 
-    setSaving(false);
+    setSavingFlag(false);
     onNotedChange(true);
   }
 
   return (
     <div>
+      {/* ── Tenure question ── */}
       <ChatBubble readAloud={readAloud}>
-        Here&apos;s everyone I know about on this team. Does this look right
-        to you?
+        Roughly when did you join this team, or start working with them?
+      </ChatBubble>
+
+      {!tenureSaved ? (
+        <div className="mt-4 mb-8 space-y-3">
+          <VoiceTextInput
+            value={tenureStart}
+            onChange={onTenureStartChange}
+            placeholder="e.g. January 2024, early 2023..."
+          />
+          {tenureError && (
+            <p className="text-[var(--color-grey)] text-sm">{tenureError}</p>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={handleSaveTenure}
+              disabled={savingTenure}
+              className="btn-primary"
+            >
+              {savingTenure ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={onTenureSaved}
+              className="btn-secondary"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-8">
+          {tenureStart ? (
+            <p className="text-[var(--color-grey)]">
+              ✓ {tenureStart}
+            </p>
+          ) : (
+            <p className="text-[var(--color-grey)] text-sm">Skipped.</p>
+          )}
+        </div>
+      )}
+
+      {/* ── Team roster check ── */}
+      <ChatBubble readAloud={readAloud}>
+        Here&apos;s everyone I know about on this team. I want to check I
+        have the team right.
+      </ChatBubble>
+      <ChatBubble readAloud={readAloud}>
+        One thing to keep in mind: the question isn&apos;t whether
+        there&apos;s someone you work with who isn&apos;t listed — you might
+        work closely with people on other teams. The question is whether a
+        core member of THIS team, someone who clearly belongs here, is
+        missing.
       </ChatBubble>
 
       <div className="space-y-3 mt-6 mb-6">
@@ -99,17 +194,17 @@ export default function RosterStep({
         ))}
       </div>
 
-      {!showMissingField && (
+      {!showMissingField && !noted && (
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={onAdvance} className="btn-primary">
-            Yes, that&apos;s the team
+            Yes, this is the team
           </button>
           <button
             type="button"
             onClick={() => onShowMissingFieldChange(true)}
             className="btn-secondary"
           >
-            Someone&apos;s missing
+            Someone core is missing
           </button>
         </div>
       )}
@@ -125,16 +220,18 @@ export default function RosterStep({
             <VoiceTextInput value={missingRole} onChange={onMissingRoleChange} />
           </div>
 
-          {error && <p className="text-[var(--color-grey)]">{error}</p>}
+          {flagError && (
+            <p className="text-[var(--color-grey)]">{flagError}</p>
+          )}
 
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={handleMissingSubmit}
-              disabled={!missingName.trim() || saving}
+              disabled={!missingName.trim() || savingFlag}
               className="btn-primary"
             >
-              {saving ? "Saving..." : "Add note"}
+              {savingFlag ? "Saving..." : "Add note"}
             </button>
             <button
               type="button"

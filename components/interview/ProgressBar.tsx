@@ -1,10 +1,9 @@
 import type { InterviewStep } from "./types";
 
-// Only the steps built so far count toward the bar — 'ps_diagnostic',
-// 'fish', and 'close' aren't rendered yet (see types.ts).
 const STEP_ORDER: InterviewStep[] = [
   "landing",
   "foreshadow",
+  "faq",
   "consent",
   "profile",
   "personal_context",
@@ -16,13 +15,17 @@ const STEP_ORDER: InterviewStep[] = [
   "ps_intro_close",
   "ps_frame",
   "ps_diagnostic",
-  "ps_reflect",
+  "deadfish_intro",
+  "deadfish",
+  "deadfish_open",
+  "review",
+  // "close" is the terminal step — fraction reaches 1 when we get there.
 ];
 
 export default function ProgressBar({ step }: { step: InterviewStep }) {
   const index = STEP_ORDER.indexOf(step);
   const fraction =
-    step === "end_of_pass1" ? 1 : index === -1 ? 0 : (index + 1) / STEP_ORDER.length;
+    step === "close" ? 1 : index === -1 ? 0 : (index + 1) / STEP_ORDER.length;
 
   return (
     <div className="w-full h-1.5 bg-black/10 rounded-full overflow-hidden mb-12">

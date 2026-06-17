@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 import type {
   CoordinationFrequency,
+  Fish,
   Member,
   PsLabel,
   PsStatement,
@@ -16,6 +17,7 @@ import BackButton from "@/components/interview/BackButton";
 import ReadAloudToggle from "@/components/interview/ReadAloudToggle";
 import LandingStep from "@/components/interview/steps/LandingStep";
 import ForeshadowStep from "@/components/interview/steps/ForeshadowStep";
+import FaqStep from "@/components/interview/steps/FaqStep";
 import ConsentStep from "@/components/interview/steps/ConsentStep";
 import ProfileStep from "@/components/interview/steps/ProfileStep";
 import PersonalContextStep from "@/components/interview/steps/PersonalContextStep";
@@ -27,15 +29,20 @@ import PsDescentStep from "@/components/interview/steps/PsDescentStep";
 import PsIntroCloseStep from "@/components/interview/steps/PsIntroCloseStep";
 import PsFrameStep from "@/components/interview/steps/PsFrameStep";
 import PsDiagnosticStep from "@/components/interview/steps/PsDiagnosticStep";
-import PsReflectStep from "@/components/interview/steps/PsReflectStep";
-import EndOfPass1Step from "@/components/interview/steps/EndOfPass1Step";
+import DeadfishIntroStep from "@/components/interview/steps/DeadfishIntroStep";
+import DeadfishStep from "@/components/interview/steps/DeadfishStep";
+import DeadfishOpenStep from "@/components/interview/steps/DeadfishOpenStep";
+import ReviewStep from "@/components/interview/steps/ReviewStep";
+import CloseStep from "@/components/interview/steps/CloseStep";
 
-// Linear order this pass moves through — used both for the back button and
-// the progress bar. Going back is just stepping backward through this list;
-// there's no branching yet.
+// landing → foreshadow → faq → consent → profile → personal_context →
+// purpose → roster → coordination → ps_intro_open → ps_descent →
+// ps_intro_close → ps_frame → ps_diagnostic → deadfish_intro → deadfish →
+// deadfish_open → review → close
 const STEP_ORDER: InterviewStep[] = [
   "landing",
   "foreshadow",
+  "faq",
   "consent",
   "profile",
   "personal_context",
@@ -47,38 +54,63 @@ const STEP_ORDER: InterviewStep[] = [
   "ps_intro_close",
   "ps_frame",
   "ps_diagnostic",
-  "ps_reflect",
-  "end_of_pass1",
+  "deadfish_intro",
+  "deadfish",
+  "deadfish_open",
+  "review",
+  "close",
 ];
 
-// ps_diagnostic breaks out of the centred max-w-2xl column to go full-bleed
-// (the ocean background needs the full viewport width to feel right).
-// Only ps_diagnostic needs to break the centred column — the other PS
-// steps use the standard layout (portrait image constrains itself fine).
+// Steps that need full viewport width — only the ocean-background diagnostic.
 const FULL_BLEED_STEPS: InterviewStep[] = ["ps_diagnostic"];
 
-// Draft state for steps whose input shouldn't be lost if the member goes
-// back and then forward again. Step components stay mount/unmount
-// (conditionally rendered) so ChatBubble's read-aloud-on-mount behaviour
-// keeps working — the data that needs to survive that unmount lives here
-// instead of inside the step component.
+// Steps where the back button is hidden (start and terminal).
+const NO_BACK_STEPS: InterviewStep[] = ["landing", "close"];
+
+// All input state that must survive back/forward navigation lives here
+// rather than in individual step components (which unmount on step change).
 type InterviewDraft = {
-  purposeText: string;
+  // faq
+  faqQuestion: string;
+  faqAcknowledged: boolean;
+  // personal context
   personalLanguage: string;
   personalContext: string;
+  genderIdentity: string;
+  ethnicityCultural: string;
+  ageText: string;
+  // purpose
+  purposeText: string;
+  // roster
+  rosterTenureStart: string;
+  rosterTenureSaved: boolean;
   rosterShowMissingField: boolean;
   rosterMissingName: string;
   rosterMissingRole: string;
   rosterNoted: boolean;
+  // coordination
   coordRatings: Record<string, CoordinationFrequency>;
   coordRowIds: Record<string, string>;
+  // ps diagnostic
   psRatings: Record<number, PsLabel>;
+  // dead fish
+  deadfishRatings: Record<string, number>;
+  deadfishRowIds: Record<string, string>;
+  deadfishCustomText: string;
+  deadfishCustomSeverity: number | null;
 };
 
 const INITIAL_DRAFT: InterviewDraft = {
-  purposeText: "",
+  faqQuestion: "",
+  faqAcknowledged: false,
   personalLanguage: "",
   personalContext: "",
+  genderIdentity: "",
+  ethnicityCultural: "",
+  ageText: "",
+  purposeText: "",
+  rosterTenureStart: "",
+  rosterTenureSaved: false,
   rosterShowMissingField: false,
   rosterMissingName: "",
   rosterMissingRole: "",
@@ -86,6 +118,10 @@ const INITIAL_DRAFT: InterviewDraft = {
   coordRatings: {},
   coordRowIds: {},
   psRatings: {},
+  deadfishRatings: {},
+  deadfishRowIds: {},
+  deadfishCustomText: "",
+  deadfishCustomSeverity: null,
 };
 
 // Public page — members reach this via their private link, not a Wavelength
@@ -98,6 +134,7 @@ export default function InterviewPage() {
   const [team, setTeam] = useState<Team | null>(null);
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [psStatements, setPsStatements] = useState<PsStatement[]>([]);
+  const [teamFish, setTeamFish] = useState<Fish[]>([]);
 
   const [step, setStep] = useState<InterviewStep>("landing");
   const [draft, setDraft] = useState<InterviewDraft>(INITIAL_DRAFT);
@@ -142,35 +179,37 @@ export default function InterviewPage() {
           .order("statement_id", { ascending: true }),
       ]);
 
-      if (teamError) {
-        console.error("[interview] failed to load team:", teamError);
-      }
-      if (membersError) {
-        console.error("[interview] failed to load team roster:", membersError);
-      }
-      if (statementsError) {
-        console.error(
-          "[interview] failed to load ps_statements:",
-          statementsError
-        );
-      }
+      if (teamError) console.error("[interview] team load failed:", teamError);
+      if (membersError) console.error("[interview] roster load failed:", membersError);
+      if (statementsError) console.error("[interview] ps_statements load failed:", statementsError);
 
       setMember(memberData);
       setTeam(teamData ?? null);
       setAllMembers(membersData ?? []);
       setPsStatements(statementsData ?? []);
 
-      const { error: updateError } = await supabase
+      // Fetch fish selected for this team (used in the dead fish step).
+      if (teamData?.selected_fish_ids?.length) {
+        const { data: fishData, error: fishError } = await supabase
+          .from("fish")
+          .select("*")
+          .in("fish_id", teamData.selected_fish_ids)
+          .order("sort_order", { ascending: true });
+        if (fishError) console.error("[interview] fish load failed:", fishError);
+        setTeamFish(fishData ?? []);
+      }
+
+      // Mark this member as in progress.
+      const { error: statusError } = await supabase
         .from("members")
         .update({ status: "in_progress" })
         .eq("member_id", memberData.member_id);
-
-      if (updateError) {
-        console.error("[interview] failed to mark member in_progress:", {
-          message: updateError.message,
-          details: updateError.details,
-          hint: updateError.hint,
-          code: updateError.code,
+      if (statusError) {
+        console.error("[interview] failed to mark in_progress:", {
+          message: statusError.message,
+          details: statusError.details,
+          hint: statusError.hint,
+          code: statusError.code,
         });
       }
 
@@ -188,8 +227,6 @@ export default function InterviewPage() {
     setDraft((prev) => ({ ...prev, ...fields }));
   }
 
-  // Centralised navigation so speech doesn't talk over itself across a
-  // step change, whichever direction it happens.
   function goToStep(next: InterviewStep) {
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
@@ -199,9 +236,7 @@ export default function InterviewPage() {
 
   function goBack() {
     const index = STEP_ORDER.indexOf(step);
-    if (index > 0) {
-      goToStep(STEP_ORDER[index - 1]);
-    }
+    if (index > 0) goToStep(STEP_ORDER[index - 1]);
   }
 
   function toggleReadAloud() {
@@ -228,33 +263,23 @@ export default function InterviewPage() {
   if (loading || !member || !team) {
     return (
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
-        <img
-          src="/octopus-logo.png"
-          alt=""
-          className="h-20 w-auto mx-auto mb-8"
-        />
-
+        <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
         <h1
-          className="text-4xl font-serif mb-2 text-center"
+          className="text-4xl font-serif mb-2"
           style={{ fontFamily: "Playfair Display, serif" }}
         >
           Hello, I&apos;m <span className="purple">Wavelength.</span>
         </h1>
-
-        <p className="accent text-lg text-center mb-8">
-          I&apos;m here to learn about your team.
-        </p>
-
+        <p className="accent text-lg mb-8">I&apos;m here to learn about your team.</p>
         <p className="text-[var(--color-grey)]">Loading your session...</p>
       </main>
     );
   }
 
-  const otherMembers = allMembers.filter(
-    (m) => m.member_id !== member.member_id
-  );
+  const otherMembers = allMembers.filter((m) => m.member_id !== member.member_id);
   const smallTeam = allMembers.length < 5;
   const fullBleed = FULL_BLEED_STEPS.includes(step);
+  const showBack = !NO_BACK_STEPS.includes(step);
 
   return (
     <main
@@ -264,24 +289,31 @@ export default function InterviewPage() {
     >
       <div className="w-full max-w-2xl px-6 pt-16">
         <div className="flex items-center justify-between mb-2">
-          {step !== "landing" ? <BackButton onBack={goBack} /> : <span />}
+          {showBack ? <BackButton onBack={goBack} /> : <span />}
           <ReadAloudToggle enabled={readAloud} onToggle={toggleReadAloud} />
         </div>
-
         <ProgressBar step={step} />
       </div>
 
       <div className={fullBleed ? "w-full" : "w-full max-w-2xl px-6 pb-16"}>
         {step === "landing" && (
-          <LandingStep
-            readAloud={readAloud}
-            onAdvance={() => goToStep("foreshadow")}
-          />
+          <LandingStep readAloud={readAloud} onAdvance={() => goToStep("foreshadow")} />
         )}
 
         {step === "foreshadow" && (
-          <ForeshadowStep
+          <ForeshadowStep readAloud={readAloud} onAdvance={() => goToStep("faq")} />
+        )}
+
+        {step === "faq" && (
+          <FaqStep
+            member={member}
+            team={team}
+            supabase={supabase}
             readAloud={readAloud}
+            question={draft.faqQuestion}
+            onQuestionChange={(v) => updateDraft({ faqQuestion: v })}
+            acknowledged={draft.faqAcknowledged}
+            onAcknowledged={() => updateDraft({ faqAcknowledged: true })}
             onAdvance={() => goToStep("consent")}
           />
         )}
@@ -313,11 +345,15 @@ export default function InterviewPage() {
             supabase={supabase}
             readAloud={readAloud}
             language={draft.personalLanguage}
-            onLanguageChange={(value) =>
-              updateDraft({ personalLanguage: value })
-            }
+            onLanguageChange={(v) => updateDraft({ personalLanguage: v })}
             context={draft.personalContext}
-            onContextChange={(value) => updateDraft({ personalContext: value })}
+            onContextChange={(v) => updateDraft({ personalContext: v })}
+            genderIdentity={draft.genderIdentity}
+            onGenderIdentityChange={(v) => updateDraft({ genderIdentity: v })}
+            ethnicityCultural={draft.ethnicityCultural}
+            onEthnicityCulturalChange={(v) => updateDraft({ ethnicityCultural: v })}
+            ageText={draft.ageText}
+            onAgeTextChange={(v) => updateDraft({ ageText: v })}
             onSaved={applyMemberFields}
             onAdvance={() => goToStep("purpose")}
           />
@@ -330,7 +366,7 @@ export default function InterviewPage() {
             supabase={supabase}
             readAloud={readAloud}
             text={draft.purposeText}
-            onTextChange={(value) => updateDraft({ purposeText: value })}
+            onTextChange={(v) => updateDraft({ purposeText: v })}
             onAdvance={() => goToStep("roster")}
           />
         )}
@@ -342,20 +378,19 @@ export default function InterviewPage() {
             allMembers={allMembers}
             supabase={supabase}
             readAloud={readAloud}
+            tenureStart={draft.rosterTenureStart}
+            onTenureStartChange={(v) => updateDraft({ rosterTenureStart: v })}
+            tenureSaved={draft.rosterTenureSaved}
+            onTenureSaved={() => updateDraft({ rosterTenureSaved: true })}
             showMissingField={draft.rosterShowMissingField}
-            onShowMissingFieldChange={(value) =>
-              updateDraft({ rosterShowMissingField: value })
-            }
+            onShowMissingFieldChange={(v) => updateDraft({ rosterShowMissingField: v })}
             missingName={draft.rosterMissingName}
-            onMissingNameChange={(value) =>
-              updateDraft({ rosterMissingName: value })
-            }
+            onMissingNameChange={(v) => updateDraft({ rosterMissingName: v })}
             missingRole={draft.rosterMissingRole}
-            onMissingRoleChange={(value) =>
-              updateDraft({ rosterMissingRole: value })
-            }
+            onMissingRoleChange={(v) => updateDraft({ rosterMissingRole: v })}
             noted={draft.rosterNoted}
-            onNotedChange={(value) => updateDraft({ rosterNoted: value })}
+            onNotedChange={(v) => updateDraft({ rosterNoted: v })}
+            onSaved={applyMemberFields}
             onAdvance={() => goToStep("coordination")}
           />
         )}
@@ -368,39 +403,27 @@ export default function InterviewPage() {
             supabase={supabase}
             readAloud={readAloud}
             ratings={draft.coordRatings}
-            onRatingsChange={(ratings) => updateDraft({ coordRatings: ratings })}
+            onRatingsChange={(v) => updateDraft({ coordRatings: v })}
             rowIds={draft.coordRowIds}
-            onRowIdsChange={(rowIds) => updateDraft({ coordRowIds: rowIds })}
+            onRowIdsChange={(v) => updateDraft({ coordRowIds: v })}
             onAdvance={() => goToStep("ps_intro_open")}
           />
         )}
 
         {step === "ps_intro_open" && (
-          <PsIntroOpenStep
-            readAloud={readAloud}
-            onAdvance={() => goToStep("ps_descent")}
-          />
+          <PsIntroOpenStep readAloud={readAloud} onAdvance={() => goToStep("ps_descent")} />
         )}
 
         {step === "ps_descent" && (
-          <PsDescentStep
-            readAloud={readAloud}
-            onAdvance={() => goToStep("ps_intro_close")}
-          />
+          <PsDescentStep readAloud={readAloud} onAdvance={() => goToStep("ps_intro_close")} />
         )}
 
         {step === "ps_intro_close" && (
-          <PsIntroCloseStep
-            readAloud={readAloud}
-            onAdvance={() => goToStep("ps_frame")}
-          />
+          <PsIntroCloseStep readAloud={readAloud} onAdvance={() => goToStep("ps_frame")} />
         )}
 
         {step === "ps_frame" && (
-          <PsFrameStep
-            readAloud={readAloud}
-            onAdvance={() => goToStep("ps_diagnostic")}
-          />
+          <PsFrameStep readAloud={readAloud} onAdvance={() => goToStep("ps_diagnostic")} />
         )}
 
         {step === "ps_diagnostic" && (
@@ -410,24 +433,73 @@ export default function InterviewPage() {
             statements={psStatements}
             supabase={supabase}
             ratings={draft.psRatings}
-            onRatingsChange={(ratings) => updateDraft({ psRatings: ratings })}
-            onAdvance={() => goToStep("ps_reflect")}
+            onRatingsChange={(v) => updateDraft({ psRatings: v })}
+            onAdvance={() => goToStep("deadfish_intro")}
           />
         )}
 
-        {step === "ps_reflect" && (
-          <PsReflectStep
+        {step === "deadfish_intro" && (
+          <DeadfishIntroStep
+            readAloud={readAloud}
+            onAdvance={() => goToStep("deadfish")}
+          />
+        )}
+
+        {step === "deadfish" && (
+          <DeadfishStep
             member={member}
             team={team}
-            statements={psStatements}
-            ratings={draft.psRatings}
+            fish={teamFish}
             supabase={supabase}
-            readAloud={readAloud}
-            onAdvance={() => goToStep("end_of_pass1")}
+            ratings={draft.deadfishRatings}
+            onRatingsChange={(v) => updateDraft({ deadfishRatings: v })}
+            rowIds={draft.deadfishRowIds}
+            onRowIdsChange={(v) => updateDraft({ deadfishRowIds: v })}
+            onAdvance={() => goToStep("deadfish_open")}
           />
         )}
 
-        {step === "end_of_pass1" && <EndOfPass1Step readAloud={readAloud} />}
+        {step === "deadfish_open" && (
+          <DeadfishOpenStep
+            member={member}
+            team={team}
+            supabase={supabase}
+            readAloud={readAloud}
+            customText={draft.deadfishCustomText}
+            onCustomTextChange={(v) => updateDraft({ deadfishCustomText: v })}
+            customSeverity={draft.deadfishCustomSeverity}
+            onCustomSeverityChange={(v) => updateDraft({ deadfishCustomSeverity: v })}
+            onAdvance={() => goToStep("review")}
+          />
+        )}
+
+        {step === "review" && (
+          <ReviewStep
+            member={member}
+            psStatements={psStatements}
+            psRatings={draft.psRatings}
+            teamFish={teamFish}
+            deadfishRatings={draft.deadfishRatings}
+            deadfishRowIds={draft.deadfishRowIds}
+            deadfishCustomText={draft.deadfishCustomText}
+            deadfishCustomSeverity={draft.deadfishCustomSeverity}
+            purposeText={draft.purposeText}
+            rosterMissingName={draft.rosterMissingName}
+            rosterMissingRole={draft.rosterMissingRole}
+            rosterNoted={draft.rosterNoted}
+            supabase={supabase}
+            onSaved={applyMemberFields}
+            onAdvance={() => goToStep("close")}
+          />
+        )}
+
+        {step === "close" && (
+          <CloseStep
+            member={member}
+            supabase={supabase}
+            onSaved={applyMemberFields}
+          />
+        )}
       </div>
     </main>
   );

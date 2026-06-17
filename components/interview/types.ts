@@ -10,6 +10,7 @@ export type AppSupabaseClient = ReturnType<typeof createBrowserClient>;
 export type InterviewStep =
   | "landing"
   | "foreshadow"
+  | "faq"
   | "consent"
   | "profile"
   | "personal_context"
@@ -21,7 +22,12 @@ export type InterviewStep =
   | "ps_intro_close"
   | "ps_frame"
   | "ps_diagnostic"
+  | "deadfish_intro"
+  | "deadfish"
+  | "deadfish_open"
+  | "review"
+  | "close"
+  // Legacy — kept in union but no longer wired in the flow.
   | "ps_reflect"
   | "end_of_pass1"
-  | "fish"
-  | "close";
+  | "fish";
