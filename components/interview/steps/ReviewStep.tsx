@@ -192,7 +192,6 @@ export default function ReviewStep({
   psRatings,
   teamFish,
   deadfishRatings,
-  deadfishRowIds: _deadfishRowIds,
   deadfishCustomText,
   deadfishCustomSeverity,
   purposeText,
@@ -208,7 +207,6 @@ export default function ReviewStep({
   psRatings: Record<number, PsLabel>;
   teamFish: Fish[];
   deadfishRatings: Record<string, number>;
-  deadfishRowIds: Record<string, string>;
   deadfishCustomText: string;
   deadfishCustomSeverity: number | null;
   purposeText: string;

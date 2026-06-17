@@ -480,7 +480,6 @@ export default function InterviewPage() {
             psRatings={draft.psRatings}
             teamFish={teamFish}
             deadfishRatings={draft.deadfishRatings}
-            deadfishRowIds={draft.deadfishRowIds}
             deadfishCustomText={draft.deadfishCustomText}
             deadfishCustomSeverity={draft.deadfishCustomSeverity}
             purposeText={draft.purposeText}
