@@ -384,7 +384,7 @@ export default function TeamDashboardPage() {
   }
 
   async function handleSendAllPending() {
-    const eligible = members.filter((m) => m.email && !m.invited_at && m.status !== "in_progress" && m.status !== "complete");
+    const eligible = members.filter((m) => m.email && (m.status === "pending" || m.status === "invited") && !m.invited_at);
     setSendingAll(true);
     for (const m of eligible) {
       await handleSendInvite(m.member_id);
@@ -471,13 +471,13 @@ export default function TeamDashboardPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      {m.email && !m.invited_at && m.status !== "in_progress" && m.status !== "complete" && (
+                      {m.email && (m.status === "pending" || m.status === "invited") && (
                         <button type="button"
                           onClick={() => handleSendInvite(m.member_id)}
                           disabled={inviteSending.has(m.member_id)}
                           className="btn-secondary whitespace-nowrap"
                           style={{ padding: "4px 12px", fontSize: "12px" }}>
-                          {inviteSending.has(m.member_id) ? "Sending..." : "Send invite"}
+                          {inviteSending.has(m.member_id) ? "Sending..." : m.invited_at ? "Re-send" : "Send invite"}
                         </button>
                       )}
                       <span className={`text-xs px-3 py-1 rounded-full ${memberStatusCls(m)}`}>
@@ -494,7 +494,7 @@ export default function TeamDashboardPage() {
                 <p className="text-sm text-[var(--color-grey)]">
                   {completeCount} of {totalCount} complete
                 </p>
-                {members.some((m) => m.email && !m.invited_at && m.status !== "in_progress" && m.status !== "complete") && (
+                {members.some((m) => m.email && (m.status === "pending" || m.status === "invited") && !m.invited_at) && (
                   <button type="button" onClick={handleSendAllPending} disabled={sendingAll}
                     className="text-sm text-[var(--color-purple)] font-medium hover:underline">
                     {sendingAll ? "Sending..." : "Send all pending invites"}
