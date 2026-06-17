@@ -427,6 +427,9 @@ export default function TeamDashboardPage() {
         return;
       }
       setInterpretation(data as Tier2Result);
+      if (data._save_warning) {
+        setInterpretError(`Showing the read, but it was not saved: ${data._save_warning}. Add the tier2_json column to persist it.`);
+      }
     } catch {
       setInterpretError("Something went wrong reaching Wavelength. Please try again.");
     }

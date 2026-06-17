@@ -173,27 +173,26 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
   }
 
   // ── Save to analysis table ──────────────────────────────────────────────────
-  // The full interpretation lives in tier2_json (single source of truth, includes
-  // headline_read, purpose_alignment, divergence_notes, focus_issue). The flat text
-  // columns mirror key fields for convenience. focus_issue is intentionally left
-  // untouched here — that column is used by the dashboard's priority-zone override.
+  // tier2_json is the single source of truth — it holds the whole interpretation
+  // (headline_read, assumptions, focus_issue, purpose_alignment, divergence_notes,
+  // welfare note, member-facing draft, etc.). We deliberately do not mirror fields
+  // into separate flat columns: those don't all exist in the live schema, and the
+  // dashboard reads everything it needs straight from tier2_json.
   const { error: updateError } = await supabase
     .from("analysis")
     .update({
       tier2_json: interpretation as unknown as Json,
-      assumptions: JSON.stringify(interpretation.assumptions ?? []),
-      inout_plan: (interpretation.inout_plan as string | null) ?? null,
-      deferred_for_later: JSON.stringify(interpretation.deferred_for_later ?? []),
-      focus_questions: JSON.stringify(interpretation.focus_questions_for_feedback_round ?? []),
       updated_at: new Date().toISOString(),
     })
     .eq("team_id", teamId);
 
   if (updateError) {
     console.error("[analysis/interpret] save failed:", updateError);
+    // The interpretation succeeded — return it so the consultant still sees the read,
+    // with a flag that persistence failed (most likely the tier2_json column is missing).
     return NextResponse.json(
-      { error: "save_failed", detail: updateError.message, hint: updateError.hint ?? null },
-      { status: 500 }
+      { ...interpretation, _save_warning: updateError.message },
+      { status: 200 }
     );
   }
 
