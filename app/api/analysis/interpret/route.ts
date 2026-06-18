@@ -79,10 +79,12 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
 
   const memberById = new Map((members ?? []).map((m) => [m.member_id, m]));
 
-  // ── Qualitative material: purpose + custom fish ─────────────────────────────
-  const [purposeRes, fishRes] = await Promise.all([
+  // ── Qualitative material + per-item PS detail ───────────────────────────────
+  const [purposeRes, fishRes, stmtRes, psRes] = await Promise.all([
     supabase.from("purpose_responses").select("*").eq("team_id", teamId),
     supabase.from("fish_responses").select("*").eq("team_id", teamId).is("fish_id", null),
+    supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),
+    supabase.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1),
   ]);
 
   if (purposeRes.error) {
@@ -90,6 +92,12 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
   }
   if (fishRes.error) {
     return NextResponse.json({ error: "db_error", detail: fishRes.error.message }, { status: 500 });
+  }
+  if (stmtRes.error) {
+    return NextResponse.json({ error: "db_error", detail: stmtRes.error.message }, { status: 500 });
+  }
+  if (psRes.error) {
+    return NextResponse.json({ error: "db_error", detail: psRes.error.message }, { status: 500 });
   }
 
   const purposeStatements = (purposeRes.data ?? []).map((r) => {
@@ -111,6 +119,29 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
     };
   });
 
+  // Each PS statement with its full wording/zone, plus every member's response.
+  const psResponses = psRes.data ?? [];
+  const psItems = (stmtRes.data ?? []).map((s) => ({
+    statement_id: s.statement_id,
+    zone: s.zone,
+    zone_name: s.zone_name,
+    statement_text: s.statement_text,
+    responses: psResponses
+      .filter((r) => r.statement_id === s.statement_id)
+      .map((r) => ({
+        private_code: memberById.get(r.member_id)?.private_code ?? "unknown",
+        label: r.label,
+        response_value: r.response_value,
+      })),
+  }));
+
+  // Co-location / timezone, so the model can answer who works where.
+  const memberLocations = (members ?? []).map((m) => ({
+    private_code: m.private_code,
+    location: m.location,
+    timezone: m.timezone,
+  }));
+
   // ── Assemble the data package for the model ─────────────────────────────────
   const dataPackage = {
     instruction:
@@ -120,6 +151,8 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
       "specified in your instructions.",
     team_context: teamContext,
     computed_metrics_tier1: analysisRow.tier1_json,
+    ps_items: psItems,
+    member_locations: memberLocations,
     qualitative_material: {
       purpose_statements: purposeStatements,
       custom_fish: customFish,
