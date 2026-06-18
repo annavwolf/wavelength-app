@@ -407,6 +407,11 @@ export default function TeamDashboardPage() {
   const [approvalError, setApprovalError] = useState<string | null>(null);
   // Collapsed supporting detail (Zone 3)
   const [z3Open, setZ3Open] = useState<Set<string>>(new Set());
+  // Consultant chat with Wavelength
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
   // Keep the editable handoff in sync whenever a new interpretation loads/runs.
   useEffect(() => {
@@ -561,6 +566,34 @@ export default function TeamDashboardPage() {
       [next[i], next[j]] = [next[j], next[i]];
       return next;
     });
+  }
+
+  async function handleSendChat() {
+    const text = chatInput.trim();
+    if (!text || chatSending) return;
+    const nextMessages = [...chatMessages, { role: "user" as const, content: text }];
+    setChatMessages(nextMessages);
+    setChatInput("");
+    setChatSending(true);
+    setChatError(null);
+    try {
+      const res = await fetch("/api/analysis/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_id: teamId, messages: nextMessages }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const detail = [data.error, data.detail].filter(Boolean).join(" — ");
+        setChatError(`Wavelength couldn't respond: ${detail || "unknown error"}`);
+        setChatSending(false);
+        return;
+      }
+      setChatMessages([...nextMessages, { role: "assistant", content: data.reply }]);
+    } catch {
+      setChatError("Something went wrong reaching Wavelength. Please try again.");
+    }
+    setChatSending(false);
   }
 
   async function handlePriorityChange(zone: 1 | 2 | 3) {
@@ -911,6 +944,53 @@ export default function TeamDashboardPage() {
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* ═══ Talk to Wavelength (consultant chat) ═══ */}
+              <div className="rounded-2xl border border-black/10 p-6 sm:p-8">
+                <h3 className="text-xl mb-1" style={{ fontFamily: "Playfair Display, serif" }}>
+                  Talk it through with Wavelength
+                </h3>
+                <p className="text-sm text-[var(--color-grey)] mb-5">
+                  Push back on the focus, propose a different rung, or ask anything about the read. Wavelength follows your lead.
+                </p>
+
+                {chatMessages.length > 0 && (
+                  <div className="space-y-3 mb-4">
+                    {chatMessages.map((m, i) => (
+                      <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                        <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                          m.role === "user"
+                            ? "bg-[var(--color-navy)] text-white"
+                            : "bg-[var(--color-purple)]/8 border border-[var(--color-purple)]/20"
+                        }`}>
+                          {m.content}
+                        </div>
+                      </div>
+                    ))}
+                    {chatSending && (
+                      <div className="flex justify-start">
+                        <div className="rounded-2xl px-4 py-2.5 text-sm bg-[var(--color-purple)]/8 border border-[var(--color-purple)]/20 text-[var(--color-grey)] italic">
+                          Wavelength is thinking...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-end gap-2">
+                  <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)}
+                    rows={2} placeholder="Ask Wavelength..." className="form-input flex-1" style={{ resize: "vertical" }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }} />
+                  <button type="button" onClick={handleSendChat} disabled={chatSending || !chatInput.trim()}
+                    className="btn-primary flex-shrink-0" style={{ padding: "10px 20px" }}>
+                    Send
+                  </button>
+                </div>
+                {chatError && <p className="text-sm text-red-600 mt-2">{chatError}</p>}
+                <p className="text-xs text-[var(--color-grey)] mt-2">
+                  This conversation is just for you — it is not saved and members never see it.
+                </p>
               </div>
 
               {/* ═══ ZONE 2 — What we'd put to the team (editable handoff) ═══ */}
