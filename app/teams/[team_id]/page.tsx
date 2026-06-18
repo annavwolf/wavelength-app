@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
-import type { Analysis, Fish, Member, PsStatement, Team } from "@/types/database";
+import type { Analysis, Fish, Json, Member, PsStatement, Team } from "@/types/database";
 
 // ── Tier 1 JSON shape ─────────────────────────────────────────────────────────
 
@@ -94,6 +94,9 @@ type Tier2FocusIssue = {
   fish?: string;
   vehicle?: string | null;
   buy_in_sentence?: string;
+  // Optional: surfaced if the interpretation names a genuine tension between
+  // competing focuses. Rendered when present; never fabricated at display time.
+  focus_tension?: string;
 };
 type Tier2PurposeAlignment = {
   level?: "strong" | "partial" | "divergent";
@@ -315,6 +318,62 @@ function CoordinationMap({ pairs, codes, peripheralCodes, asymmetricPairs }: {
   );
 }
 
+// ── Tier 2 sub-components ───────────────────────────────────────────────────────
+
+// A single assumption card. Emphasized when it is the primary (focus) assumption.
+function AssumptionCard({ a, emphasized }: { a: Tier2Assumption; emphasized?: boolean }) {
+  return (
+    <div className={`card${emphasized ? " border border-[var(--color-purple)]/40" : ""}`} style={{ padding: "16px 20px" }}>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <p className="text-sm font-medium leading-relaxed flex-1">{a.assumption}</p>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {a.confidence && (
+            <span className={`text-xs px-2.5 py-0.5 rounded-full capitalize ${TIER2_CONF_CLS[a.confidence] ?? "bg-gray-100 text-gray-700"}`}>
+              {a.confidence}
+            </span>
+          )}
+          {a.sure_or_unsure && (
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--color-navy)] text-white capitalize">
+              {a.sure_or_unsure}
+            </span>
+          )}
+        </div>
+      </div>
+      {a.supporting_evidence && a.supporting_evidence.length > 0 && (
+        <ul className="text-xs text-[var(--color-grey)] list-disc pl-4 space-y-0.5 mb-2">
+          {a.supporting_evidence.map((e, j) => <li key={j}>{e}</li>)}
+        </ul>
+      )}
+      {hasText(a.why_it_matters) && (
+        <p className="text-xs text-[var(--color-grey)]"><span className="font-medium text-[var(--color-ink)]">Why it matters:</span> {a.why_it_matters}</p>
+      )}
+      {hasText(a.what_would_resonate_or_not) && (
+        <p className="text-xs text-[var(--color-grey)] mt-1"><span className="font-medium text-[var(--color-ink)]">What would resonate or not:</span> {a.what_would_resonate_or_not}</p>
+      )}
+    </div>
+  );
+}
+
+// A quiet, collapsed-by-default accordion for Zone 3 supporting detail.
+function Z3Section({ id, title, open, onToggle, children }: {
+  id: string;
+  title: string;
+  open: boolean;
+  onToggle: (id: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="border border-black/10 rounded-xl overflow-hidden bg-black/[0.015]">
+      <button type="button" onClick={() => onToggle(id)}
+        className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-black/5 transition-colors">
+        <span className="text-sm font-medium text-[var(--color-grey)]">{title}</span>
+        <span className="text-[var(--color-grey)] text-lg leading-none">{open ? "−" : "+"}</span>
+      </button>
+      {open && <div className="border-t border-black/5 px-5 py-4">{children}</div>}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TeamDashboardPage() {
@@ -340,6 +399,28 @@ export default function TeamDashboardPage() {
   const [interpretation, setInterpretation] = useState<Tier2Result | null>(null);
   const [interpreting, setInterpreting] = useState(false);
   const [interpretError, setInterpretError] = useState<string | null>(null);
+  // Editable handoff (Zone 2)
+  const [editedSummary, setEditedSummary] = useState("");
+  const [editedQuestions, setEditedQuestions] = useState<string[]>([]);
+  const [newQuestion, setNewQuestion] = useState("");
+  const [savingApproval, setSavingApproval] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  // Collapsed supporting detail (Zone 3)
+  const [z3Open, setZ3Open] = useState<Set<string>>(new Set());
+
+  // Keep the editable handoff in sync whenever a new interpretation loads/runs.
+  useEffect(() => {
+    setEditedSummary(interpretation?.proposed_member_facing_summary ?? "");
+    setEditedQuestions(interpretation?.focus_questions_for_feedback_round ?? []);
+  }, [interpretation]);
+
+  function toggleZ3(key: string) {
+    setZ3Open((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
   useEffect(() => { load(); }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -434,6 +515,52 @@ export default function TeamDashboardPage() {
       setInterpretError("Something went wrong reaching Wavelength. Please try again.");
     }
     setInterpreting(false);
+  }
+
+  // Zone 2 decision output: persist edited summary + questions into tier2_json,
+  // mark the analysis approved, and move the team into the feedback stage.
+  async function handleApproveFeedbackRound() {
+    if (!interpretation) return;
+    setSavingApproval(true);
+    setApprovalError(null);
+
+    const updatedTier2: Tier2Result = {
+      ...interpretation,
+      proposed_member_facing_summary: editedSummary,
+      focus_questions_for_feedback_round: editedQuestions,
+    };
+
+    const { error } = await supabase
+      .from("analysis")
+      .update({
+        tier2_json: updatedTier2 as unknown as Json,
+        consultant_approved: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("team_id", teamId);
+
+    if (error) {
+      setApprovalError(`Could not save: ${error.message}`);
+      setSavingApproval(false);
+      return;
+    }
+
+    await supabase.from("teams").update({ status: "feedback" }).eq("team_id", teamId);
+
+    setInterpretation(updatedTier2);
+    setApproved(true);
+    setTeam((prev) => prev ? { ...prev, status: "feedback" } : prev);
+    setSavingApproval(false);
+  }
+
+  function moveQuestion(i: number, dir: -1 | 1) {
+    setEditedQuestions((prev) => {
+      const next = [...prev];
+      const j = i + dir;
+      if (j < 0 || j >= next.length) return prev;
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
   }
 
   async function handlePriorityChange(zone: 1 | 2 | 3) {
@@ -735,176 +862,212 @@ export default function TeamDashboardPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {interpretError && <p className="text-sm text-red-600">{interpretError}</p>}
 
-              {interpretation.messy_or_insufficient_flag && (
-                <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  Wavelength flagged this data as messy or insufficient for a confident read. Treat the focus below as a starting point and lean on the feedback round.
+              {/* ═══ ZONE 1 — Wavelength's recommendation (the decision) ═══ */}
+              <div className="rounded-2xl border border-[var(--color-purple)]/30 bg-[var(--color-purple)]/5 p-6 sm:p-8 space-y-5">
+                <div className="flex items-center gap-3">
+                  <img src="/octopus.png" alt="" className="h-8 w-auto"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                  <h3 className="text-xl" style={{ fontFamily: "Playfair Display, serif" }}>
+                    Wavelength&apos;s recommendation
+                  </h3>
                 </div>
-              )}
 
-              {/* Headline */}
-              {hasText(interpretation.headline_read) && (
-                <div className="card" style={{ padding: "20px 24px" }}>
-                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">The honest gist</p>
-                  <p className="text-lg leading-relaxed" style={{ fontFamily: "Playfair Display, serif" }}>
+                {interpretation.messy_or_insufficient_flag && (
+                  <p className="text-sm italic" style={{ color: PS_YELLOW }}>
+                    I flagged this as a messy read — treat the focus as a starting point and lean on the feedback round.
+                  </p>
+                )}
+
+                {hasText(interpretation.headline_read) && (
+                  <p className="text-2xl leading-snug" style={{ fontFamily: "Playfair Display, serif" }}>
                     {interpretation.headline_read}
                   </p>
-                </div>
-              )}
-
-              {/* Purpose alignment + Focus issue */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {interpretation.purpose_alignment && (hasText(interpretation.purpose_alignment.description) || interpretation.purpose_alignment.level) && (
-                  <div className="card" style={{ padding: "18px 20px" }}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <p className="text-xs uppercase tracking-widest text-[var(--color-grey)]">Shared purpose</p>
-                      {interpretation.purpose_alignment.level && (
-                        <span className={`text-xs px-2.5 py-0.5 rounded-full capitalize ${PURPOSE_LEVEL_CLS[interpretation.purpose_alignment.level] ?? "bg-gray-100 text-gray-700"}`}>
-                          {interpretation.purpose_alignment.level}
-                        </span>
-                      )}
-                    </div>
-                    {hasText(interpretation.purpose_alignment.description) && (
-                      <p className="text-sm leading-relaxed">{interpretation.purpose_alignment.description}</p>
-                    )}
-                  </div>
                 )}
 
                 {interpretation.focus_issue && (
-                  <div className="card border border-[var(--color-purple)]/40" style={{ padding: "18px 20px" }}>
-                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Focus issue</p>
+                  <div className="rounded-xl border border-[var(--color-purple)]/20 bg-white/70 p-5">
+                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-3">
+                      I suggest building the feedback round around this:
+                    </p>
                     {hasText(interpretation.focus_issue.buy_in_sentence) && (
-                      <p className="text-sm font-medium leading-relaxed mb-3">&ldquo;{interpretation.focus_issue.buy_in_sentence}&rdquo;</p>
+                      <p className="text-xl italic leading-relaxed mb-3" style={{ fontFamily: "Playfair Display, serif" }}>
+                        &ldquo;{interpretation.focus_issue.buy_in_sentence}&rdquo;
+                      </p>
                     )}
-                    <dl className="text-xs text-[var(--color-grey)] space-y-1">
-                      {hasText(interpretation.focus_issue.target_rung) && (
-                        <div><span className="font-medium text-[var(--color-ink)]">Target rung:</span> {interpretation.focus_issue.target_rung}</div>
-                      )}
-                      {hasText(interpretation.focus_issue.fish) && (
-                        <div><span className="font-medium text-[var(--color-ink)]">Fish:</span> {interpretation.focus_issue.fish}</div>
-                      )}
-                      {hasText(interpretation.focus_issue.vehicle) && (
-                        <div><span className="font-medium text-[var(--color-ink)]">Vehicle:</span> {interpretation.focus_issue.vehicle}</div>
-                      )}
-                    </dl>
+                    <p className="text-xs text-[var(--color-grey)]">
+                      {[
+                        hasText(interpretation.focus_issue.target_rung) && `Target: ${interpretation.focus_issue.target_rung}`,
+                        hasText(interpretation.focus_issue.fish) && `Fish: ${interpretation.focus_issue.fish}`,
+                        hasText(interpretation.focus_issue.vehicle) && `Vehicle: ${interpretation.focus_issue.vehicle}`,
+                      ].filter(Boolean).join("  ·  ")}
+                    </p>
+                    {hasText(interpretation.focus_issue.focus_tension) && (
+                      <p className="text-xs text-[var(--color-ink)] mt-3">
+                        <span className="font-medium">Note:</span> {interpretation.focus_issue.focus_tension}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* Assumptions */}
-              {interpretation.assumptions && interpretation.assumptions.length > 0 && (
+              {/* ═══ ZONE 2 — What we'd put to the team (editable handoff) ═══ */}
+              <div className="rounded-2xl border border-black/10 p-6 sm:p-8 space-y-6">
                 <div>
-                  <h3 className="text-lg font-medium mb-3">Assumptions to check with the team</h3>
-                  <div className="space-y-3">
-                    {interpretation.assumptions.map((a, i) => (
-                      <div key={i} className="card" style={{ padding: "16px 20px" }}>
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <p className="text-sm font-medium leading-relaxed flex-1">{a.assumption}</p>
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {a.confidence && (
-                              <span className={`text-xs px-2.5 py-0.5 rounded-full capitalize ${TIER2_CONF_CLS[a.confidence] ?? "bg-gray-100 text-gray-700"}`}>
-                                {a.confidence}
-                              </span>
-                            )}
-                            {a.sure_or_unsure && (
-                              <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--color-navy)] text-white capitalize">
-                                {a.sure_or_unsure}
+                  <h3 className="text-xl mb-1" style={{ fontFamily: "Playfair Display, serif" }}>
+                    What we&apos;d put to the team
+                  </h3>
+                  <p className="text-sm text-[var(--color-grey)]">
+                    This is the handoff into the feedback round. Edit it freely — nothing reaches members until you approve.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="form-label">Draft for members — edit freely, nothing is sent until you approve.</label>
+                  <textarea value={editedSummary} onChange={(e) => setEditedSummary(e.target.value)}
+                    rows={5} className="form-input mt-1" style={{ resize: "vertical" }} />
+                </div>
+
+                <div>
+                  <label className="form-label">Questions for the feedback round</label>
+                  <div className="space-y-2 mt-1">
+                    {editedQuestions.map((q, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <textarea value={q} rows={2}
+                          onChange={(e) => setEditedQuestions((prev) => prev.map((x, idx) => idx === i ? e.target.value : x))}
+                          className="form-input flex-1" style={{ resize: "vertical" }} />
+                        <div className="flex flex-col gap-1 flex-shrink-0">
+                          <button type="button" onClick={() => moveQuestion(i, -1)} disabled={i === 0}
+                            className="text-[var(--color-grey)] hover:text-[var(--color-ink)] disabled:opacity-30 text-sm leading-none px-1">↑</button>
+                          <button type="button" onClick={() => moveQuestion(i, 1)} disabled={i === editedQuestions.length - 1}
+                            className="text-[var(--color-grey)] hover:text-[var(--color-ink)] disabled:opacity-30 text-sm leading-none px-1">↓</button>
+                          <button type="button" onClick={() => setEditedQuestions((prev) => prev.filter((_, idx) => idx !== i))}
+                            className="text-[var(--color-grey)] hover:text-red-600 text-lg leading-none px-1">×</button>
+                        </div>
+                      </div>
+                    ))}
+                    {editedQuestions.length === 0 && (
+                      <p className="text-sm text-[var(--color-grey)] italic">No questions yet — add one below.</p>
+                    )}
+                  </div>
+                  <div className="flex items-start gap-2 mt-2">
+                    <input value={newQuestion} onChange={(e) => setNewQuestion(e.target.value)}
+                      placeholder="Add a question..." className="form-input flex-1"
+                      onKeyDown={(e) => { if (e.key === "Enter" && newQuestion.trim()) { e.preventDefault(); setEditedQuestions((prev) => [...prev, newQuestion.trim()]); setNewQuestion(""); } }} />
+                    <button type="button" className="btn-secondary flex-shrink-0"
+                      onClick={() => { if (newQuestion.trim()) { setEditedQuestions((prev) => [...prev, newQuestion.trim()]); setNewQuestion(""); } }}>
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button type="button" onClick={handleApproveFeedbackRound} disabled={savingApproval} className="btn-primary">
+                    {savingApproval ? "Saving..." : approved ? "Save updates" : "Approve and prepare feedback round"}
+                  </button>
+                  {approved && <span className="ml-3 text-sm text-green-700">Approved ✓ — edits here update what members will see.</span>}
+                  {approvalError && <p className="text-sm text-red-600 mt-2">{approvalError}</p>}
+                </div>
+              </div>
+
+              {/* ═══ ZONE 3 — Just for you (collapsed supporting detail) ═══ */}
+              <div>
+                <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-3">Just for you — supporting detail</p>
+                <div className="space-y-2">
+                  {interpretation.assumptions && interpretation.assumptions.length > 0 && (
+                    <Z3Section id="evidence" title="The evidence behind this" open={z3Open.has("evidence")} onToggle={toggleZ3}>
+                      <div className="space-y-3">
+                        <AssumptionCard a={interpretation.assumptions[0]} emphasized />
+                        {interpretation.assumptions.length > 1 && (
+                          <>
+                            <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] pt-2">
+                              Also true, parked for a later round
+                            </p>
+                            {interpretation.assumptions.slice(1).map((a, i) => <AssumptionCard key={i} a={a} />)}
+                            <p className="text-xs text-[var(--color-grey)] italic">
+                              These are sequenced behind the focus above, not set aside — see &ldquo;Set aside for later rounds&rdquo;.
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    </Z3Section>
+                  )}
+
+                  {(interpretation.purpose_alignment || hasText(interpretation.divergence_notes)) && (
+                    <Z3Section id="ppf" title="Purpose, PS, and fish in full" open={z3Open.has("ppf")} onToggle={toggleZ3}>
+                      {interpretation.purpose_alignment && (
+                        <div className="mb-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-xs uppercase tracking-widest text-[var(--color-grey)]">Shared purpose</p>
+                            {interpretation.purpose_alignment.level && (
+                              <span className={`text-xs px-2.5 py-0.5 rounded-full capitalize ${PURPOSE_LEVEL_CLS[interpretation.purpose_alignment.level] ?? "bg-gray-100 text-gray-700"}`}>
+                                {interpretation.purpose_alignment.level}
                               </span>
                             )}
                           </div>
+                          {hasText(interpretation.purpose_alignment.description) && (
+                            <p className="text-sm leading-relaxed">{interpretation.purpose_alignment.description}</p>
+                          )}
                         </div>
-                        {a.supporting_evidence && a.supporting_evidence.length > 0 && (
-                          <ul className="text-xs text-[var(--color-grey)] list-disc pl-4 space-y-0.5 mb-2">
-                            {a.supporting_evidence.map((e, j) => <li key={j}>{e}</li>)}
-                          </ul>
-                        )}
-                        {hasText(a.why_it_matters) && (
-                          <p className="text-xs text-[var(--color-grey)]"><span className="font-medium text-[var(--color-ink)]">Why it matters:</span> {a.why_it_matters}</p>
-                        )}
-                        {hasText(a.what_would_resonate_or_not) && (
-                          <p className="text-xs text-[var(--color-grey)] mt-1"><span className="font-medium text-[var(--color-ink)]">What would resonate or not:</span> {a.what_would_resonate_or_not}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* In/out plan + questions */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {hasText(interpretation.inout_plan) && (
-                  <div className="card" style={{ padding: "16px 20px" }}>
-                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">More-of / less-of framing</p>
-                    <p className="text-sm leading-relaxed">{interpretation.inout_plan}</p>
-                  </div>
-                )}
-                {interpretation.focus_questions_for_feedback_round && interpretation.focus_questions_for_feedback_round.length > 0 && (
-                  <div className="card" style={{ padding: "16px 20px" }}>
-                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Questions for the feedback round</p>
-                    <ul className="text-sm list-disc pl-4 space-y-1">
-                      {interpretation.focus_questions_for_feedback_round.map((q, i) => <li key={i}>{q}</li>)}
-                    </ul>
-                  </div>
-                )}
-              </div>
-
-              {/* Context questions for consultant */}
-              {interpretation.context_questions_for_consultant && interpretation.context_questions_for_consultant.length > 0 && (
-                <div className="card" style={{ padding: "16px 20px" }}>
-                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">What would sharpen the read (for you)</p>
-                  <ul className="text-sm list-disc pl-4 space-y-1">
-                    {interpretation.context_questions_for_consultant.map((q, i) => <li key={i}>{q}</li>)}
-                  </ul>
-                </div>
-              )}
-
-              {/* Divergence + deferred */}
-              {(hasText(interpretation.divergence_notes) || (interpretation.deferred_for_later && interpretation.deferred_for_later.length > 0)) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {hasText(interpretation.divergence_notes) && (
-                    <div className="card" style={{ padding: "16px 20px" }}>
-                      <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Divergence</p>
-                      <p className="text-sm leading-relaxed">{interpretation.divergence_notes}</p>
-                    </div>
+                      )}
+                      {hasText(interpretation.divergence_notes) && (
+                        <div className="mb-3">
+                          <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-1">Divergence</p>
+                          <p className="text-sm leading-relaxed">{interpretation.divergence_notes}</p>
+                        </div>
+                      )}
+                      <a href="#tier1-detail" className="text-sm text-[var(--color-purple)] underline">
+                        See the full statement breakdown, dead fish, and coordination panels below →
+                      </a>
+                    </Z3Section>
                   )}
+
+                  {hasText(interpretation.inout_plan) && (
+                    <Z3Section id="framing" title="How to frame the more-of / less-of activity" open={z3Open.has("framing")} onToggle={toggleZ3}>
+                      <p className="text-sm leading-relaxed">{interpretation.inout_plan}</p>
+                    </Z3Section>
+                  )}
+
+                  {interpretation.context_questions_for_consultant && interpretation.context_questions_for_consultant.length > 0 && (
+                    <Z3Section id="sharpen" title="What would sharpen your read" open={z3Open.has("sharpen")} onToggle={toggleZ3}>
+                      <ul className="text-sm list-disc pl-4 space-y-1">
+                        {interpretation.context_questions_for_consultant.map((q, i) => <li key={i}>{q}</li>)}
+                      </ul>
+                    </Z3Section>
+                  )}
+
                   {interpretation.deferred_for_later && interpretation.deferred_for_later.length > 0 && (
-                    <div className="card" style={{ padding: "16px 20px" }}>
-                      <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Deferred for a future round</p>
+                    <Z3Section id="deferred" title="Set aside for later rounds" open={z3Open.has("deferred")} onToggle={toggleZ3}>
                       <ul className="text-sm list-disc pl-4 space-y-1">
                         {interpretation.deferred_for_later.map((d, i) => <li key={i}>{d}</li>)}
                       </ul>
-                    </div>
+                    </Z3Section>
+                  )}
+
+                  {hasText(interpretation.welfare_or_sensitive_note) && (
+                    <Z3Section id="welfare" title="Private welfare note" open={z3Open.has("welfare")} onToggle={toggleZ3}>
+                      <div className="rounded-lg border border-[var(--color-navy)]/30 bg-[var(--color-navy)]/5 px-4 py-3">
+                        <p className="text-xs uppercase tracking-widest text-[var(--color-navy)] mb-1.5 font-medium">For you only — described, never quoted</p>
+                        <p className="text-sm leading-relaxed">{interpretation.welfare_or_sensitive_note}</p>
+                      </div>
+                    </Z3Section>
+                  )}
+
+                  {hasText(interpretation.data_quality_note) && (
+                    <Z3Section id="dq" title="Data quality" open={z3Open.has("dq")} onToggle={toggleZ3}>
+                      <p className="text-sm leading-relaxed">{interpretation.data_quality_note}</p>
+                    </Z3Section>
                   )}
                 </div>
-              )}
-
-              {/* Welfare note — private to consultant */}
-              {hasText(interpretation.welfare_or_sensitive_note) && (
-                <div className="rounded-lg border border-[var(--color-navy)]/30 bg-[var(--color-navy)]/5 px-4 py-3">
-                  <p className="text-xs uppercase tracking-widest text-[var(--color-navy)] mb-1.5 font-medium">Private welfare note — for you only</p>
-                  <p className="text-sm leading-relaxed">{interpretation.welfare_or_sensitive_note}</p>
-                </div>
-              )}
-
-              {/* Proposed member-facing summary */}
-              {hasText(interpretation.proposed_member_facing_summary) && (
-                <div className="card border border-dashed border-black/20" style={{ padding: "18px 20px" }}>
-                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Draft summary for members — pending your approval</p>
-                  <p className="text-sm leading-relaxed italic">{interpretation.proposed_member_facing_summary}</p>
-                </div>
-              )}
-
-              {hasText(interpretation.data_quality_note) && (
-                <p className="text-xs text-[var(--color-grey)]">{interpretation.data_quality_note}</p>
-              )}
+              </div>
             </div>
           )}
         </section>
 
         {/* ── Panel 3: Statement breakdown ──────────────────────────────── */}
-        <section>
+        <section id="tier1-detail">
           <h2 className="text-3xl mb-6">Statement breakdown</h2>
           <div className="space-y-2">
             {([1, 2, 3] as const).map((zoneNum) => {
