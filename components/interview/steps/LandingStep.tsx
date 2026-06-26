@@ -16,7 +16,7 @@ export default function LandingStep({
       />
 
       <ChatBubble readAloud={readAloud}>
-        Hello — I&apos;m Wavelength. I&apos;m an AI that specialises in
+        Hello — I&apos;m Otis. I&apos;m an AI that specialises in
         virtual teamwork and psychological safety.
       </ChatBubble>
       <ChatBubble readAloud={readAloud}>

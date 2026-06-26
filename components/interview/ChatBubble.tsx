@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-// Wavelength's side of the conversation — small octopus avatar beside a
+// Otis's side of the conversation — small octopus avatar beside a
 // calm message bubble. Member responses (inputs/buttons) render below,
 // outside this component.
 export default function ChatBubble({

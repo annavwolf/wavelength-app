@@ -407,7 +407,7 @@ export default function TeamDashboardPage() {
   const [approvalError, setApprovalError] = useState<string | null>(null);
   // Collapsed supporting detail (Zone 3)
   const [z3Open, setZ3Open] = useState<Set<string>>(new Set());
-  // Consultant chat with Wavelength
+  // Consultant chat with Otis
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatSending, setChatSending] = useState(false);
@@ -517,7 +517,7 @@ export default function TeamDashboardPage() {
         setInterpretError(`Showing the read, but it was not saved: ${data._save_warning}. Add the tier2_json column to persist it.`);
       }
     } catch {
-      setInterpretError("Something went wrong reaching Wavelength. Please try again.");
+      setInterpretError("Something went wrong reaching Otis. Please try again.");
     }
     setInterpreting(false);
   }
@@ -585,13 +585,13 @@ export default function TeamDashboardPage() {
       const data = await res.json();
       if (!res.ok) {
         const detail = [data.error, data.detail].filter(Boolean).join(" — ");
-        setChatError(`Wavelength couldn't respond: ${detail || "unknown error"}`);
+        setChatError(`Otis couldn't respond: ${detail || "unknown error"}`);
         setChatSending(false);
         return;
       }
       setChatMessages([...nextMessages, { role: "assistant", content: data.reply }]);
     } catch {
-      setChatError("Something went wrong reaching Wavelength. Please try again.");
+      setChatError("Something went wrong reaching Otis. Please try again.");
     }
     setChatSending(false);
   }
@@ -787,7 +787,7 @@ export default function TeamDashboardPage() {
                 <>
                   <button type="button" onClick={handleRunAnalysis} disabled={runningAnalysis}
                     className="btn-primary w-full" style={{ textAlign: "center" }}>
-                    {runningAnalysis ? "Wavelength is thinking..." : "Run analysis"}
+                    {runningAnalysis ? "Otis is thinking..." : "Run analysis"}
                   </button>
                   {runError && <p className="text-sm text-red-600 mt-3">{runError}</p>}
                 </>
@@ -863,10 +863,10 @@ export default function TeamDashboardPage() {
           </div>
         </section>
 
-        {/* ── Panel 2b: Wavelength's interpretation (Tier 2 AI) ─────────────── */}
+        {/* ── Panel 2b: Otis's interpretation (Tier 2 AI) ─────────────── */}
         <section id="wavelength-read">
           <div className="flex items-center justify-between gap-4 mb-2 flex-wrap">
-            <h2 className="text-3xl">Wavelength&apos;s read</h2>
+            <h2 className="text-3xl">Otis&apos;s read</h2>
             {interpretation && (
               <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
                 className="btn-secondary" style={{ padding: "8px 18px", fontSize: "13px" }}>
@@ -875,7 +875,7 @@ export default function TeamDashboardPage() {
             )}
           </div>
           <p className="text-sm text-[var(--color-grey)] mb-6">
-            Wavelength reads the numbers and the words together, then proposes assumptions to check with the team. Everything here is provisional until you approve it.
+            Otis reads the numbers and the words together, then proposes assumptions to check with the team. Everything here is provisional until you approve it.
           </p>
 
           {!interpretation ? (
@@ -883,11 +883,11 @@ export default function TeamDashboardPage() {
               <img src="/wavelength-mark.png" alt="" className="h-10 w-auto mx-auto mb-4 opacity-80"
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
               <p className="text-sm text-[var(--color-grey)] max-w-md mx-auto mb-6">
-                Ask Wavelength to interpret this team&apos;s results. It will surface strengths, name the focus issue, and draft questions for the feedback round.
+                Ask Otis to interpret this team&apos;s results. It will surface strengths, name the focus issue, and draft questions for the feedback round.
               </p>
               <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
                 className="btn-primary">
-                {interpreting ? "Wavelength is reading..." : "Run AI interpretation"}
+                {interpreting ? "Otis is reading..." : "Run AI interpretation"}
               </button>
               {interpretError && <p className="text-sm text-red-600 mt-4">{interpretError}</p>}
               <p className="text-xs text-[var(--color-grey)] mt-6 max-w-md mx-auto">
@@ -898,13 +898,13 @@ export default function TeamDashboardPage() {
             <div className="space-y-8">
               {interpretError && <p className="text-sm text-red-600">{interpretError}</p>}
 
-              {/* ═══ ZONE 1 — Wavelength's recommendation (the decision) ═══ */}
+              {/* ═══ ZONE 1 — Otis's recommendation (the decision) ═══ */}
               <div className="rounded-2xl border border-[var(--color-purple)]/30 bg-[var(--color-purple)]/5 p-6 sm:p-8 space-y-5">
                 <div className="flex items-center gap-3">
                   <img src="/octopus.png" alt="" className="h-8 w-auto"
                     onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                   <h3 className="text-xl" style={{ fontFamily: "Playfair Display, serif" }}>
-                    Wavelength&apos;s recommendation
+                    Otis&apos;s recommendation
                   </h3>
                 </div>
 
@@ -946,13 +946,13 @@ export default function TeamDashboardPage() {
                 )}
               </div>
 
-              {/* ═══ Talk to Wavelength (consultant chat) ═══ */}
+              {/* ═══ Talk to Otis (consultant chat) ═══ */}
               <div className="rounded-2xl border border-black/10 p-6 sm:p-8">
                 <h3 className="text-xl mb-1" style={{ fontFamily: "Playfair Display, serif" }}>
-                  Talk it through with Wavelength
+                  Talk it through with Otis
                 </h3>
                 <p className="text-sm text-[var(--color-grey)] mb-5">
-                  Push back on the focus, propose a different rung, or ask anything about the read. Wavelength follows your lead.
+                  Push back on the focus, propose a different rung, or ask anything about the read. Otis follows your lead.
                 </p>
 
                 {chatMessages.length > 0 && (
@@ -971,7 +971,7 @@ export default function TeamDashboardPage() {
                     {chatSending && (
                       <div className="flex justify-start">
                         <div className="rounded-2xl px-4 py-2.5 text-sm bg-[var(--color-purple)]/8 border border-[var(--color-purple)]/20 text-[var(--color-grey)] italic">
-                          Wavelength is thinking...
+                          Otis is thinking...
                         </div>
                       </div>
                     )}
@@ -980,7 +980,7 @@ export default function TeamDashboardPage() {
 
                 <div className="flex items-end gap-2">
                   <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)}
-                    rows={2} placeholder="Ask Wavelength..." className="form-input flex-1" style={{ resize: "vertical" }}
+                    rows={2} placeholder="Ask Otis..." className="form-input flex-1" style={{ resize: "vertical" }}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }} />
                   <button type="button" onClick={handleSendChat} disabled={chatSending || !chatInput.trim()}
                     className="btn-primary flex-shrink-0" style={{ padding: "10px 20px" }}>
@@ -1304,8 +1304,8 @@ export default function TeamDashboardPage() {
           )}
 
           <p className="mt-6 text-xs text-[var(--color-grey)]">
-            Wavelength&apos;s purpose alignment read is in the{" "}
-            <a href="#wavelength-read" className="underline">Wavelength&apos;s read</a> panel above.
+            Otis&apos;s purpose alignment read is in the{" "}
+            <a href="#wavelength-read" className="underline">Otis&apos;s read</a> panel above.
             Members who kept their words private still inform the alignment analysis — their responses are never quoted directly.
           </p>
         </section>

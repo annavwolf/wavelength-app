@@ -98,7 +98,7 @@ export default function Home() {
       </p>
 
       <p className="mt-6 max-w-[480px] text-[var(--color-grey)]">
-        I&apos;m Wavelength. When you&apos;re ready, set up a new team and
+        I&apos;m Otis. When you&apos;re ready, set up a new team and
         I&apos;ll guide you through a calm, private assessment.
       </p>
 

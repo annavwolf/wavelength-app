@@ -69,18 +69,24 @@ export default function LoginPage() {
       <img
         src="/octopus-logo.png"
         alt=""
-        className="h-20 w-auto mx-auto mb-8"
+        className="h-24 w-auto mx-auto mb-6"
       />
 
       <h1
-        className="text-4xl font-serif mb-2 text-center"
+        className="text-4xl font-serif mb-3 text-center"
         style={{ fontFamily: "Playfair Display, serif" }}
       >
-        Hello, I&apos;m <span className="purple">Wavelength.</span>
+        Hello, I&apos;m <span className="purple">Otis</span>
       </h1>
 
-      <p className="accent text-lg text-center mb-8">
-        Sign in to continue with your teams.
+      <p className="accent text-lg text-center mb-5">
+        An AI Specialized in Psychological Safety and Virtual Collaboration.
+      </p>
+
+      <p className="text-center text-[var(--color-grey)] max-w-md mb-8 leading-relaxed">
+        Remote and hybrid collaborations often suffer from disconnected
+        relationships and uncoordinated work. I help teams build Psychological
+        Safety — a superpower in working together from anywhere.
       </p>
 
       <div className="card w-full max-w-sm">

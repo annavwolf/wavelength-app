@@ -45,7 +45,7 @@ const FAQ_ITEMS = [
   {
     question: "What is psychological safety?",
     answer:
-      "Psychological safety is the shared sense that it's safe to speak up, take risks, and be honest on a team — without fear of being punished or embarrassed for doing so. It's one of the strongest predictors of how well teams perform, and it's what Wavelength is designed to help teams build.",
+      "Psychological safety is the shared sense that it's safe to speak up, take risks, and be honest on a team — without fear of being punished or embarrassed for doing so. It's one of the strongest predictors of how well teams perform, and it's what Otis is designed to help teams build.",
   },
 ];
 

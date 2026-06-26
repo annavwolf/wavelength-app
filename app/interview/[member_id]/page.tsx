@@ -318,7 +318,7 @@ export default function InterviewPage() {
           className="text-4xl font-serif mb-2"
           style={{ fontFamily: "Playfair Display, serif" }}
         >
-          Hello, I&apos;m <span className="purple">Wavelength.</span>
+          Hello, I&apos;m <span className="purple">Otis.</span>
         </h1>
         <p className="accent text-lg mb-8">I&apos;m here to learn about your team.</p>
         <p className="text-[var(--color-grey)]">Loading your session...</p>

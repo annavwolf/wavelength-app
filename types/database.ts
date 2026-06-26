@@ -180,7 +180,7 @@ export type PsResponseInsert = {
 
 export type PsResponseUpdate = Partial<PsResponseInsert>;
 
-// Whether the member agreed with Wavelength's zone-level reflection
+// Whether the member agreed with Otis's zone-level reflection
 // (ps_reflect step) — surfaced to the consultant later.
 export type PsReflectionCheck = {
   id: string;
