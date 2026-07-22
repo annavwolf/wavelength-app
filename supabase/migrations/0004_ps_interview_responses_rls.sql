@@ -1,0 +1,21 @@
+-- ============================================================================
+-- Fix: ps_interview_responses was blocking inserts with RLS.
+-- Run in the Supabase SQL editor.
+--
+-- Symptom: the Phase 1 adaptive interview couldn't advance past an incident —
+-- after Otis said "That's everything I need for this one", saveItem()'s upsert
+-- to ps_interview_responses failed and the step never advanced. A direct anon
+-- upsert returned "42501: new row violates row-level security policy for table
+-- ps_interview_responses". (The unique(member_id,statement_id) constraint is
+-- present — the upsert's ON CONFLICT resolved before RLS blocked it — so RLS is
+-- the only blocker.)
+--
+-- Migration 0001 already intended RLS OFF here, but it ended up ON on the live
+-- DB (created/left enabled out of band, same as member_login_tokens — see 0003).
+-- This makes the intended state explicit and is idempotent.
+--
+-- Matches the app posture (anon key + RLS off, access enforced in app/server
+-- routes). Proper DB-level hardening remains the deferred, org-wide task.
+-- ============================================================================
+
+alter table public.ps_interview_responses disable row level security;
