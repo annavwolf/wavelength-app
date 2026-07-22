@@ -516,6 +516,46 @@ export type MemberLoginTokenInsert = {
 
 export type MemberLoginTokenUpdate = Partial<MemberLoginTokenInsert>;
 
+// One coded label from the Phase 2 coding pass (Coding Spec §4). Input to
+// clustering; carries member_id + statement_id so clustering can count member
+// convergence and stay item-anchored. Embeddings are computed in-request, not
+// stored here.
+export type PrimaryCode = "situation" | "out_behavior" | "outcome" | "in_behavior";
+export type LabelSubType = "context" | "objective";
+export type SourceField =
+  | "situation_text"
+  | "out_behavior_text"
+  | "outcome_text"
+  | "in_behavior_text";
+
+export type InterviewLabel = {
+  id: string;
+  team_id: string;
+  member_id: string;
+  statement_id: number;
+  primary_code: PrimaryCode;
+  secondary_label: string;
+  sub_type: LabelSubType | null;
+  multi_member_flag: boolean;
+  source_field: SourceField | null;
+  created_at: string;
+}
+
+export type InterviewLabelInsert = {
+  id?: string;
+  team_id: string;
+  member_id: string;
+  statement_id: number;
+  primary_code: PrimaryCode;
+  secondary_label: string;
+  sub_type?: LabelSubType | null;
+  multi_member_flag?: boolean;
+  source_field?: SourceField | null;
+  created_at?: string;
+}
+
+export type InterviewLabelUpdate = Partial<InterviewLabelInsert>;
+
 export type Database = {
   public: {
     Tables: {
@@ -541,6 +581,12 @@ export type Database = {
         Row: MemberLoginToken;
         Insert: MemberLoginTokenInsert;
         Update: MemberLoginTokenUpdate;
+        Relationships: [];
+      };
+      interview_labels: {
+        Row: InterviewLabel;
+        Insert: InterviewLabelInsert;
+        Update: InterviewLabelUpdate;
         Relationships: [];
       };
       fish: {
