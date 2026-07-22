@@ -18,7 +18,22 @@ alter table public.ps_statements
   add column if not exists reverse_scored boolean not null default false;
 
 truncate table public.ps_responses;   -- old 3-point data, discarded (approved)
-delete from public.ps_statements;      -- clear stale item set before reseed
+
+-- ps_interview_responses.statement_id FKs into ps_statements, so any pre-existing
+-- rows would block the delete below (it's created later in this migration, so it
+-- may or may not exist yet). Guarded truncate keeps the full reseed unblocked on a
+-- drifted DB. Safe: test env, no pilot data to preserve.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'ps_interview_responses'
+  ) then
+    execute 'truncate table public.ps_interview_responses';
+  end if;
+end $$;
+
+delete from public.ps_statements;      -- clear stale item set before reseed (full wipe, not a merge)
 
 -- construct left NULL for all 12: old per-item labels don't apply to the new
 -- items and replacements haven't been authored (column is nullable).
