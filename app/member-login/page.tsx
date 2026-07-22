@@ -26,16 +26,37 @@ export default function MemberLoginPage() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    // Read the value straight from the form field, not just React state. Browser
+    // autofill (common here — the same browser is signed in as a consultant, so
+    // the email is saved) can populate the input WITHOUT firing React's onChange,
+    // leaving `email` state empty while the field visually shows an address. That
+    // produced an empty POST body and a 400. FormData reads the real DOM value.
+    const fieldEmail = String(new FormData(e.currentTarget).get("email") ?? "").trim();
+    const effectiveEmail = fieldEmail || email.trim();
+
+    if (!effectiveEmail || !effectiveEmail.includes("@")) {
+      setLinkError("Please enter a valid email address.");
+      return;
+    }
+    setEmail(effectiveEmail); // keep the confirmation screen in sync
+
     setSubmitting(true);
     setLinkError(null);
     try {
-      await fetch("/api/member/auth/request", {
+      const res = await fetch("/api/member/auth/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: effectiveEmail }),
       });
-      // Always show the same confirmation, regardless of whether the email
-      // matched a member (no membership enumeration).
+      if (!res.ok) {
+        // Don't mask real failures behind the success screen.
+        setLinkError(ERROR_COPY.server);
+        setSubmitting(false);
+        return;
+      }
+      // Otherwise show the same confirmation whether or not the email matched a
+      // member (no membership enumeration).
       setSent(true);
     } catch {
       setLinkError(ERROR_COPY.server);
@@ -92,6 +113,7 @@ export default function MemberLoginPage() {
               <label className="form-label">Email address</label>
               <input
                 type="email"
+                name="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
