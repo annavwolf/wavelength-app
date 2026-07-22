@@ -18,9 +18,8 @@ export default function PsFrameStep({
         psychological safety I&apos;m trying to understand.
       </ChatBubble>
       <ChatBubble readAloud={readAloud}>
-        For each statement, choose one of three responses. Green means this
-        sounds like my team. Yellow means sometimes, or I&apos;m not sure.
-        Red means this doesn&apos;t sound like my team.
+        For each statement, you&apos;ll choose how much you agree, from
+        Strongly Disagree to Strongly Agree.
       </ChatBubble>
       <ChatBubble readAloud={readAloud}>
         There are no right answers. I&apos;m looking for your honest read of

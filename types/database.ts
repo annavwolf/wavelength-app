@@ -11,7 +11,16 @@ export type Json =
 
 export type VirtualityLevel = "fully_remote" | "hybrid" | "mostly_in_person";
 export type Zone = 1 | 2 | 3;
-export type PsLabel = "green" | "yellow" | "red";
+// 5-point agreement scale (replaces the old 3-point green/yellow/red set).
+// Stored literally in ps_responses.label; response_value is the unflipped
+// 1–5 mapping (see LABEL_VALUE in PsDiagnosticStep). Reverse-scoring is
+// applied at READ time only — never flip on write.
+export type PsLabel =
+  | "strongly_disagree"
+  | "disagree"
+  | "neutral"
+  | "agree"
+  | "strongly_agree";
 export type CoordinationFrequency =
   | "daily"
   | "weekly"
@@ -139,7 +148,11 @@ export type PsStatement = {
   zone: Zone;
   zone_name: string;
   statement_text: string;
-  construct: string;
+  construct: string | null;
+  // True for items phrased negatively (e.g. #3). Effective score is
+  // computed at read time as (6 - response_value) when this is true —
+  // used by item selection and Phase 2. Never flipped on write.
+  reverse_scored: boolean;
 }
 
 export type PsStatementInsert = {
@@ -147,7 +160,8 @@ export type PsStatementInsert = {
   zone: Zone;
   zone_name: string;
   statement_text: string;
-  construct: string;
+  construct?: string | null;
+  reverse_scored?: boolean;
 }
 
 export type PsStatementUpdate = Partial<PsStatementInsert>;
@@ -159,8 +173,9 @@ export type PsResponse = {
   statement_id: number;
   zone: Zone;
   label: PsLabel;
-  // green=3, yellow=2, red=1 — feeds the Tier 1 per-zone mean calculation
-  // directly, so it's stored alongside the label rather than derived later.
+  // 5-point scale, unflipped: strongly_disagree=1, disagree=2, neutral=3,
+  // agree=4, strongly_agree=5. Stored as the literal click; reverse-scored
+  // items are flipped only at read time (effective = 6 - response_value).
   response_value: number;
   round: number;
   created_at: string;
@@ -302,6 +317,43 @@ export type FishResponseInsert = {
 
 export type FishResponseUpdate = Partial<FishResponseInsert>;
 
+// One row per member per probed item, produced by the adaptive ps_interview
+// step. The four *_text fields are the distilled buckets Phase 2 codes;
+// member_response_label is the member's literal 5-point rating on the item
+// (never reverse-flipped). is_all_positive_branch marks rows produced by the
+// Section 5 reframed script rather than a negative-score probe.
+export type PsInterviewResponse = {
+  id: string;
+  member_id: string;
+  team_id: string;
+  statement_id: number;
+  member_response_label: PsLabel | null;
+  situation_text: string | null;
+  out_behavior_text: string | null;
+  outcome_text: string | null;
+  in_behavior_text: string | null;
+  is_all_positive_branch: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PsInterviewResponseInsert = {
+  id?: string;
+  member_id: string;
+  team_id: string;
+  statement_id: number;
+  member_response_label?: PsLabel | null;
+  situation_text?: string | null;
+  out_behavior_text?: string | null;
+  outcome_text?: string | null;
+  in_behavior_text?: string | null;
+  is_all_positive_branch?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type PsInterviewResponseUpdate = Partial<PsInterviewResponseInsert>;
+
 export type Analysis = {
   id: string;
   team_id: string;
@@ -441,6 +493,29 @@ export type ConsultantInsert = {
 
 export type ConsultantUpdate = Partial<ConsultantInsert>;
 
+// Backs passwordless member magic-link login (Stage A). Keyed to email (not a
+// single member) so the multi-team chooser can resolve after verify. Only the
+// SHA-256 hash of the token is ever stored — never the raw token.
+export type MemberLoginToken = {
+  id: string;
+  email: string;
+  token_hash: string;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+}
+
+export type MemberLoginTokenInsert = {
+  id?: string;
+  email: string;
+  token_hash: string;
+  expires_at: string;
+  used_at?: string | null;
+  created_at?: string;
+}
+
+export type MemberLoginTokenUpdate = Partial<MemberLoginTokenInsert>;
+
 export type Database = {
   public: {
     Tables: {
@@ -460,6 +535,12 @@ export type Database = {
         Row: Member;
         Insert: MemberInsert;
         Update: MemberUpdate;
+        Relationships: [];
+      };
+      member_login_tokens: {
+        Row: MemberLoginToken;
+        Insert: MemberLoginTokenInsert;
+        Update: MemberLoginTokenUpdate;
         Relationships: [];
       };
       fish: {
@@ -514,6 +595,12 @@ export type Database = {
         Row: FishResponse;
         Insert: FishResponseInsert;
         Update: FishResponseUpdate;
+        Relationships: [];
+      };
+      ps_interview_responses: {
+        Row: PsInterviewResponse;
+        Insert: PsInterviewResponseInsert;
+        Update: PsInterviewResponseUpdate;
         Relationships: [];
       };
       analysis: {

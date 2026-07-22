@@ -36,8 +36,15 @@ export default function AuthGate({
     };
   }, [supabase]);
 
+  // Routes this consultant gate must NOT touch. Besides the consultant login
+  // and the public interview link, the member area (/me, /member-login) has its
+  // own auth (a signed member-session cookie, enforced in middleware.ts) — so
+  // AuthGate must leave those alone rather than bounce a member to /login.
   const isPublicRoute =
-    pathname === "/login" || pathname.startsWith("/interview/");
+    pathname === "/login" ||
+    pathname.startsWith("/interview/") ||
+    pathname.startsWith("/me") ||
+    pathname.startsWith("/member-login");
 
   useEffect(() => {
     if (checked && !session && !isPublicRoute) {

@@ -5,12 +5,12 @@ import { useParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 import type {
   CoordinationFrequency,
-  Fish,
   Member,
   PsLabel,
   PsStatement,
   Team,
 } from "@/types/database";
+import { selectProbeItems } from "@/lib/psSelection";
 import type { InterviewStep } from "@/components/interview/types";
 import ProgressBar from "@/components/interview/ProgressBar";
 import BackButton from "@/components/interview/BackButton";
@@ -29,17 +29,14 @@ import PsDescentStep from "@/components/interview/steps/PsDescentStep";
 import PsIntroCloseStep from "@/components/interview/steps/PsIntroCloseStep";
 import PsFrameStep from "@/components/interview/steps/PsFrameStep";
 import PsDiagnosticStep from "@/components/interview/steps/PsDiagnosticStep";
-import DeadfishIntroStep from "@/components/interview/steps/DeadfishIntroStep";
-import DeadfishStep from "@/components/interview/steps/DeadfishStep";
-import DeadfishOpenStep from "@/components/interview/steps/DeadfishOpenStep";
+import PsInterviewStep from "@/components/interview/steps/PsInterviewStep";
 import ReviewStep from "@/components/interview/steps/ReviewStep";
 import CloseStep from "@/components/interview/steps/CloseStep";
 import AlreadyCompleteStep from "@/components/interview/steps/AlreadyCompleteStep";
 
 // landing → foreshadow → faq → consent → profile → personal_context →
 // purpose → roster → coordination → ps_intro_open → ps_descent →
-// ps_intro_close → ps_frame → ps_diagnostic → deadfish_intro → deadfish →
-// deadfish_open → review → close
+// ps_intro_close → ps_frame → ps_diagnostic → ps_interview → review → close
 const STEP_ORDER: InterviewStep[] = [
   "landing",
   "foreshadow",
@@ -55,9 +52,7 @@ const STEP_ORDER: InterviewStep[] = [
   "ps_intro_close",
   "ps_frame",
   "ps_diagnostic",
-  "deadfish_intro",
-  "deadfish",
-  "deadfish_open",
+  "ps_interview",
   "review",
   "close",
   "already_complete",
@@ -94,10 +89,8 @@ type InterviewDraft = {
   coordRatings: Record<string, CoordinationFrequency>;
   // ps diagnostic
   psRatings: Record<number, PsLabel>;
-  // dead fish
-  deadfishRatings: Record<string, number>;
-  deadfishCustomText: string;
-  deadfishCustomSeverity: number | null;
+  // Note: the ps_interview step manages its own conversation state internally
+  // and persists directly to ps_interview_responses — nothing to hold here.
 };
 
 const INITIAL_DRAFT: InterviewDraft = {
@@ -117,9 +110,6 @@ const INITIAL_DRAFT: InterviewDraft = {
   rosterNoted: false,
   coordRatings: {},
   psRatings: {},
-  deadfishRatings: {},
-  deadfishCustomText: "",
-  deadfishCustomSeverity: null,
 };
 
 // Public page — members reach this via their private link, not a Wavelength
@@ -132,7 +122,6 @@ export default function InterviewPage() {
   const [team, setTeam] = useState<Team | null>(null);
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [psStatements, setPsStatements] = useState<PsStatement[]>([]);
-  const [teamFish, setTeamFish] = useState<Fish[]>([]);
 
   const [step, setStep] = useState<InterviewStep>("landing");
   const [draft, setDraft] = useState<InterviewDraft>(INITIAL_DRAFT);
@@ -161,9 +150,9 @@ export default function InterviewPage() {
         { data: teamData, error: teamError },
         { data: membersData, error: membersError },
         { data: statementsData, error: statementsError },
-        { count: psCount },
+        { data: psResponsesData },
         { count: purposeCount },
-        { count: fishCount },
+        { count: interviewCount },
         { count: coordCount },
       ] = await Promise.all([
         supabase
@@ -180,9 +169,11 @@ export default function InterviewPage() {
           .from("ps_statements")
           .select("*")
           .order("statement_id", { ascending: true }),
+        // Actual round-1 rows (not just a count) so we can recompute item
+        // selection deterministically on resume.
         supabase
           .from("ps_responses")
-          .select("*", { count: "exact", head: true })
+          .select("statement_id, label")
           .eq("member_id", memberData.member_id)
           .eq("round", 1),
         supabase
@@ -190,10 +181,9 @@ export default function InterviewPage() {
           .select("*", { count: "exact", head: true })
           .eq("member_id", memberData.member_id),
         supabase
-          .from("fish_responses")
+          .from("ps_interview_responses")
           .select("*", { count: "exact", head: true })
-          .eq("member_id", memberData.member_id)
-          .not("fish_id", "is", null),
+          .eq("member_id", memberData.member_id),
         supabase
           .from("coordination_ratings")
           .select("*", { count: "exact", head: true })
@@ -204,35 +194,38 @@ export default function InterviewPage() {
       if (membersError) console.error("[interview] roster load failed:", membersError);
       if (statementsError) console.error("[interview] ps_statements load failed:", statementsError);
 
+      const statements = statementsData ?? [];
       setMember(memberData);
       setTeam(teamData ?? null);
       setAllMembers(membersData ?? []);
-      setPsStatements(statementsData ?? []);
+      setPsStatements(statements);
 
-      // Fetch fish selected for this team (used in the dead fish step).
-      if (teamData?.selected_fish_ids?.length) {
-        const { data: fishData, error: fishError } = await supabase
-          .from("fish")
-          .select("*")
-          .in("fish_id", teamData.selected_fish_ids)
-          .order("sort_order", { ascending: true });
-        if (fishError) console.error("[interview] fish load failed:", fishError);
-        setTeamFish(fishData ?? []);
-      }
+      const psCount = psResponsesData?.length ?? 0;
+      const allRated = statements.length > 0 && psCount === statements.length;
 
-      // Resume at the right step based on what's already saved in the DB.
+      // Resume at the right step based on what's already saved in the DB (§7).
       if (memberData.status === "complete") {
         setStep("already_complete");
-      } else if ((fishCount ?? 0) > 0) {
-        setStep("deadfish_open");
+      } else if (allRated) {
+        // Diagnostic done — decide between the interview and review by
+        // recomputing which items would be probed (same logic the step uses).
+        const ratingsMap: Record<number, PsLabel> = {};
+        for (const row of psResponsesData ?? []) {
+          ratingsMap[row.statement_id] = row.label as PsLabel;
+        }
+        const sel = selectProbeItems(statements, ratingsMap);
+        const selectedCount = sel.allPositive ? 1 : sel.items.length;
+        if ((interviewCount ?? 0) >= selectedCount) {
+          setStep("review");
+        } else {
+          setStep("ps_interview");
+        }
         setResuming(true);
-      } else if ((psCount ?? 0) > 0) {
-        setStep("deadfish_intro");
+      } else if (psCount > 0) {
+        // Mid-diagnostic — PsDiagnosticStep prefills the saved ratings.
+        setStep("ps_diagnostic");
         setResuming(true);
-      } else if ((purposeCount ?? 0) > 0) {
-        setStep("ps_intro_open");
-        setResuming(true);
-      } else if ((coordCount ?? 0) > 0) {
+      } else if ((purposeCount ?? 0) > 0 || (coordCount ?? 0) > 0) {
         setStep("ps_intro_open");
         setResuming(true);
       } else if ((memberData.share_verbatim_with_team as boolean | null) !== null) {
@@ -500,39 +493,18 @@ export default function InterviewPage() {
             supabase={supabase}
             ratings={draft.psRatings}
             onRatingsChange={(v) => updateDraft({ psRatings: v })}
-            onAdvance={() => goToStep("deadfish_intro")}
+            onAdvance={() => goToStep("ps_interview")}
           />
         )}
 
-        {step === "deadfish_intro" && (
-          <DeadfishIntroStep
-            readAloud={readAloud}
-            onAdvance={() => goToStep("deadfish")}
-          />
-        )}
-
-        {step === "deadfish" && (
-          <DeadfishStep
+        {step === "ps_interview" && (
+          <PsInterviewStep
             member={member}
             team={team}
-            fish={teamFish}
+            statements={psStatements}
             supabase={supabase}
-            ratings={draft.deadfishRatings}
-            onRatingsChange={(v) => updateDraft({ deadfishRatings: v })}
-            onAdvance={() => goToStep("deadfish_open")}
-          />
-        )}
-
-        {step === "deadfish_open" && (
-          <DeadfishOpenStep
-            member={member}
-            team={team}
-            supabase={supabase}
+            ratings={draft.psRatings}
             readAloud={readAloud}
-            customText={draft.deadfishCustomText}
-            onCustomTextChange={(v) => updateDraft({ deadfishCustomText: v })}
-            customSeverity={draft.deadfishCustomSeverity}
-            onCustomSeverityChange={(v) => updateDraft({ deadfishCustomSeverity: v })}
             onAdvance={() => goToStep("review")}
           />
         )}
@@ -542,10 +514,6 @@ export default function InterviewPage() {
             member={member}
             psStatements={psStatements}
             psRatings={draft.psRatings}
-            teamFish={teamFish}
-            deadfishRatings={draft.deadfishRatings}
-            deadfishCustomText={draft.deadfishCustomText}
-            deadfishCustomSeverity={draft.deadfishCustomSeverity}
             purposeText={draft.purposeText}
             rosterMissingName={draft.rosterMissingName}
             rosterMissingRole={draft.rosterMissingRole}
@@ -570,7 +538,6 @@ export default function InterviewPage() {
             member={member}
             supabase={supabase}
             psStatements={psStatements}
-            teamFish={teamFish}
           />
         )}
       </div>

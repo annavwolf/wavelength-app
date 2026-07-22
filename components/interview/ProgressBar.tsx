@@ -15,9 +15,7 @@ const STEP_ORDER: InterviewStep[] = [
   "ps_intro_close",
   "ps_frame",
   "ps_diagnostic",
-  "deadfish_intro",
-  "deadfish",
-  "deadfish_open",
+  "ps_interview",
   "review",
   // "close" is the terminal step — fraction reaches 1 when we get there.
 ];

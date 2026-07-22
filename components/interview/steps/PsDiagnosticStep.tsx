@@ -5,9 +5,11 @@ import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member, PsLabel, PsStatement, Team, Zone } from "@/types/database";
 
 const LABEL_VALUE: Record<PsLabel, number> = {
-  green: 3,
-  yellow: 2,
-  red: 1,
+  strongly_disagree: 1,
+  disagree: 2,
+  neutral: 3,
+  agree: 4,
+  strongly_agree: 5,
 };
 
 const ZONE_CONFIG: Record<
@@ -19,21 +21,26 @@ const ZONE_CONFIG: Record<
   3: { label: "Safe to Innovate", eyebrow: "Zone 3", backgroundPositionY: 100 },
 };
 
-const RATING_OPTIONS: { label: PsLabel; text: string; colorVar: string }[] = [
-  { label: "green", text: "Sounds like my team", colorVar: "--color-safety-green" },
-  { label: "yellow", text: "Sometimes / not sure", colorVar: "--color-safety-yellow" },
-  { label: "red", text: "Doesn't sound like my team", colorVar: "--color-safety-red" },
+// Five-point agreement scale on a diverging red→amber→green ramp (reuses the
+// app's severity palette). No longer green/yellow/red *semantics* — the colour
+// is just a visual anchor for where on the agree/disagree scale each option sits.
+const RATING_OPTIONS: { label: PsLabel; text: string; color: string }[] = [
+  { label: "strongly_disagree", text: "Strongly disagree", color: "#A03A2E" },
+  { label: "disagree", text: "Disagree", color: "#C97064" },
+  { label: "neutral", text: "Neutral", color: "#D9A441" },
+  { label: "agree", text: "Agree", color: "#7AA8A0" },
+  { label: "strongly_agree", text: "Strongly agree", color: "#3E7C6A" },
 ];
 
 function RatingButton({
   text,
-  colorVar,
+  color,
   selected,
   disabled,
   onClick,
 }: {
   text: string;
-  colorVar: string;
+  color: string;
   selected: boolean;
   disabled: boolean;
   onClick: () => void;
@@ -48,8 +55,8 @@ function RatingButton({
         selected ? "scale-105 text-white" : "text-white/90"
       } disabled:opacity-60`}
       style={{
-        borderColor: `var(${colorVar})`,
-        backgroundColor: selected ? `var(${colorVar})` : "rgba(255,255,255,0.12)",
+        borderColor: color,
+        backgroundColor: selected ? color : "rgba(255,255,255,0.12)",
       }}
     >
       {selected && <span>✓</span>}
@@ -201,7 +208,7 @@ export default function PsDiagnosticStep({
                         <RatingButton
                           key={opt.label}
                           text={opt.text}
-                          colorVar={opt.colorVar}
+                          color={opt.color}
                           selected={ratings[statement.statement_id] === opt.label}
                           disabled={savingId === statement.statement_id}
                           onClick={() => selectRating(statement, opt.label)}
