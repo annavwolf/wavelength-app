@@ -10,32 +10,44 @@
 --   • fish               — default fish patterns (table still referenced)
 --   • all schema/tables  — structure is unchanged
 --
--- Rationale: the pre-rebuild test data (duplicate same-email members, 3-point-
--- era rows) was the source of the login/profile confusion. Stage A is verified,
--- and later stages need a purpose-built multi-member team anyway. Fresh start.
+-- Robust to schema drift: some tables in the app's types (e.g.
+-- ps_reflection_checks) were never actually created in the live DB, so we
+-- truncate each table ONLY if it exists rather than failing the whole run.
 --
 -- After running: the consultant dashboard will show no teams. Create a new team
 -- and add members to continue testing.
 -- ============================================================================
 
-begin;
-
-truncate table
-  public.ps_responses,
-  public.ps_interview_responses,
-  public.purpose_responses,
-  public.coordination_ratings,
-  public.ps_reflection_checks,
-  public.feedback_responses,
-  public.member_questions,
-  public.missing_member_flags,
-  public.fish_responses,
-  public.analysis,
-  public.code_of_conduct,
-  public.followups,
-  public.member_login_tokens,
-  public.members,
-  public.teams
-  restart identity cascade;
-
-commit;
+do $$
+declare
+  t text;
+  tbls text[] := array[
+    'ps_responses',
+    'ps_interview_responses',
+    'purpose_responses',
+    'coordination_ratings',
+    'ps_reflection_checks',
+    'feedback_responses',
+    'member_questions',
+    'missing_member_flags',
+    'fish_responses',
+    'analysis',
+    'code_of_conduct',
+    'followups',
+    'member_login_tokens',
+    'members',
+    'teams'
+  ];
+begin
+  foreach t in array tbls loop
+    if exists (
+      select 1 from information_schema.tables
+      where table_schema = 'public' and table_name = t
+    ) then
+      execute format('truncate table public.%I restart identity cascade', t);
+      raise notice 'truncated %', t;
+    else
+      raise notice 'skipped (does not exist): %', t;
+    end if;
+  end loop;
+end $$;
