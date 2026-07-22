@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Candidate = {
-  team_id: string;
   team_name: string;
   display_name: string;
+  private_code: string;
+  role: string | null;
 };
 
 // Shown only when one email is on members in several teams. Rather than silently
@@ -15,7 +16,7 @@ export default function SelectTeamPage() {
   const router = useRouter();
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [choosing, setChoosing] = useState<string | null>(null);
+  const [choosing, setChoosing] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/member/auth/select")
@@ -34,17 +35,17 @@ export default function SelectTeamPage() {
       });
   }, []);
 
-  async function choose(teamId: string) {
-    setChoosing(teamId);
+  async function choose(index: number) {
+    setChoosing(index);
     setError(null);
     try {
       const res = await fetch("/api/member/auth/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ team_id: teamId }),
+        body: JSON.stringify({ index }),
       });
       if (!res.ok) {
-        setError("Couldn't sign you in to that team. Please try again.");
+        setError("Couldn't sign you in as that member. Please try again.");
         setChoosing(null);
         return;
       }
@@ -76,19 +77,20 @@ export default function SelectTeamPage() {
           <p className="text-sm text-[var(--color-safety-red)]">{error}</p>
         )}
 
-        {candidates?.map((c) => (
+        {candidates?.map((c, i) => (
           <button
-            key={c.team_id}
+            key={i}
             type="button"
             disabled={choosing !== null}
-            onClick={() => choose(c.team_id)}
+            onClick={() => choose(i)}
             className="btn-secondary w-full text-left"
             style={{ textAlign: "left" }}
           >
             <span style={{ fontWeight: 600 }}>{c.team_name}</span>
             <br />
             <span className="text-sm text-[var(--color-grey)]">
-              as {c.display_name}
+              as {c.display_name} · {c.private_code}
+              {c.role ? ` · ${c.role}` : ""}
             </span>
           </button>
         ))}

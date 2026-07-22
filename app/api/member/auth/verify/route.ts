@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   // Resolve the member(s) for this email.
   const { data: members, error: memberError } = await supabase
     .from("members")
-    .select("member_id, team_id, display_name")
+    .select("member_id, team_id, display_name, private_code, role")
     .ilike("email", row.email);
 
   if (memberError) {
@@ -85,6 +85,8 @@ export async function GET(req: NextRequest) {
     team_id: m.team_id,
     team_name: teamName.get(m.team_id) ?? "Your team",
     display_name: m.display_name,
+    private_code: m.private_code,
+    role: m.role,
   }));
 
   const preJwt = await signPreSession({ email: row.email, candidates });

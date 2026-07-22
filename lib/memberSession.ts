@@ -28,6 +28,10 @@ export type PreSessionCandidate = {
   team_id: string;
   team_name: string;
   display_name: string;
+  // Shown in the chooser so records are distinguishable when one email is on
+  // several members (esp. multiple in the same team, or repeated names).
+  private_code: string;
+  role: string | null;
 };
 
 export type PreSession = {
