@@ -25,24 +25,36 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += MAX_BATCH) {
     const batch = texts.slice(i, i + MAX_BATCH);
-    const res = await fetch(VOYAGE_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ model: MODEL, input: batch }),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(`Voyage embeddings failed (${res.status}): ${detail.slice(0, 300)}`);
-    }
-    const data = (await res.json()) as VoyageResponse;
+    const data = await postBatch(batch, key);
     // Re-order by index defensively before appending.
     const sorted = [...data.data].sort((a, b) => a.index - b.index);
     for (const d of sorted) out.push(d.embedding);
   }
   return out;
+}
+
+// Single Voyage call with 429 backoff. The free tier (no payment method) is
+// 3 RPM / 10K TPM; callers should batch to few calls, and this retries a couple
+// of times honouring Retry-After so an occasional limit doesn't fail the run.
+async function postBatch(batch: string[], key: string): Promise<VoyageResponse> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(VOYAGE_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: MODEL, input: batch }),
+    });
+    if (res.status === 429 && attempt < 2) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 21) * 1000;
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Voyage embeddings failed (${res.status}): ${detail.slice(0, 300)}`);
+    }
+    return (await res.json()) as VoyageResponse;
+  }
 }
 
 // ── Vector helpers (cosine similarity on raw vectors) ────────────────────────

@@ -88,13 +88,13 @@ function clusterIndices(vectors: number[][], threshold: number): number[][] {
   return Array.from(groups.values()).sort((a, b) => a[0] - b[0]);
 }
 
-// Cluster one stream's labels into Clusters (unnamed — naming is a later step).
-export async function clusterStream(
+// Build clusters from labels + their precomputed vectors (pure — no embedding).
+function buildClusters(
   labels: InterviewLabel[],
-  threshold = DEFAULT_THRESHOLD
-): Promise<Cluster[]> {
+  vectors: number[][],
+  threshold: number
+): Cluster[] {
   if (labels.length === 0) return [];
-  const vectors = await embedTexts(labels.map((l) => l.secondary_label));
   const groups = clusterIndices(vectors, threshold);
 
   return groups.map((idxs) => {
@@ -197,10 +197,22 @@ export async function clusterTeamLabels(
     if (s) byStream.get(s)!.push(label);
   }
 
+  // Embed ALL labels across streams in ONE Voyage call (few calls → fits tight
+  // free-tier rate limits; also faster and cheaper than one call per stream).
+  const allLabels: InterviewLabel[] = [];
+  for (const key of STREAM_KEYS) allLabels.push(...byStream.get(key)!);
+  const allVectors = allLabels.length
+    ? await embedTexts(allLabels.map((l) => l.secondary_label))
+    : [];
+  const vecById = new Map<string, number[]>();
+  allLabels.forEach((l, i) => vecById.set(l.id, allVectors[i]));
+
   const anthropic = new Anthropic({ apiKey });
   const result = {} as ClusterResult;
   for (const key of STREAM_KEYS) {
-    const clusters = await clusterStream(byStream.get(key)!, threshold);
+    const labs = byStream.get(key)!;
+    const vecs = labs.map((l) => vecById.get(l.id)!);
+    const clusters = buildClusters(labs, vecs, threshold);
     await nameClusters(anthropic, key, clusters);
     // Rank by convergence (most members first) for the dashboard.
     clusters.sort((a, b) => b.member_count - a.member_count || b.label_count - a.label_count);
