@@ -1,222 +1,53 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
-// TODO(phase2): STALE — built around the retired 3-point green/yellow/red PS
-// scale and the retired "fish" model. It will NOT produce correct metrics
-// against the new 5-point scale / ps_interview_responses data. Type-checking is
-// disabled here only to keep `next build` green during the Phase 1 rebuild;
-// this whole route must be reworked as part of the Phase 2 (analysis) rebuild.
-// Do not treat its output as valid until then. See v2_rebuild_info + D-048.
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import type { CoordinationFrequency, Json, PsLabel } from "@/types/database";
+import { effectiveValue } from "@/lib/psSelection";
+import { codeTeamInterviews } from "@/lib/coding";
+import { clusterTeamLabels, type ClusterResult } from "@/lib/clustering";
+import { embedTexts, cosineSim } from "@/lib/embeddings";
+import type {
+  CoordinationFrequency,
+  Json,
+  PsLabel,
+  PsResponse,
+  PsStatement,
+  Member,
+  Zone,
+} from "@/types/database";
 
-// ── Calibrated thresholds — do not change without recalibrating ──────────────
-const STRONG_THRESHOLD = 75;      // %green ≥ this → "Strong"
-const BROKEN_THRESHOLD = 50;      // %green < this → "Broken"; between → "Mixed"
-const DIVERGENCE_THRESHOLD = 0.3; // 30% lean one way AND 30% opposite → divergent
-const HIGH_FLAG_SEVERITIES = [3, 4];
-
-const ZONE_STATEMENTS = {
-  1: [1, 2, 3, 4, 5],
-  2: [6, 7, 8, 9],
-  3: [10, 11, 12],
-} as const;
+// Phase 2 compute (Analytics Spec Stage 1). Deterministic Tier 1 aggregation
+// over the 5-point PS scale + interview data — no generative reasoning except the
+// coding/cluster-naming sub-steps. Re-anchored off the retired fish/3-point path.
+// Output → analysis.tier1_json.
 
 const HIGH_FREQ: CoordinationFrequency[] = ["daily", "weekly"];
 const LOW_FREQ: CoordinationFrequency[] = ["occasionally", "rarely"];
 
-// ── Output types ──────────────────────────────────────────────────────────────
-type ZoneStatus = "Strong" | "Mixed" | "Broken";
+// Purpose-alignment thresholds (env-overridable). Purpose statements are longer
+// than behaviour labels; tune separately from the behaviour cluster threshold.
+const PURPOSE_CLUSTER_THRESHOLD = Number(process.env.OTIS_PURPOSE_THRESHOLD ?? 0.6);
+const PURPOSE_ALIGNED = 0.7;
+const PURPOSE_BROADLY = 0.55;
 
-type ZoneResult = {
-  pct_green: number;
-  mean: number;
-  status: ZoneStatus;
-  counts: { green: number; yellow: number; red: number };
-};
+type Band = "red" | "yellow" | "green";
 
-type StatementDist = {
-  statement_id: number;
-  counts: { green: number; yellow: number; red: number };
-  responses: Array<{ private_code: string; label: PsLabel }>;
-};
-
-type DivergenceResult = {
-  lean_green_count: number;
-  lean_red_count: number;
-  lean_mixed_count: number;
-  is_divergent: boolean;
-  outlier_private_codes: string[];
-};
-
-type RankedFish = {
-  fish_id: string;
-  name: string;
-  mean_severity: number;
-  flagged_count: number;
-  flagged_pct: number;
-  rank: number;
-  responses: Array<{ private_code: string; severity_label: number }>;
-};
-
-type CustomFish = {
-  private_code: string;
-  custom_text: string;
-  severity_label: number;
-  share_verbatim: boolean;
-};
-
-type DirectedPair = {
-  from_private_code: string;
-  to_private_code: string | null;
-  frequency: CoordinationFrequency;
-};
-
-type AsymmetricPair = {
-  high_freq_private_code: string;
-  low_freq_private_code: string;
-  high_frequency: CoordinationFrequency;
-  low_frequency: CoordinationFrequency;
-};
-
-type PurposeEntry = {
-  private_code: string;
-  purpose_text: string;
-  share_verbatim: boolean;
-};
-
-type Tier1Result = {
-  computed_at: string;
-  participation: {
-    n_completed: number;
-    roster_size: number | null;
-    confidence: "high" | "moderate" | "provisional";
-  };
-  ps_zones: {
-    zone1: ZoneResult;
-    zone2: ZoneResult;
-    zone3: ZoneResult;
-    priority_zone: 1 | 2 | 3;
-  };
-  ps_statements: StatementDist[];
-  divergence: {
-    zone1: DivergenceResult;
-    zone2: DivergenceResult;
-    zone3: DivergenceResult;
-  };
-  fish: {
-    ranked: RankedFish[];
-    custom: CustomFish[];
-  };
-  coordination: {
-    pairs: DirectedPair[];
-    peripheral_member_codes: string[];
-    asymmetric_pairs: AsymmetricPair[];
-  };
-  purpose: PurposeEntry[];
-};
-
-// ── Pure computation helpers ──────────────────────────────────────────────────
-
-function zoneStatus(pctGreen: number): ZoneStatus {
-  if (pctGreen >= STRONG_THRESHOLD) return "Strong";
-  if (pctGreen >= BROKEN_THRESHOLD) return "Mixed";
-  return "Broken";
+function bandFromMean(mean: number): Band {
+  if (mean >= 3.5) return "green";
+  if (mean >= 2.5) return "yellow";
+  return "red";
 }
 
-function computeZone(
-  psResponses: Array<{ statement_id: number; label: PsLabel; response_value: number }>,
-  zoneNum: 1 | 2 | 3
-): ZoneResult {
-  const statIds = ZONE_STATEMENTS[zoneNum];
-  const zoneResps = psResponses.filter((r) => (statIds as readonly number[]).includes(r.statement_id));
-
-  const counts = { green: 0, yellow: 0, red: 0 };
-  let totalValue = 0;
-
-  for (const r of zoneResps) {
-    counts[r.label]++;
-    totalValue += r.response_value;
-  }
-
-  const total = zoneResps.length;
-  const pctGreen = total > 0 ? (counts.green / total) * 100 : 0;
-  const mean = total > 0 ? totalValue / total : 0;
-
-  return {
-    pct_green: Math.round(pctGreen * 10) / 10,
-    mean: Math.round(mean * 100) / 100,
-    status: zoneStatus(pctGreen),
-    counts,
-  };
+// Population standard deviation — the within-zone agreement statistic (§6B: SD,
+// lower = more agreement). Tracked regardless of the "high variability" copy.
+function stdev(values: number[]): number {
+  if (values.length === 0) return 0;
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
 }
 
-function computePriorityZone(z1: ZoneResult, z2: ZoneResult, z3: ZoneResult): 1 | 2 | 3 {
-  if (z1.status === "Broken") return 1;
-  if (z2.status === "Broken") return 2;
-  if (z3.status === "Broken") return 3;
+const round = (n: number, dp = 2) => Math.round(n * 10 ** dp) / 10 ** dp;
 
-  if (z1.status === "Mixed") return 1;
-  if (z2.status === "Mixed") return 2;
-  if (z3.status === "Mixed") return 3;
-
-  // All Strong — lowest-scoring zone by %green
-  if (z1.pct_green <= z2.pct_green && z1.pct_green <= z3.pct_green) return 1;
-  if (z2.pct_green <= z3.pct_green) return 2;
-  return 3;
-}
-
-function computeDivergence(
-  psResponses: Array<{ member_id: string; statement_id: number; label: PsLabel }>,
-  zoneNum: 1 | 2 | 3,
-  memberIdToCode: Map<string, string>
-): DivergenceResult {
-  const statIds = ZONE_STATEMENTS[zoneNum];
-
-  const byMember = new Map<string, { green: number; red: number; total: number }>();
-  for (const r of psResponses) {
-    if (!(statIds as readonly number[]).includes(r.statement_id)) continue;
-    if (!memberIdToCode.has(r.member_id)) continue;
-    const entry = byMember.get(r.member_id) ?? { green: 0, red: 0, total: 0 };
-    if (r.label === "green") entry.green++;
-    if (r.label === "red") entry.red++;
-    entry.total++;
-    byMember.set(r.member_id, entry);
-  }
-
-  const leanGreenCodes: string[] = [];
-  const leanRedCodes: string[] = [];
-  let leanMixedCount = 0;
-
-  for (const [memberId, tally] of Array.from(byMember.entries())) {
-    if (tally.total === 0) continue;
-    const code = memberIdToCode.get(memberId)!;
-    if (tally.green > tally.total / 2) leanGreenCodes.push(code);
-    else if (tally.red > tally.total / 2) leanRedCodes.push(code);
-    else leanMixedCount++;
-  }
-
-  const n = byMember.size;
-  const gProp = n > 0 ? leanGreenCodes.length / n : 0;
-  const rProp = n > 0 ? leanRedCodes.length / n : 0;
-  const isDivergent = gProp >= DIVERGENCE_THRESHOLD && rProp >= DIVERGENCE_THRESHOLD;
-
-  const outliers = isDivergent
-    ? leanGreenCodes.length <= leanRedCodes.length
-      ? leanGreenCodes
-      : leanRedCodes
-    : [];
-
-  return {
-    lean_green_count: leanGreenCodes.length,
-    lean_red_count: leanRedCodes.length,
-    lean_mixed_count: leanMixedCount,
-    is_divergent: isDivergent,
-    outlier_private_codes: outliers,
-  };
-}
-
-// ── Route handler ─────────────────────────────────────────────────────────────
+// ── Route ────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   let teamId: string;
   try {
@@ -228,10 +59,9 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-
   try {
     return await runCompute(teamId);
-  } catch (err: unknown) {
+  } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[analysis/compute] unexpected error:", err);
     return NextResponse.json({ error: "unexpected_error", detail: msg }, { status: 500 });
@@ -239,33 +69,25 @@ export async function POST(req: NextRequest) {
 }
 
 async function runCompute(teamId: string): Promise<NextResponse> {
-
-  // ── Team ──────────────────────────────────────────────────────────────────
   const { data: team, error: teamError } = await supabase
     .from("teams")
     .select("*")
     .eq("team_id", teamId)
     .single();
+  if (teamError || !team) return NextResponse.json({ error: "team_not_found" }, { status: 404 });
 
-  if (teamError || !team) {
-    return NextResponse.json({ error: "team_not_found" }, { status: 404 });
-  }
-
-  // ── Completed members ─────────────────────────────────────────────────────
   const { data: completedMembers, error: membersError } = await supabase
     .from("members")
     .select("*")
     .eq("team_id", teamId)
     .eq("status", "complete");
-
   if (membersError) {
     return NextResponse.json({ error: "db_error", detail: membersError.message }, { status: 500 });
   }
 
-  const members = completedMembers ?? [];
+  const members: Member[] = completedMembers ?? [];
   const nCompleted = members.length;
-
-  // ── Hard gate ─────────────────────────────────────────────────────────────
+  // Hard gate (unchanged): < 3 completed members → insufficient.
   if (nCompleted < 3) {
     return NextResponse.json({ error: "insufficient_responses", n_completed: nCompleted });
   }
@@ -273,9 +95,9 @@ async function runCompute(teamId: string): Promise<NextResponse> {
   const memberIds = members.map((m) => m.member_id);
   const memberById = new Map(members.map((m) => [m.member_id, m]));
   const memberByName = new Map(members.map((m) => [m.display_name.toLowerCase(), m]));
-  const memberIdToCode = new Map(members.map((m) => [m.member_id, m.private_code]));
+  const codeOf = (id: string) => memberById.get(id)?.private_code ?? "unknown";
 
-  // ── Participation confidence ──────────────────────────────────────────────
+  // Participation confidence (unchanged).
   const rosterSize = team.roster_size;
   let confidence: "high" | "moderate" | "provisional";
   if (rosterSize !== null && nCompleted >= rosterSize * 0.7 && nCompleted >= 3) {
@@ -284,150 +106,203 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     confidence = "provisional";
   }
 
-  // ── Parallel data fetch ───────────────────────────────────────────────────
-  const [psResult, fishRespResult, coordResult, purposeResult, fishListResult] = await Promise.all([
-    supabase
-      .from("ps_responses")
-      .select("*")
-      .eq("team_id", teamId)
-      .eq("round", 1)
-      .in("member_id", memberIds),
-    supabase
-      .from("fish_responses")
-      .select("*")
-      .eq("team_id", teamId)
-      .in("member_id", memberIds),
-    supabase
-      .from("coordination_ratings")
-      .select("*")
-      .eq("team_id", teamId)
-      .in("member_id", memberIds),
-    supabase
-      .from("purpose_responses")
-      .select("*")
-      .eq("team_id", teamId)
-      .in("member_id", memberIds),
-    team.selected_fish_ids.length > 0
-      ? supabase.from("fish").select("*").in("fish_id", team.selected_fish_ids)
-      : supabase.from("fish").select("*").limit(0),
+  // ── Data fetch (fish dropped; ps_statements added for zones + reverse flag) ──
+  const [psResult, coordResult, purposeResult, statementsResult] = await Promise.all([
+    supabase.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1).in("member_id", memberIds),
+    supabase.from("coordination_ratings").select("*").eq("team_id", teamId).in("member_id", memberIds),
+    supabase.from("purpose_responses").select("*").eq("team_id", teamId).in("member_id", memberIds),
+    supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),
   ]);
-
-  if (psResult.error) return NextResponse.json({ error: "db_error", detail: psResult.error.message }, { status: 500 });
-  if (fishRespResult.error) return NextResponse.json({ error: "db_error", detail: fishRespResult.error.message }, { status: 500 });
-  if (coordResult.error) return NextResponse.json({ error: "db_error", detail: coordResult.error.message }, { status: 500 });
-  if (purposeResult.error) return NextResponse.json({ error: "db_error", detail: purposeResult.error.message }, { status: 500 });
-
-  const psResponses = psResult.data ?? [];
-  const fishResponses = fishRespResult.data ?? [];
+  for (const r of [psResult, coordResult, purposeResult, statementsResult]) {
+    if (r.error) return NextResponse.json({ error: "db_error", detail: r.error.message }, { status: 500 });
+  }
+  const psResponses: PsResponse[] = psResult.data ?? [];
   const coordRatings = coordResult.data ?? [];
   const purposeResponses = purposeResult.data ?? [];
-  const fishList = fishListResult.data ?? [];
-  const fishById = new Map(fishList.map((f) => [f.fish_id, f]));
+  const statements: PsStatement[] = statementsResult.data ?? [];
+  const statementById = new Map(statements.map((s) => [s.statement_id, s]));
 
-  // ── PS zone scoring ───────────────────────────────────────────────────────
-  const zone1 = computeZone(psResponses, 1);
-  const zone2 = computeZone(psResponses, 2);
-  const zone3 = computeZone(psResponses, 3);
-  const priorityZone = computePriorityZone(zone1, zone2, zone3);
+  // ── Coding + clustering (Coding Spec + Analytics §2.4) ──────────────────────
+  // Coding re-derives interview_labels; clustering groups them by member
+  // convergence and preserves the exploded source labels.
+  const codingSummary = await codeTeamInterviews(teamId);
+  const clusters: ClusterResult = await clusterTeamLabels(teamId);
 
-  // ── Per-statement distribution ────────────────────────────────────────────
-  const psStatements: StatementDist[] = [];
-  for (let sid = 1; sid <= 12; sid++) {
-    const stmtResps = psResponses.filter((r) => r.statement_id === sid);
-    const counts = { green: 0, yellow: 0, red: 0 };
-    const responses: Array<{ private_code: string; label: PsLabel }> = [];
-    for (const r of stmtResps) {
-      counts[r.label as PsLabel]++;
-      const code = memberIdToCode.get(r.member_id);
-      if (code) responses.push({ private_code: code, label: r.label as PsLabel });
+  // ── PS zone scoring — 5-point favorability, zones READ FROM ps_statements ────
+  const zonesPresent = Array.from(new Set(statements.map((s) => s.zone))).sort() as Zone[];
+  const zoneScores = zonesPresent.map((zone) => {
+    const zoneStatementIds = new Set(
+      statements.filter((s) => s.zone === zone).map((s) => s.statement_id)
+    );
+    const effs: number[] = [];
+    let favorable = 0,
+      neutral = 0,
+      unfavorable = 0;
+    for (const r of psResponses) {
+      if (!zoneStatementIds.has(r.statement_id)) continue;
+      const stmt = statementById.get(r.statement_id);
+      if (!stmt) continue;
+      const eff = effectiveValue(stmt, r.response_value);
+      effs.push(eff);
+      if (eff >= 4) favorable++;
+      else if (eff === 3) neutral++;
+      else unfavorable++;
     }
-    psStatements.push({ statement_id: sid, counts, responses });
-  }
-
-  // ── Divergence ────────────────────────────────────────────────────────────
-  const divergence = {
-    zone1: computeDivergence(psResponses, 1, memberIdToCode),
-    zone2: computeDivergence(psResponses, 2, memberIdToCode),
-    zone3: computeDivergence(psResponses, 3, memberIdToCode),
-  };
-
-  // ── Fish ranking ──────────────────────────────────────────────────────────
-  const standardFishResps = fishResponses.filter((r) => r.fish_id !== null);
-  const customFishResps = fishResponses.filter((r) => r.fish_id === null);
-
-  const fishGrouped = new Map<string, typeof standardFishResps>();
-  for (const r of standardFishResps) {
-    const arr = fishGrouped.get(r.fish_id!) ?? [];
-    arr.push(r);
-    fishGrouped.set(r.fish_id!, arr);
-  }
-
-  const unranked: Omit<RankedFish, "rank">[] = [];
-  for (const [fishId, resps] of Array.from(fishGrouped.entries())) {
-    if (!resps.length) continue;
-    const meanSeverity = resps.reduce((s, r) => s + r.severity_label, 0) / resps.length;
-    const flaggedCount = resps.filter((r) => HIGH_FLAG_SEVERITIES.includes(r.severity_label)).length;
-    const flaggedPct = (flaggedCount / nCompleted) * 100;
-    const memberResponses = resps
-      .map((r) => ({ private_code: memberIdToCode.get(r.member_id) ?? "?", severity_label: r.severity_label }))
-      .sort((a, b) => b.severity_label - a.severity_label);
-    unranked.push({
-      fish_id: fishId,
-      name: fishById.get(fishId)?.name ?? fishId,
-      mean_severity: Math.round(meanSeverity * 100) / 100,
-      flagged_count: flaggedCount,
-      flagged_pct: Math.round(flaggedPct * 10) / 10,
-      responses: memberResponses,
-    });
-  }
-  unranked.sort((a, b) => b.flagged_pct - a.flagged_pct);
-  const rankedFish: RankedFish[] = unranked.map((f, i) => ({ ...f, rank: i + 1 }));
-
-  const customFish: CustomFish[] = customFishResps.map((r) => {
-    const member = memberById.get(r.member_id);
+    const total = effs.length;
+    const mean = total ? effs.reduce((s, v) => s + v, 0) / total : 0;
     return {
-      private_code: member?.private_code ?? "unknown",
-      custom_text: r.custom_text ?? "",
-      severity_label: r.severity_label,
-      share_verbatim: member?.share_verbatim_with_team ?? false,
+      zone,
+      zone_name: statements.find((s) => s.zone === zone)?.zone_name ?? `Zone ${zone}`,
+      pct_favorable: total ? round((favorable / total) * 100, 1) : 0,
+      counts: { favorable, neutral, unfavorable, total },
+      mean_effective: round(mean),
+      agreement_sd: round(stdev(effs)),
+      band: bandFromMean(mean),
     };
   });
 
-  // ── Coordination ──────────────────────────────────────────────────────────
-  const pairs: DirectedPair[] = coordRatings.map((r) => ({
-    from_private_code: memberById.get(r.member_id)?.private_code ?? "unknown",
+  // ── Per-statement distribution (5-point, on effective value) ────────────────
+  const statementScores = statements.map((stmt) => {
+    const resps = psResponses.filter((r) => r.statement_id === stmt.statement_id);
+    const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    const per_member: Array<{ private_code: string; effective_value: number; label: PsLabel }> = [];
+    let favorable = 0,
+      neutral = 0,
+      unfavorable = 0;
+    const effs: number[] = [];
+    for (const r of resps) {
+      const eff = effectiveValue(stmt, r.response_value);
+      distribution[eff] = (distribution[eff] ?? 0) + 1;
+      effs.push(eff);
+      if (eff >= 4) favorable++;
+      else if (eff === 3) neutral++;
+      else unfavorable++;
+      per_member.push({ private_code: codeOf(r.member_id), effective_value: eff, label: r.label });
+    }
+    const total = effs.length;
+    return {
+      statement_id: stmt.statement_id,
+      zone: stmt.zone,
+      statement_text: stmt.statement_text,
+      reverse_scored: stmt.reverse_scored,
+      distribution,
+      counts: { favorable, neutral, unfavorable, total },
+      mean_effective: total ? round(effs.reduce((s, v) => s + v, 0) / total) : 0,
+      per_member,
+    };
+  });
+
+  // ── Shared-purpose alignment (§2.5) — embed + classify (read is in interpret) ─
+  const purposeTexts = purposeResponses.map((p) => p.purpose_text?.trim()).filter(Boolean) as string[];
+  const purposeOwners = purposeResponses
+    .filter((p) => p.purpose_text?.trim())
+    .map((p) => codeOf(p.member_id));
+  let sharedPurpose: {
+    classification: string;
+    mean_pairwise_similarity: number | null;
+    n_statements: number;
+    clusters: Array<{ size: number; private_codes: string[] }>;
+  };
+  if (purposeTexts.length < 2) {
+    sharedPurpose = {
+      classification: "insufficient",
+      mean_pairwise_similarity: null,
+      n_statements: purposeTexts.length,
+      clusters: [],
+    };
+  } else {
+    const vecs = await embedTexts(purposeTexts);
+    // mean pairwise cosine (cohesion)
+    let sum = 0,
+      pairs = 0;
+    for (let i = 0; i < vecs.length; i++)
+      for (let j = i + 1; j < vecs.length; j++) {
+        sum += cosineSim(vecs[i], vecs[j]);
+        pairs++;
+      }
+    const meanSim = pairs ? sum / pairs : 0;
+    // union-find clusters at the purpose threshold (to detect clumps)
+    const n = vecs.length;
+    const parent = Array.from({ length: n }, (_, i) => i);
+    const find = (x: number): number => {
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+      }
+      return x;
+    };
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++)
+        if (cosineSim(vecs[i], vecs[j]) >= PURPOSE_CLUSTER_THRESHOLD) {
+          const a = find(i),
+            b = find(j);
+          if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
+        }
+    const groups = new Map<number, string[]>();
+    for (let i = 0; i < n; i++) {
+      const r = find(i);
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r)!.push(purposeOwners[i]);
+    }
+    const clusterList = Array.from(groups.values())
+      .map((codes) => ({ size: codes.length, private_codes: codes }))
+      .sort((a, b) => b.size - a.size);
+
+    let classification: string;
+    const topShare = clusterList[0].size / n;
+    if (clusterList.length === 1 && meanSim >= PURPOSE_ALIGNED) classification = "aligned";
+    else if (clusterList.length === 1 && meanSim >= PURPOSE_BROADLY) classification = "broadly_aligned";
+    else if (clusterList.length === 2 && clusterList[1].size / n >= 0.35) classification = "bifurcated";
+    else if (topShare >= PURPOSE_BROADLY) classification = "broadly_aligned";
+    else classification = "fragmented";
+
+    sharedPurpose = {
+      classification,
+      mean_pairwise_similarity: round(meanSim, 3),
+      n_statements: n,
+      clusters: clusterList,
+    };
+  }
+
+  // ── Networks ────────────────────────────────────────────────────────────────
+  // Coordination (kept): directed pairs, peripheral members, asymmetric pairs.
+  const coordPairs = coordRatings.map((r) => ({
+    from_private_code: codeOf(r.member_id),
     to_private_code: memberByName.get(r.target_member_name.toLowerCase())?.private_code ?? null,
     frequency: r.frequency,
   }));
-
   const peripheralCodes: string[] = [];
-  for (const member of members) {
+  for (const m of members) {
     const received = coordRatings.filter(
-      (r) => r.target_member_name.toLowerCase() === member.display_name.toLowerCase()
+      (r) => r.target_member_name.toLowerCase() === m.display_name.toLowerCase()
     );
     if (!received.length) continue;
-    const lowCount = received.filter((r) => LOW_FREQ.includes(r.frequency)).length;
-    if (lowCount / received.length > 0.5) peripheralCodes.push(member.private_code);
+    const low = received.filter((r) => LOW_FREQ.includes(r.frequency)).length;
+    if (low / received.length > 0.5) peripheralCodes.push(m.private_code);
   }
-
-  const asymmetricPairs: AsymmetricPair[] = [];
-  const seenPairs = new Set<string>();
-  for (const member of members) {
-    for (const rating of coordRatings.filter((r) => r.member_id === member.member_id)) {
+  const asymmetricPairs: Array<{
+    high_freq_private_code: string;
+    low_freq_private_code: string;
+    high_frequency: CoordinationFrequency;
+    low_frequency: CoordinationFrequency;
+  }> = [];
+  const seen = new Set<string>();
+  for (const m of members) {
+    for (const rating of coordRatings.filter((r) => r.member_id === m.member_id)) {
       if (!HIGH_FREQ.includes(rating.frequency)) continue;
       const target = memberByName.get(rating.target_member_name.toLowerCase());
       if (!target) continue;
       const reverse = coordRatings.find(
         (r) =>
           r.member_id === target.member_id &&
-          r.target_member_name.toLowerCase() === member.display_name.toLowerCase()
+          r.target_member_name.toLowerCase() === m.display_name.toLowerCase()
       );
       if (!reverse || !LOW_FREQ.includes(reverse.frequency)) continue;
-      const key = [member.private_code, target.private_code].sort().join(":");
-      if (seenPairs.has(key)) continue;
-      seenPairs.add(key);
+      const key = [m.private_code, target.private_code].sort().join(":");
+      if (seen.has(key)) continue;
+      seen.add(key);
       asymmetricPairs.push({
-        high_freq_private_code: member.private_code,
+        high_freq_private_code: m.private_code,
         low_freq_private_code: target.private_code,
         high_frequency: rating.frequency,
         low_frequency: reverse.frequency,
@@ -435,45 +310,72 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     }
   }
 
-  // ── Purpose ───────────────────────────────────────────────────────────────
-  const purpose: PurposeEntry[] = purposeResponses.map((r) => {
-    const member = memberById.get(r.member_id);
-    return {
-      private_code: member?.private_code ?? "unknown",
-      purpose_text: r.purpose_text,
-      share_verbatim: member?.share_verbatim_with_team ?? false,
-    };
-  });
+  // Geographic (new): nodes from location/timezone; missing location → unplaced.
+  const geoNodes = members.map((m) => ({
+    private_code: m.private_code,
+    location: m.location,
+    timezone: m.timezone,
+    has_location: !!(m.location && m.location.trim()),
+  }));
+  const unplacedCodes = geoNodes.filter((g) => !g.has_location).map((g) => g.private_code);
+  const locationGroups = Array.from(
+    geoNodes
+      .filter((g) => g.has_location)
+      .reduce((map, g) => {
+        const loc = g.location!.trim();
+        map.set(loc, [...(map.get(loc) ?? []), g.private_code]);
+        return map;
+      }, new Map<string, string[]>())
+      .entries()
+  ).map(([location, private_codes]) => ({ location, private_codes }));
+  const distinctTimezones = new Set(
+    members.map((m) => m.timezone?.trim()).filter(Boolean)
+  ).size;
 
-  // ── Assemble ──────────────────────────────────────────────────────────────
-  const result: Tier1Result = {
+  // ── Purpose passthrough (with share flag for the raw-responses dropdown) ─────
+  const purpose = purposeResponses.map((r) => ({
+    private_code: codeOf(r.member_id),
+    purpose_text: r.purpose_text,
+    share_verbatim: memberById.get(r.member_id)?.share_verbatim_with_team ?? false,
+  }));
+
+  // ── Assemble new tier1_json (no fish) ───────────────────────────────────────
+  const result = {
     computed_at: new Date().toISOString(),
     participation: { n_completed: nCompleted, roster_size: rosterSize, confidence },
-    ps_zones: { zone1, zone2, zone3, priority_zone: priorityZone },
-    ps_statements: psStatements,
-    divergence,
-    fish: { ranked: rankedFish, custom: customFish },
-    coordination: { pairs, peripheral_member_codes: peripheralCodes, asymmetric_pairs: asymmetricPairs },
+    coding: codingSummary,
+    ps_zones: zoneScores,
+    ps_statements: statementScores,
+    clusters,
+    shared_purpose: sharedPurpose,
+    networks: {
+      coordination: {
+        pairs: coordPairs,
+        peripheral_member_codes: peripheralCodes,
+        asymmetric_pairs: asymmetricPairs,
+      },
+      geographic: {
+        nodes: geoNodes,
+        location_groups: locationGroups,
+        distinct_timezones: distinctTimezones,
+        unplaced_codes: unplacedCodes,
+      },
+    },
     purpose,
   };
 
-  // ── Upsert to analysis table ──────────────────────────────────────────────
-  // Requires a unique constraint on analysis.team_id.
   const { error: upsertError } = await supabase
     .from("analysis")
     .upsert(
       { team_id: teamId, tier1_json: result as unknown as Json, updated_at: new Date().toISOString() },
       { onConflict: "team_id" }
     );
-
   if (upsertError) {
     console.error("[analysis/compute] upsert failed:", upsertError);
-    return NextResponse.json({
-      error: "upsert_failed",
-      detail: upsertError.message,
-      hint: upsertError.hint ?? null,
-      code: upsertError.code ?? null,
-    }, { status: 500 });
+    return NextResponse.json(
+      { error: "upsert_failed", detail: upsertError.message, code: upsertError.code ?? null },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json(result);
