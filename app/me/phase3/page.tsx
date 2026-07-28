@@ -6,12 +6,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
-import type { PsStatement } from "@/types/database";
+import type { PsStatement, Phase3ReportJson } from "@/types/database";
 import Phase3Chat from "@/components/phase3/Phase3Chat";
 import Phase3Board from "@/components/phase3/Phase3Board";
 
 type SessionMember = { member_id: string; display_name: string };
-type PageState = "loading" | "not_ready" | "chat" | "board" | "done";
+type PageState = "loading" | "not_ready" | "intro" | "chat" | "board" | "done";
+
+const ZONE_NAME = ["", "Safe to Belong", "Safe to Speak Freely", "Safe to Innovate"];
 
 export default function MemberPhase3Page() {
   const router = useRouter();
@@ -20,6 +22,7 @@ export default function MemberPhase3Page() {
   const [member, setMember] = useState<SessionMember | null>(null);
   const [teamId, setTeamId] = useState<string | null>(null);
   const [focusStatement, setFocusStatement] = useState<PsStatement | null>(null);
+  const [reportJson, setReportJson] = useState<Phase3ReportJson | null>(null);
   const [pageState, setPageState] = useState<PageState>("loading");
   const [nudge, setNudge] = useState<string | null>(null);
 
@@ -47,16 +50,21 @@ export default function MemberPhase3Page() {
       return;
     }
 
-    // Resolve the focus item from the team's interpret output.
+    // Resolve the focus item and report data.
     const { data: analysisData } = await supabase
       .from("analysis")
-      .select("tier2_json")
+      .select("tier2_json, phase3_report_json")
       .eq("team_id", tid)
       .maybeSingle();
 
-    const focusHypothesis = (analysisData?.tier2_json as Record<string, unknown> | null)?.focus_hypothesis as
-      | { statement_id?: number } | undefined;
-    const statementId = focusHypothesis?.statement_id;
+    const report = (analysisData?.phase3_report_json ?? null) as Phase3ReportJson | null;
+    setReportJson(report);
+
+    // Focus statement from phase3_report_json, with fallback to tier2_json.
+    const statementId: number | undefined =
+      (report?.focus_statement_id ?? undefined) ??
+      ((analysisData?.tier2_json as Record<string, unknown> | null)?.focus_hypothesis as
+        | { statement_id?: number } | undefined)?.statement_id;
 
     if (!statementId) {
       setPageState("not_ready");
@@ -78,7 +86,15 @@ export default function MemberPhase3Page() {
       .eq("member_id", me.member_id)
       .eq("team_id", tid);
 
-    setPageState(storyCount && storyCount > 0 ? "board" : "chat");
+    if (storyCount && storyCount > 0) {
+      setPageState("board");
+    } else {
+      setPageState("intro");
+    }
+  }
+
+  function handleIntroComplete() {
+    setPageState("chat");
   }
 
   function handleChatComplete() {
@@ -96,9 +112,6 @@ export default function MemberPhase3Page() {
     return (
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
-        <h1 className="text-4xl font-serif mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
-          Hello, I&apos;m <span className="purple">Otis.</span>
-        </h1>
         <p className="text-[var(--color-grey)]">Loading your session…</p>
       </main>
     );
@@ -118,8 +131,102 @@ export default function MemberPhase3Page() {
     );
   }
 
+  const firstName = member?.display_name.split(" ")[0] ?? "there";
+
+  if (pageState === "intro") {
+    return (
+      <main className="flex-1">
+        <div className="w-full max-w-2xl mx-auto px-6 pt-12 pb-16 space-y-10">
+          {/* Welcome */}
+          <div>
+            <img src="/octopus-logo.png" alt="" className="h-10 w-auto mb-5" />
+            <h1 className="text-3xl font-serif mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
+              Welcome back, {firstName}.
+            </h1>
+            <p className="text-[var(--color-grey)] leading-relaxed">
+              Before you get started, here&apos;s where your team stands — and what your upcoming workshop will focus on.
+            </p>
+          </div>
+
+          {/* PS zone summaries — only shown when consultant has written them */}
+          {reportJson && (reportJson.ps_read_zone1 || reportJson.ps_read_zone2 || reportJson.ps_read_zone3) && (
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-widest text-[var(--color-grey)]">
+                How your team is doing on psychological safety
+              </h2>
+              {([1, 2, 3] as const).map((z) => {
+                const read = z === 1 ? reportJson.ps_read_zone1 : z === 2 ? reportJson.ps_read_zone2 : reportJson.ps_read_zone3;
+                if (!read) return null;
+                return (
+                  <div key={z} className="card px-5 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-purple)] mb-1">
+                      {ZONE_NAME[z]}
+                    </p>
+                    <p className="text-sm leading-relaxed">{read}</p>
+                  </div>
+                );
+              })}
+            </section>
+          )}
+
+          {/* Shared purpose */}
+          {reportJson?.shared_purpose_read && (
+            <section className="space-y-2">
+              <h2 className="text-sm font-semibold uppercase tracking-widest text-[var(--color-grey)]">
+                Your team&apos;s shared purpose
+              </h2>
+              <div className="card px-5 py-4">
+                <p className="text-sm leading-relaxed">{reportJson.shared_purpose_read}</p>
+              </div>
+            </section>
+          )}
+
+          {/* Workshop focus — always shown */}
+          {focusStatement && (
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-widest text-[var(--color-grey)]">
+                What your team will work on
+              </h2>
+              <div className="rounded-xl bg-[var(--color-purple)]/6 border border-[var(--color-purple)]/20 px-5 py-4">
+                <p className="text-xs uppercase tracking-widest text-[var(--color-purple)] mb-1">Workshop focus</p>
+                <p className="text-base font-medium">{focusStatement.statement_text}</p>
+              </div>
+              {reportJson?.focus_narrative ? (
+                <p className="text-sm text-[var(--color-grey)] leading-relaxed">{reportJson.focus_narrative}</p>
+              ) : (
+                <p className="text-sm text-[var(--color-grey)] leading-relaxed">
+                  Based on your team&apos;s survey results, your workshop will focus on strengthening this area of psychological safety.
+                  You and your team will look at what makes it hard right now, and identify specific behaviors that could help.
+                </p>
+              )}
+            </section>
+          )}
+
+          {/* Workshop intro note from consultant */}
+          {reportJson?.workshop_intro && (
+            <section className="space-y-2">
+              <h2 className="text-sm font-semibold uppercase tracking-widest text-[var(--color-grey)]">
+                A note from your consultant
+              </h2>
+              <div className="card px-5 py-4">
+                <p className="text-sm leading-relaxed">{reportJson.workshop_intro}</p>
+              </div>
+            </section>
+          )}
+
+          <button
+            type="button"
+            onClick={handleIntroComplete}
+            className="btn-primary"
+          >
+            Let&apos;s begin →
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (pageState === "done") {
-    const firstName = member?.display_name.split(" ")[0] ?? "there";
     return (
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
@@ -150,11 +257,6 @@ export default function MemberPhase3Page() {
               <p className="text-base font-medium">{focusStatement.statement_text}</p>
             </div>
           )}
-          {pageState === "chat" && (
-            <p className="text-sm text-[var(--color-grey)]">
-              Before the activity, Otis wants to hear about a moment from your team.
-            </p>
-          )}
           {pageState === "board" && (
             <p className="text-sm text-[var(--color-grey)]">
               Add behaviors to each column. Chat with Otis if you want to think it through.
@@ -168,6 +270,7 @@ export default function MemberPhase3Page() {
             memberId={memberId}
             teamId={teamId}
             statementId={statementId}
+            memberName={member?.display_name ?? ""}
             onComplete={handleChatComplete}
             nudge={nudge}
             onNudgeSeen={() => setNudge(null)}

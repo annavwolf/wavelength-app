@@ -81,6 +81,12 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
         released_at: data.released_at,
         sent_member_ids: [...(prev.sent_member_ids ?? [])],
       }));
+      if (data.using_test_sender) {
+        setErr(
+          `Sent via Resend's shared test domain — emails may not arrive or may land in spam. ` +
+          `Set RESEND_FROM_EMAIL in .env.local to a verified sender for reliable delivery.`
+        );
+      }
     }
 
     setConfirmRelease(false);

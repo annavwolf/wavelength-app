@@ -15,6 +15,7 @@ type Props = {
   memberId: string;
   teamId: string;
   statementId: number;
+  memberName: string;
   // Called when conversation is fully done (bridge delivered).
   onComplete: () => void;
   // An external nudge from the behaviors API — Otis displays it as a message.
@@ -26,6 +27,7 @@ export default function Phase3Chat({
   memberId,
   teamId,
   statementId,
+  memberName,
   onComplete,
   nudge,
   onNudgeSeen,
@@ -61,6 +63,7 @@ export default function Phase3Chat({
           member_id: memberId,
           team_id: teamId,
           statement_id: statementId,
+          member_name: memberName,
           messages: convo,
           state,
         }),

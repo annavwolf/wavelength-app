@@ -84,7 +84,7 @@ export default function TeamDashboardPage() {
   const [interpretation, setInterpretation] = useState<Tier2Result | null>(null);
   const [interpreting, setInterpreting] = useState(false);
   const [interpretError, setInterpretError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"analytics" | "report" | "prework" | "workshop">("analytics");
+  const [activeTab, setActiveTab] = useState<"analytics" | "report" | "workshop">("analytics");
 
   useEffect(() => { load(); }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -393,7 +393,7 @@ export default function TeamDashboardPage() {
         {/* Tabs */}
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex gap-1">
-            {([["analytics", "Analytics & Insights"], ["report", "Report & Release"], ["prework", "Pre-work"], ["workshop", "Workshop"]] as const).map(([id, label]) => (
+            {([["analytics", "Analytics & Insights"], ["report", "Phase 3"], ["workshop", "Workshop"]] as const).map(([id, label]) => (
               <button key={id} type="button" onClick={() => setActiveTab(id)}
                 className={`px-4 py-2.5 text-sm border-b-2 transition-colors ${
                   activeTab === id
@@ -407,15 +407,20 @@ export default function TeamDashboardPage() {
         </div>
       </div>
 
-      {activeTab === "prework" ? (
-        <PreworkReview teamId={teamId} tier1={tier1} tier2={interpretation} />
-      ) : activeTab === "report" ? (
-        <ReportReview
-          teamId={teamId}
-          tier1={tier1}
-          tier2={interpretation}
-          existingReport={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
-        />
+      {activeTab === "report" ? (
+        <div className="space-y-0">
+          {/* §1 — Write the member report + send emails to unlock /me/phase3 */}
+          <ReportReview
+            teamId={teamId}
+            tier1={tier1}
+            tier2={interpretation}
+            existingReport={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
+          />
+          {/* §2 — Review member pre-work submissions (appears after members complete the survey) */}
+          <div className="border-t border-black/10 mt-2 pt-2">
+            <PreworkReview teamId={teamId} tier1={tier1} tier2={interpretation} />
+          </div>
+        </div>
       ) : activeTab === "analytics" ? (
         <div className="max-w-6xl mx-auto px-6 py-10 space-y-14">
           {/* Banner — textless ocean art (the TITLEONLY asset has baked-in zone

@@ -42,18 +42,27 @@ export async function POST(req: NextRequest) {
     ]);
 
     const teamName = teamRes.data?.team_name ?? "your team";
-    const toSend = (membersRes.data ?? []).filter(
+    const allMembers = membersRes.data ?? [];
+    const noEmail = allMembers.filter((m) => !m.email).length;
+    const toSend = allMembers.filter(
       (m) => m.email && !alreadySentIds.includes(m.member_id)
     );
+    if (noEmail > 0) {
+      console.warn(`[phase3/release] ${noEmail} member(s) have no email address — skipped.`);
+    }
 
     if (apiKey && toSend.length > 0) {
       const resend = new Resend(apiKey);
       const loginUrl = `${APP_URL}/member-login`;
+      // Use RESEND_FROM_EMAIL if set (requires a verified Resend domain).
+      // Falls back to the shared test sender — only reliably delivers to the
+      // Resend account owner's address; use a verified domain for production.
+      const fromAddress = process.env.RESEND_FROM_EMAIL ?? "Wavelength <onboarding@resend.dev>";
 
       for (const m of toSend) {
         const firstName = m.display_name.split(" ")[0];
         const { error: sendErr } = await resend.emails.send({
-          from: "Wavelength <onboarding@resend.dev>",
+          from: fromAddress,
           to: m.email!,
           subject: `Your pre-workshop activity — ${teamName}`,
           html: `
@@ -103,5 +112,6 @@ export async function POST(req: NextRequest) {
     released_at: updatedReport.released_at,
     sent_count: sentCount,
     dry_run,
+    using_test_sender: !process.env.RESEND_FROM_EMAIL,
   });
 }

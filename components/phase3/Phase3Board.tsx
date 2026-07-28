@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MemberBehavior, BehaviorBucket } from "@/types/database";
 
 const BUCKET_LABEL: Record<BehaviorBucket, string> = {
@@ -34,6 +34,18 @@ type Props = {
 export default function Phase3Board({ memberId, teamId, statementId, onNudge, onSubmit }: Props) {
   const [behaviors, setBehaviors] = useState<MemberBehavior[]>([]);
   const [drafts, setDrafts] = useState<Record<BehaviorBucket, string>>({ never: "", sometimes: "", always: "" });
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    async function loadBehaviors() {
+      const res = await fetch(`/api/phase3/behaviors?member_id=${memberId}&team_id=${teamId}`);
+      if (!res.ok) { setLoadError(true); return; }
+      const data = await res.json();
+      setBehaviors(data.behaviors ?? []);
+    }
+    void loadBehaviors();
+  }, [memberId, teamId]);
+
   const [saving, setSaving] = useState<BehaviorBucket | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Track which entries have had a nudge shown (so we know the next submit is force_save).
@@ -66,10 +78,13 @@ export default function Phase3Board({ memberId, teamId, statementId, onNudge, on
       }),
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     setSaving(null);
 
     if (!res.ok) {
+      if (data?.error === "db_error") {
+        console.error("[phase3/behaviors] DB error:", data.detail);
+      }
       setError("Something went wrong. Please try again.");
       return;
     }
@@ -95,6 +110,11 @@ export default function Phase3Board({ memberId, teamId, statementId, onNudge, on
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <p className="text-sm text-[var(--color-amber)]">
+          Could not load your saved behaviors. Check your connection and refresh to try again.
+        </p>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {(["never", "sometimes", "always"] as BehaviorBucket[]).map((bucket) => {
           const items = behaviors.filter((b) => b.bucket === bucket);

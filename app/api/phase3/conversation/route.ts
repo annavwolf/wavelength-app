@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
   let memberId: string;
   let teamId: string;
   let statementId: number;
+  let memberName: string;
   let messages: ChatMessage[];
   let state: ConvState;
 
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
     memberId = body.member_id;
     teamId = body.team_id;
     statementId = body.statement_id;
+    memberName = typeof body.member_name === "string" && body.member_name ? body.member_name : "there";
     messages = Array.isArray(body.messages) ? body.messages : [];
     state = body.state?.story_complete !== undefined ? (body.state as ConvState) : emptyState();
     if (!memberId || !teamId || typeof statementId !== "number") {
@@ -75,9 +77,24 @@ export async function POST(req: NextRequest) {
   if (stmtErr) return NextResponse.json({ error: "db_error", detail: stmtErr.message }, { status: 500 });
   if (!statement) return NextResponse.json({ error: "statement_not_found" }, { status: 404 });
 
+  // First turn: skip the AI call and return the locked opening verbatim.
+  // This guarantees the exact welcome-back phrasing regardless of model behaviour.
+  if (messages.length === 0) {
+    const firstName = memberName.split(" ")[0] || memberName;
+    const opening =
+      `Welcome back, ${firstName}. Has there been a moment on your team, recently or a while back, where this came up? Doesn't need to be a big thing, small moments count too.`;
+    return NextResponse.json({
+      say: opening,
+      state: emptyState(),
+      story_complete: false,
+      bridge_complete: false,
+    });
+  }
+
   const system = buildPhase3SystemPrompt({
     statement_text: statement.statement_text,
     action_phrase: ACTION_PHRASES[statementId] ?? "work well and safely together",
+    member_name: memberName,
   });
 
   // Anthropic requires a leading user turn.
