@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { effectiveValue } from "@/lib/psSelection";
-import { codeTeamInterviews } from "@/lib/coding";
-import { clusterTeamLabels, type ClusterResult } from "@/lib/clustering";
 import { embedTexts, cosineSim } from "@/lib/embeddings";
 import type {
   CoordinationFrequency,
@@ -15,9 +13,8 @@ import type {
 } from "@/types/database";
 
 // Phase 2 compute (Analytics Spec Stage 1). Deterministic Tier 1 aggregation
-// over the 5-point PS scale + interview data — no generative reasoning except the
-// coding/cluster-naming sub-steps. Re-anchored off the retired fish/3-point path.
-// Output → analysis.tier1_json.
+// over the 5-point PS scale — no generative reasoning. Re-anchored off the
+// retired fish/3-point path. Output → analysis.tier1_json.
 
 const HIGH_FREQ: CoordinationFrequency[] = ["daily", "weekly"];
 const LOW_FREQ: CoordinationFrequency[] = ["occasionally", "rarely"];
@@ -121,12 +118,6 @@ async function runCompute(teamId: string): Promise<NextResponse> {
   const purposeResponses = purposeResult.data ?? [];
   const statements: PsStatement[] = statementsResult.data ?? [];
   const statementById = new Map(statements.map((s) => [s.statement_id, s]));
-
-  // ── Coding + clustering (Coding Spec + Analytics §2.4) ──────────────────────
-  // Coding re-derives interview_labels; clustering groups them by member
-  // convergence and preserves the exploded source labels.
-  const codingSummary = await codeTeamInterviews(teamId);
-  const clusters: ClusterResult = await clusterTeamLabels(teamId);
 
   // ── PS zone scoring — 5-point favorability, zones READ FROM ps_statements ────
   const zonesPresent = Array.from(new Set(statements.map((s) => s.zone))).sort() as Zone[];
@@ -339,14 +330,12 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     share_verbatim: memberById.get(r.member_id)?.share_verbatim_with_team ?? false,
   }));
 
-  // ── Assemble new tier1_json (no fish) ───────────────────────────────────────
+  // ── Assemble tier1_json ──────────────────────────────────────────────────────
   const result = {
     computed_at: new Date().toISOString(),
     participation: { n_completed: nCompleted, roster_size: rosterSize, confidence },
-    coding: codingSummary,
     ps_zones: zoneScores,
     ps_statements: statementScores,
-    clusters,
     shared_purpose: sharedPurpose,
     networks: {
       coordination: {

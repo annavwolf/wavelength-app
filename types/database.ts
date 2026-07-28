@@ -354,11 +354,27 @@ export type PsInterviewResponseInsert = {
 
 export type PsInterviewResponseUpdate = Partial<PsInterviewResponseInsert>;
 
+// Stored in analysis.phase3_report_json (migration 0012).
+// The consultant edits these fields before releasing Phase 3 links to members.
+export type Phase3ReportJson = {
+  ps_read_overall: string;
+  ps_read_zone1: string;
+  ps_read_zone2: string;
+  ps_read_zone3: string;
+  shared_purpose_read: string;
+  focus_statement_id: number | null;
+  focus_narrative: string;
+  workshop_intro: string;
+  released_at: string | null;
+  sent_member_ids: string[];
+};
+
 export type Analysis = {
   id: string;
   team_id: string;
   tier1_json: Json | null;
   tier2_json: Json | null;
+  phase3_report_json: Json | null;
   assumptions: string | null;
   focus_issue: string | null;
   inout_plan: string | null;
@@ -380,6 +396,7 @@ export type AnalysisInsert = {
   team_id: string;
   tier1_json?: Json | null;
   tier2_json?: Json | null;
+  phase3_report_json?: Json | null;
   assumptions?: string | null;
   focus_issue?: string | null;
   inout_plan?: string | null;
@@ -474,6 +491,247 @@ export type FollowupInsert = {
 
 export type FollowupUpdate = Partial<FollowupInsert>;
 
+// ── Phase 4: Live Workshop ──────────────────────────────────────────────────
+// Spec: Otis_Build_Handover_v1/Otis_Phase4_Workshop_Spec_v1.md.
+// Design principle: Otis prepares and scribes; the facilitator conducts; the
+// team decides. Everything is submit-then-display; the only live mechanic is the
+// phase broadcast below. No real-time collaborative editing.
+
+// Broadcast phase. 'setup' = room not opened. The five movements are orient →
+// pairs → whole_team → reinforcement → agreement; 'closed' once locked.
+export type WorkshopPhase =
+  | "setup" | "orient" | "pairs" | "whole_team" | "reinforcement" | "agreement" | "closed";
+
+// A chosen behaviour plus the observability line ("we'd know because someone
+// would see or hear…") written by the pair in M2 and carried into M5.
+export type BehaviourItem = { behaviour: string; observability: string };
+
+// The focus frame shown in M1, pre-filled from the analysis focus hypothesis.
+export type FocusFrame = {
+  item: string;         // the PS statement in focus
+  objective: string;    // the situation objective ("when we want to …")
+  context: string;      // the situation context ("during …")
+  why: string;          // one line of why this surfaced
+  zone: Zone | null;
+};
+
+// M4 capture sheet — the facilitator types; the team corrects live.
+export type CaptureSheet = {
+  when_someone_slips?: string;
+  check_trigger?: string;
+  when_done_well?: string;
+  anything_else?: string;
+};
+
+export type WorkshopSession = {
+  id: string;
+  team_id: string;
+  phase: WorkshopPhase;
+  focus_frame: FocusFrame | null;
+  pairs: string[][] | null;
+  selected_always: BehaviourItem[];
+  selected_never: BehaviourItem[];
+  capture_sheet: CaptureSheet;
+  revisit_date: string | null;
+  started_at: string | null;
+  locked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type WorkshopSessionInsert = {
+  id?: string;
+  team_id: string;
+  phase?: WorkshopPhase;
+  focus_frame?: FocusFrame | null;
+  pairs?: string[][] | null;
+  selected_always?: BehaviourItem[];
+  selected_never?: BehaviourItem[];
+  capture_sheet?: CaptureSheet;
+  revisit_date?: string | null;
+  started_at?: string | null;
+  locked_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type WorkshopSessionUpdate = Partial<WorkshopSessionInsert>;
+
+export type PairSubmission = {
+  id: string;
+  session_id: string;
+  team_id: string;
+  pair_index: number;
+  member_ids: string[];
+  always_items: BehaviourItem[];
+  never_items: BehaviourItem[];
+  submitted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PairSubmissionInsert = {
+  id?: string;
+  session_id: string;
+  team_id: string;
+  pair_index: number;
+  member_ids?: string[];
+  always_items?: BehaviourItem[];
+  never_items?: BehaviourItem[];
+  submitted_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type PairSubmissionUpdate = Partial<PairSubmissionInsert>;
+
+export type WorkshopVote = {
+  id: string;
+  session_id: string;
+  team_id: string;
+  member_id: string;
+  kind: "always" | "never";
+  behaviour: string;
+  round: number;
+  created_at: string;
+}
+
+export type WorkshopVoteInsert = {
+  id?: string;
+  session_id: string;
+  team_id: string;
+  member_id: string;
+  kind: "always" | "never";
+  behaviour: string;
+  round?: number;
+  created_at?: string;
+}
+
+export type WorkshopVoteUpdate = Partial<WorkshopVoteInsert>;
+
+// ── Phase 3 storage (migration 0011) ────────────────────────────────────────
+
+export type SituationTag = "meeting" | "async_chat" | "email" | "document" | "project_task" | "other";
+
+export type MemberStory = {
+  id: string;
+  member_id: string;
+  team_id: string;
+  statement_id: number | null;
+  story_text: string;
+  story_order: number;
+  situation_tag: SituationTag | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MemberStoryInsert = {
+  id?: string;
+  member_id: string;
+  team_id: string;
+  statement_id?: number | null;
+  story_text: string;
+  story_order?: number;
+  situation_tag?: SituationTag | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type BehaviorBucket = "never" | "sometimes" | "always";
+export type BehaviorSource = "member" | "consultant";
+
+export type MemberBehavior = {
+  id: string;
+  member_id: string;
+  team_id: string;
+  statement_id: number | null;
+  bucket: BehaviorBucket;
+  text: string;
+  source: BehaviorSource;
+  flagged: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MemberBehaviorInsert = {
+  id?: string;
+  member_id: string;
+  team_id: string;
+  statement_id?: number | null;
+  bucket: BehaviorBucket;
+  text: string;
+  source?: BehaviorSource;
+  flagged?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MemberBehaviorUpdate = Partial<MemberBehaviorInsert>;
+
+// ── Phase 3 §3.5: Consultant pre-release review (D-052) ─────────────────────
+// The "approved workshop seed" — the consultant-reviewed focus item, situation,
+// and behaviour set the member sort (§4.2) reads instead of raw tier2_json.
+
+export type SeedProvenance = "otis" | "member" | "consultant";
+
+// Anonymised source label stored with each workshop-form behaviour for the
+// expander in PreworkReview. member_id is present for consultant-only view
+// but is rendered as "Member A / B / …" in the UI, never shown raw.
+export type SeedSourceLabel = {
+  secondary_label: string;
+  member_id: string;
+  statement_id: number;
+  sensitive_specific?: boolean;
+};
+
+export type SeedBehaviour = {
+  id: string;
+  text: string;
+  kind: "never" | "always";
+  provenance: SeedProvenance;
+  // Set when pulled from the cross-item library — the item it came from.
+  source_statement_id: number | null;
+  // Otis's original wording, preserved when a consultant edits (D-052).
+  original_text: string | null;
+  // Raw cluster source labels — shown in the "see specific incidents" expander.
+  // Absent on old rows and on consultant-added items (provenance === "consultant").
+  source_labels?: SeedSourceLabel[];
+};
+
+export type WorkshopSeed = {
+  id: string;
+  team_id: string;
+  statement_id: number | null;
+  zone: number | null;
+  objective: string | null;
+  context: string | null;
+  focus_hypothesis: string | null;
+  behaviours: SeedBehaviour[];
+  version: number;
+  is_current: boolean;
+  released_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type WorkshopSeedInsert = {
+  id?: string;
+  team_id: string;
+  statement_id?: number | null;
+  zone?: number | null;
+  objective?: string | null;
+  context?: string | null;
+  focus_hypothesis?: string | null;
+  behaviours?: SeedBehaviour[];
+  version?: number;
+  is_current?: boolean;
+  released_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type WorkshopSeedUpdate = Partial<WorkshopSeedInsert>;
+
 // Consultants (the logged-in user). teams.consultant_id has a foreign key
 // into this table, so a row here must exist before a consultant can create
 // their first team — see the upsert in app/teams/new/page.tsx.
@@ -538,6 +796,7 @@ export type InterviewLabel = {
   sub_type: LabelSubType | null;
   multi_member_flag: boolean;
   source_field: SourceField | null;
+  sensitive_specific: boolean;
   created_at: string;
 }
 
@@ -551,6 +810,7 @@ export type InterviewLabelInsert = {
   sub_type?: LabelSubType | null;
   multi_member_flag?: boolean;
   source_field?: SourceField | null;
+  sensitive_specific?: boolean;
   created_at?: string;
 }
 
@@ -671,6 +931,42 @@ export type Database = {
         Row: Followup;
         Insert: FollowupInsert;
         Update: FollowupUpdate;
+        Relationships: [];
+      };
+      workshop_sessions: {
+        Row: WorkshopSession;
+        Insert: WorkshopSessionInsert;
+        Update: WorkshopSessionUpdate;
+        Relationships: [];
+      };
+      pair_submissions: {
+        Row: PairSubmission;
+        Insert: PairSubmissionInsert;
+        Update: PairSubmissionUpdate;
+        Relationships: [];
+      };
+      workshop_votes: {
+        Row: WorkshopVote;
+        Insert: WorkshopVoteInsert;
+        Update: WorkshopVoteUpdate;
+        Relationships: [];
+      };
+      workshop_seed: {
+        Row: WorkshopSeed;
+        Insert: WorkshopSeedInsert;
+        Update: WorkshopSeedUpdate;
+        Relationships: [];
+      };
+      member_stories: {
+        Row: MemberStory;
+        Insert: MemberStoryInsert;
+        Update: Partial<MemberStoryInsert>;
+        Relationships: [];
+      };
+      member_behaviors: {
+        Row: MemberBehavior;
+        Insert: MemberBehaviorInsert;
+        Update: MemberBehaviorUpdate;
         Relationships: [];
       };
     };

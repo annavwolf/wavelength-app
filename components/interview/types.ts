@@ -4,9 +4,6 @@ import type { createBrowserClient } from "@/lib/supabase";
 // re-deriving it from lib/supabase.ts.
 export type AppSupabaseClient = ReturnType<typeof createBrowserClient>;
 
-// 'ps_diagnostic' | 'fish' | 'close' are reserved for the next pass — not
-// rendered yet, but kept in the union so the progress model doesn't need to
-// change shape when they're built.
 export type InterviewStep =
   | "landing"
   | "foreshadow"
@@ -22,11 +19,11 @@ export type InterviewStep =
   | "ps_intro_close"
   | "ps_frame"
   | "ps_diagnostic"
-  | "ps_interview"
   | "review"
   | "close"
   | "already_complete"
   // Legacy — kept in union but no longer wired in the flow.
+  | "ps_interview"
   | "ps_reflect"
   | "end_of_pass1"
   | "fish";

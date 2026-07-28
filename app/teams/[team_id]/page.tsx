@@ -1,122 +1,22 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
-import type { Analysis, Fish, Json, Member, PsStatement, Team } from "@/types/database";
-
-// ── Tier 1 JSON shape ─────────────────────────────────────────────────────────
-
-type ZoneStatus = "Strong" | "Mixed" | "Broken";
-type ZoneResult = {
-  pct_green: number;
-  mean: number;
-  status: ZoneStatus;
-  counts: { green: number; yellow: number; red: number };
-};
-type StatementDist = {
-  statement_id: number;
-  counts: { green: number; yellow: number; red: number };
-  responses: Array<{ private_code: string; label: "green" | "yellow" | "red" }>;
-};
-type DivergenceResult = {
-  lean_green_count: number;
-  lean_red_count: number;
-  lean_mixed_count: number;
-  is_divergent: boolean;
-  outlier_private_codes: string[];
-};
-type RankedFish = {
-  fish_id: string;
-  name: string;
-  mean_severity: number;
-  flagged_count: number;
-  flagged_pct: number;
-  rank: number;
-  responses: Array<{ private_code: string; severity_label: number }>;
-};
-type DirectedPair = {
-  from_private_code: string;
-  to_private_code: string | null;
-  frequency: "daily" | "weekly" | "occasionally" | "rarely";
-};
-type AsymmetricPair = {
-  high_freq_private_code: string;
-  low_freq_private_code: string;
-  high_frequency: string;
-  low_frequency: string;
-};
-type PurposeEntry = {
-  private_code: string;
-  purpose_text: string;
-  share_verbatim: boolean;
-};
-type Tier1Result = {
-  computed_at: string;
-  participation: {
-    n_completed: number;
-    roster_size: number | null;
-    confidence: "high" | "moderate" | "provisional";
-  };
-  ps_zones: {
-    zone1: ZoneResult;
-    zone2: ZoneResult;
-    zone3: ZoneResult;
-    priority_zone: 1 | 2 | 3;
-  };
-  ps_statements: StatementDist[];
-  divergence: {
-    zone1: DivergenceResult;
-    zone2: DivergenceResult;
-    zone3: DivergenceResult;
-  };
-  fish: { ranked: RankedFish[]; custom: Array<{ private_code: string; custom_text: string; severity_label: number; share_verbatim: boolean }> };
-  coordination: {
-    pairs: DirectedPair[];
-    peripheral_member_codes: string[];
-    asymmetric_pairs: AsymmetricPair[];
-  };
-  purpose: PurposeEntry[];
-};
-
-// ── Tier 2 interpretation shape ─────────────────────────────────────────────────
-type Tier2Assumption = {
-  assumption: string;
-  supporting_evidence?: string[];
-  confidence?: "high" | "moderate" | "low";
-  sure_or_unsure?: "sure" | "unsure";
-  why_it_matters?: string;
-  what_would_resonate_or_not?: string;
-};
-type Tier2FocusIssue = {
-  target_rung?: string;
-  fish?: string;
-  vehicle?: string | null;
-  buy_in_sentence?: string;
-  // Optional: surfaced if the interpretation names a genuine tension between
-  // competing focuses. Rendered when present; never fabricated at display time.
-  focus_tension?: string;
-};
-type Tier2PurposeAlignment = {
-  level?: "strong" | "partial" | "divergent";
-  description?: string;
-};
-type Tier2Result = {
-  headline_read?: string;
-  assumptions?: Tier2Assumption[];
-  focus_issue?: Tier2FocusIssue;
-  inout_plan?: string;
-  deferred_for_later?: string[];
-  messy_or_insufficient_flag?: boolean;
-  focus_questions_for_feedback_round?: string[];
-  context_questions_for_consultant?: string[];
-  divergence_notes?: string;
-  welfare_or_sensitive_note?: string;
-  proposed_member_facing_summary?: string;
-  purpose_alignment?: Tier2PurposeAlignment;
-  data_quality_note?: string;
-};
+import type { Analysis, Member, Team } from "@/types/database";
+import {
+  hasText, ZONE_BADGE, ZONE_SHORT,
+  type Tier1Result, type Tier2Result,
+} from "@/components/dashboard/types";
+import SharedPurposePanel from "@/components/dashboard/SharedPurposePanel";
+import PsSafetyPanel from "@/components/dashboard/PsSafetyPanel";
+import TeamConnectivityPanel from "@/components/dashboard/TeamConnectivityPanel";
+import OtisChatBubble from "@/components/dashboard/OtisChatBubble";
+import WorkshopPanel from "@/components/workshop/WorkshopPanel";
+import PreworkReview from "@/components/prework/PreworkReview";
+import ReportReview from "@/components/phase3/ReportReview";
+import type { Phase3ReportJson } from "@/types/database";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -124,22 +24,6 @@ function computeConfidence(n: number, rosterSize: number | null): "high" | "mode
   if (rosterSize !== null && n >= rosterSize * 0.7 && n >= 3) return n >= 6 ? "high" : "moderate";
   return "provisional";
 }
-
-// True when a model-returned string carries real content (not empty, not "none").
-function hasText(s?: string | null): s is string {
-  return !!s && s.trim() !== "" && s.trim().toLowerCase() !== "none";
-}
-
-const TIER2_CONF_CLS: Record<string, string> = {
-  high: "bg-green-100 text-green-800",
-  moderate: "bg-amber-100 text-amber-700",
-  low: "bg-red-100 text-red-700",
-};
-const PURPOSE_LEVEL_CLS: Record<string, string> = {
-  strong: "bg-green-100 text-green-800",
-  partial: "bg-amber-100 text-amber-700",
-  divergent: "bg-red-100 text-red-700",
-};
 
 const CONF_LABEL: Record<string, string> = {
   high: "High confidence",
@@ -151,6 +35,7 @@ const CONF_CLS: Record<string, string> = {
   moderate: "bg-blue-100 text-blue-700",
   provisional: "bg-amber-100 text-amber-800",
 };
+const PS_GREEN = "#2D7A4F";
 
 function memberStatusCls(m: Member) {
   if (m.status === "complete") return "bg-green-100 text-green-700";
@@ -180,200 +65,6 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 }
 
-const ZONE_NAME = ["", "Safe to Belong", "Safe to Speak Freely", "Safe to Innovate"];
-const ZONE_SHORT = ["", "Belonging", "Speaking up", "Learning"];
-const ZONE_BADGE = ["", "badge-zone1", "badge-zone2", "badge-zone3"];
-const PS_GREEN = "#2D7A4F", PS_YELLOW = "#C4860A", PS_RED = "#B94040";
-
-function zoneBadge(status: ZoneStatus) {
-  if (status === "Strong") return { label: "Strong", cls: "bg-green-100 text-green-800" };
-  if (status === "Mixed") return { label: "Mixed", cls: "bg-amber-100 text-amber-700" };
-  return { label: "Needs attention", cls: "bg-red-100 text-red-700" };
-}
-
-const SEVERITY_COLOR: Record<number, string> = {
-  1: "#9CA3AF",   // not a problem
-  2: PS_YELLOW,   // slightly concerning
-  3: "#F97316",   // could be a dead fish
-  4: PS_RED,      // definitely a dead fish
-};
-const SEVERITY_LABEL: Record<number, string> = {
-  1: "Not a problem",
-  2: "Slightly concerning",
-  3: "Could be a dead fish",
-  4: "Definitely a dead fish",
-};
-
-// ── Zone card ─────────────────────────────────────────────────────────────────
-
-function ZoneCard({ num, result, div, isPriority }: {
-  num: 1 | 2 | 3;
-  result: ZoneResult;
-  div: DivergenceResult;
-  isPriority: boolean;
-}) {
-  const badge = zoneBadge(result.status);
-  const total = result.counts.green + result.counts.yellow + result.counts.red;
-  const pG = total > 0 ? (result.counts.green / total) * 100 : 0;
-  const pY = total > 0 ? (result.counts.yellow / total) * 100 : 0;
-  const pR = total > 0 ? (result.counts.red / total) * 100 : 0;
-  const mainColor = result.pct_green >= 75 ? PS_GREEN : result.pct_green >= 50 ? PS_YELLOW : PS_RED;
-
-  return (
-    <div className={`card relative${isPriority ? " border-2 border-[var(--color-purple)]" : ""}`}>
-      {isPriority && (
-        <span className="absolute top-4 right-4 text-xs font-medium text-[var(--color-purple)] uppercase tracking-wide">
-          Priority
-        </span>
-      )}
-      <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-1">Zone {num}</p>
-      <h3 className="text-lg mb-4" style={{ fontFamily: "Playfair Display, serif" }}>
-        {ZONE_NAME[num]}
-      </h3>
-      <div className="text-4xl font-bold mb-3" style={{ color: mainColor }}>
-        {Math.round(result.pct_green)}%
-      </div>
-      <div className="h-3 rounded-full overflow-hidden flex mb-3" style={{ backgroundColor: "#E5E7EB" }}>
-        <div style={{ width: `${pG}%`, backgroundColor: PS_GREEN }} />
-        <div style={{ width: `${pY}%`, backgroundColor: PS_YELLOW }} />
-        <div style={{ width: `${pR}%`, backgroundColor: PS_RED }} />
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <span className={`text-xs px-3 py-1 rounded-full ${badge.cls}`}>{badge.label}</span>
-        {div.is_divergent && (
-          <span className="text-xs px-3 py-1 rounded-full bg-[var(--color-navy)] text-white">Divergent</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Coordination map (SVG) ────────────────────────────────────────────────────
-
-function CoordinationMap({ pairs, codes, peripheralCodes, asymmetricPairs }: {
-  pairs: DirectedPair[];
-  codes: string[];
-  peripheralCodes: string[];
-  asymmetricPairs: AsymmetricPair[];
-}) {
-  const n = codes.length;
-  if (n === 0) return null;
-  const cx = 250, cy = 250, R = 175, nodeR = 22;
-
-  const pos: Record<string, { x: number; y: number }> = {};
-  codes.forEach((c, i) => {
-    const a = (i / n) * 2 * Math.PI - Math.PI / 2;
-    pos[c] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
-  });
-
-  const asymSet = new Set(
-    asymmetricPairs.flatMap((ap) => [`${ap.high_freq_private_code}:${ap.low_freq_private_code}`, `${ap.low_freq_private_code}:${ap.high_freq_private_code}`])
-  );
-  const freqColor: Record<string, string> = { daily: PS_GREEN, weekly: "#3B82F6", occasionally: "#9CA3AF", rarely: "#D1D5DB" };
-  const freqWidth: Record<string, number> = { daily: 2.5, weekly: 1.5, occasionally: 1, rarely: 0.75 };
-
-  return (
-    <svg viewBox="0 0 500 500" className="w-full max-w-md mx-auto" aria-label="Team coordination network">
-      {pairs.filter((p) => p.to_private_code).map((p, i) => {
-        const f = pos[p.from_private_code], t = pos[p.to_private_code!];
-        if (!f || !t) return null;
-        const isAsym = asymSet.has(`${p.from_private_code}:${p.to_private_code}`);
-        return (
-          <line key={i} x1={f.x} y1={f.y} x2={t.x} y2={t.y}
-            stroke={isAsym ? PS_YELLOW : (freqColor[p.frequency] ?? "#D1D5DB")}
-            strokeWidth={freqWidth[p.frequency] ?? 1}
-            strokeOpacity={p.frequency === "rarely" ? 0.3 : 0.65}
-          />
-        );
-      })}
-      {codes.map((c) => {
-        const p = pos[c];
-        if (!p) return null;
-        const isPeri = peripheralCodes.includes(c);
-        return (
-          <g key={c}>
-            <circle cx={p.x} cy={p.y} r={nodeR}
-              fill="rgba(255,255,255,0.88)"
-              stroke={isPeri ? "#9CA3AF" : "#1A1A2E"}
-              strokeWidth={isPeri ? 1.5 : 2}
-              strokeDasharray={isPeri ? "4 3" : undefined}
-            />
-            <text x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle"
-              fontSize={9} fontFamily="DM Sans, sans-serif" fontWeight="600" fill="#1A1A2E"
-            >
-              {c}
-            </text>
-          </g>
-        );
-      })}
-      {asymmetricPairs.map((ap, i) => {
-        const f = pos[ap.high_freq_private_code], t = pos[ap.low_freq_private_code];
-        if (!f || !t) return null;
-        return (
-          <text key={i} x={(f.x + t.x) / 2} y={(f.y + t.y) / 2}
-            textAnchor="middle" fontSize={13} fill={PS_YELLOW}>⚠</text>
-        );
-      })}
-    </svg>
-  );
-}
-
-// ── Tier 2 sub-components ───────────────────────────────────────────────────────
-
-// A single assumption card. Emphasized when it is the primary (focus) assumption.
-function AssumptionCard({ a, emphasized }: { a: Tier2Assumption; emphasized?: boolean }) {
-  return (
-    <div className={`card${emphasized ? " border border-[var(--color-purple)]/40" : ""}`} style={{ padding: "16px 20px" }}>
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <p className="text-sm font-medium leading-relaxed flex-1">{a.assumption}</p>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {a.confidence && (
-            <span className={`text-xs px-2.5 py-0.5 rounded-full capitalize ${TIER2_CONF_CLS[a.confidence] ?? "bg-gray-100 text-gray-700"}`}>
-              {a.confidence}
-            </span>
-          )}
-          {a.sure_or_unsure && (
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--color-navy)] text-white capitalize">
-              {a.sure_or_unsure}
-            </span>
-          )}
-        </div>
-      </div>
-      {a.supporting_evidence && a.supporting_evidence.length > 0 && (
-        <ul className="text-xs text-[var(--color-grey)] list-disc pl-4 space-y-0.5 mb-2">
-          {a.supporting_evidence.map((e, j) => <li key={j}>{e}</li>)}
-        </ul>
-      )}
-      {hasText(a.why_it_matters) && (
-        <p className="text-xs text-[var(--color-grey)]"><span className="font-medium text-[var(--color-ink)]">Why it matters:</span> {a.why_it_matters}</p>
-      )}
-      {hasText(a.what_would_resonate_or_not) && (
-        <p className="text-xs text-[var(--color-grey)] mt-1"><span className="font-medium text-[var(--color-ink)]">What would resonate or not:</span> {a.what_would_resonate_or_not}</p>
-      )}
-    </div>
-  );
-}
-
-// A quiet, collapsed-by-default accordion for Zone 3 supporting detail.
-function Z3Section({ id, title, open, onToggle, children }: {
-  id: string;
-  title: string;
-  open: boolean;
-  onToggle: (id: string) => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="border border-black/10 rounded-xl overflow-hidden bg-black/[0.015]">
-      <button type="button" onClick={() => onToggle(id)}
-        className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-black/5 transition-colors">
-        <span className="text-sm font-medium text-[var(--color-grey)]">{title}</span>
-        <span className="text-[var(--color-grey)] text-lg leading-none">{open ? "−" : "+"}</span>
-      </button>
-      {open && <div className="border-t border-black/5 px-5 py-4">{children}</div>}
-    </div>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TeamDashboardPage() {
@@ -383,49 +74,17 @@ export default function TeamDashboardPage() {
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [psStatements, setPsStatements] = useState<PsStatement[]>([]);
-  const [teamFish, setTeamFish] = useState<Fish[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [runningAnalysis, setRunningAnalysis] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  const [openZones, setOpenZones] = useState<Set<1 | 2 | 3>>(new Set());
-  const [priorityOverride, setPriorityOverride] = useState<1 | 2 | 3 | null>(null);
-  const [approving, setApproving] = useState(false);
-  const [approved, setApproved] = useState(false);
   const [inviteSending, setInviteSending] = useState<Set<string>>(new Set());
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [sendingAll, setSendingAll] = useState(false);
   const [interpretation, setInterpretation] = useState<Tier2Result | null>(null);
   const [interpreting, setInterpreting] = useState(false);
   const [interpretError, setInterpretError] = useState<string | null>(null);
-  // Editable handoff (Zone 2)
-  const [editedSummary, setEditedSummary] = useState("");
-  const [editedQuestions, setEditedQuestions] = useState<string[]>([]);
-  const [newQuestion, setNewQuestion] = useState("");
-  const [savingApproval, setSavingApproval] = useState(false);
-  const [approvalError, setApprovalError] = useState<string | null>(null);
-  // Collapsed supporting detail (Zone 3)
-  const [z3Open, setZ3Open] = useState<Set<string>>(new Set());
-  // Consultant chat with Otis
-  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatSending, setChatSending] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-
-  // Keep the editable handoff in sync whenever a new interpretation loads/runs.
-  useEffect(() => {
-    setEditedSummary(interpretation?.proposed_member_facing_summary ?? "");
-    setEditedQuestions(interpretation?.focus_questions_for_feedback_round ?? []);
-  }, [interpretation]);
-
-  function toggleZ3(key: string) {
-    setZ3Open((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
+  const [activeTab, setActiveTab] = useState<"analytics" | "report" | "prework" | "workshop">("analytics");
 
   useEffect(() => { load(); }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -436,28 +95,17 @@ export default function TeamDashboardPage() {
     if (teamErr || !teamData) { setLoading(false); return; }
     setTeam(teamData);
 
-    const [membersRes, analysisRes, stmtsRes] = await Promise.all([
+    const [membersRes, analysisRes] = await Promise.all([
       supabase.from("members").select("*").eq("team_id", teamId).order("created_at", { ascending: true }),
       supabase.from("analysis").select("*").eq("team_id", teamId).maybeSingle(),
-      supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),
     ]);
 
     setMembers(membersRes.data ?? []);
-    setPsStatements(stmtsRes.data ?? []);
 
     const aRow = analysisRes.data ?? null;
     setAnalysis(aRow);
     if (aRow) {
-      setApproved(aRow.consultant_approved);
-      const fi = aRow.focus_issue;
-      if (fi === "1" || fi === "2" || fi === "3") setPriorityOverride(parseInt(fi) as 1 | 2 | 3);
       setInterpretation((aRow.tier2_json as unknown as Tier2Result | null) ?? null);
-    }
-
-    if (teamData.selected_fish_ids.length > 0) {
-      const { data: fishData } = await supabase
-        .from("fish").select("*").in("fish_id", teamData.selected_fish_ids);
-      setTeamFish(fishData ?? []);
     }
 
     setLoading(false);
@@ -514,102 +162,12 @@ export default function TeamDashboardPage() {
       }
       setInterpretation(data as Tier2Result);
       if (data._save_warning) {
-        setInterpretError(`Showing the read, but it was not saved: ${data._save_warning}. Add the tier2_json column to persist it.`);
+        setInterpretError(`Showing the read, but it was not saved: ${data._save_warning}.`);
       }
     } catch {
       setInterpretError("Something went wrong reaching Otis. Please try again.");
     }
     setInterpreting(false);
-  }
-
-  // Zone 2 decision output: persist edited summary + questions into tier2_json,
-  // mark the analysis approved, and move the team into the feedback stage.
-  async function handleApproveFeedbackRound() {
-    if (!interpretation) return;
-    setSavingApproval(true);
-    setApprovalError(null);
-
-    const updatedTier2: Tier2Result = {
-      ...interpretation,
-      proposed_member_facing_summary: editedSummary,
-      focus_questions_for_feedback_round: editedQuestions,
-    };
-
-    const { error } = await supabase
-      .from("analysis")
-      .update({
-        tier2_json: updatedTier2 as unknown as Json,
-        consultant_approved: true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("team_id", teamId);
-
-    if (error) {
-      setApprovalError(`Could not save: ${error.message}`);
-      setSavingApproval(false);
-      return;
-    }
-
-    await supabase.from("teams").update({ status: "feedback" }).eq("team_id", teamId);
-
-    setInterpretation(updatedTier2);
-    setApproved(true);
-    setTeam((prev) => prev ? { ...prev, status: "feedback" } : prev);
-    setSavingApproval(false);
-  }
-
-  function moveQuestion(i: number, dir: -1 | 1) {
-    setEditedQuestions((prev) => {
-      const next = [...prev];
-      const j = i + dir;
-      if (j < 0 || j >= next.length) return prev;
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
-    });
-  }
-
-  async function handleSendChat() {
-    const text = chatInput.trim();
-    if (!text || chatSending) return;
-    const nextMessages = [...chatMessages, { role: "user" as const, content: text }];
-    setChatMessages(nextMessages);
-    setChatInput("");
-    setChatSending(true);
-    setChatError(null);
-    try {
-      const res = await fetch("/api/analysis/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ team_id: teamId, messages: nextMessages }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const detail = [data.error, data.detail].filter(Boolean).join(" — ");
-        setChatError(`Otis couldn't respond: ${detail || "unknown error"}`);
-        setChatSending(false);
-        return;
-      }
-      setChatMessages([...nextMessages, { role: "assistant", content: data.reply }]);
-    } catch {
-      setChatError("Something went wrong reaching Otis. Please try again.");
-    }
-    setChatSending(false);
-  }
-
-  async function handlePriorityChange(zone: 1 | 2 | 3) {
-    setPriorityOverride(zone);
-    await supabase.from("analysis").update({ focus_issue: String(zone) }).eq("team_id", teamId);
-  }
-
-  async function handleApprove() {
-    setApproving(true);
-    await Promise.all([
-      supabase.from("analysis").update({ consultant_approved: true }).eq("team_id", teamId),
-      supabase.from("teams").update({ status: "feedback" }).eq("team_id", teamId),
-    ]);
-    setApproved(true);
-    setTeam((prev) => prev ? { ...prev, status: "feedback" } : prev);
-    setApproving(false);
   }
 
   async function handleSendInvite(memberId: string) {
@@ -668,7 +226,6 @@ export default function TeamDashboardPage() {
   const pctComplete = rosterSize > 0 ? Math.round((completeCount / rosterSize) * 100) : 0;
   const conf = computeConfidence(completeCount, team.roster_size);
   const tier1 = analysis?.tier1_json as unknown as Tier1Result | null;
-  const effectivePriority = priorityOverride ?? tier1?.ps_zones.priority_zone ?? 1;
   const subtitle = [team.industry, formatVirtuality(team.virtuality_level)].filter(Boolean).join(" · ");
 
   // ── SETUP MODE ────────────────────────────────────────────────────────────
@@ -685,9 +242,6 @@ export default function TeamDashboardPage() {
               <div className="flex items-center gap-4 mt-3">
                 <Link href={`/teams/${teamId}/members`} className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
                   Edit members
-                </Link>
-                <Link href={`/teams/${teamId}/fish`} className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
-                  Fish settings
                 </Link>
                 <Link href={`/teams/${teamId}/invite`} className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
                   Invite page
@@ -800,25 +354,16 @@ export default function TeamDashboardPage() {
   }
 
   // ── ANALYSIS MODE ─────────────────────────────────────────────────────────
-  const fishMap = new Map(teamFish.map((f) => [f.fish_id, f]));
-  const stmtMap = new Map(psStatements.map((s) => [s.statement_id, s]));
   const completedCodes = members.filter((m) => m.status === "complete").map((m) => m.private_code);
-
-  const zones: { num: 1 | 2 | 3; result: ZoneResult; div: DivergenceResult }[] = [
-    { num: 1, result: tier1.ps_zones.zone1, div: tier1.divergence.zone1 },
-    { num: 2, result: tier1.ps_zones.zone2, div: tier1.divergence.zone2 },
-    { num: 3, result: tier1.ps_zones.zone3, div: tier1.divergence.zone3 },
-  ];
+  const focus = interpretation?.focus_hypothesis;
 
   return (
     <main className="flex-1">
-      {/* ── Panel 1: Sticky header ───────────────────────────────────────── */}
+      {/* Sticky header */}
       <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-black/10">
         <div className="max-w-6xl mx-auto px-6 py-3 flex flex-wrap items-center gap-4 justify-between">
           <div className="flex items-center gap-4 flex-wrap">
-            <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)]">
-              ← Dashboard
-            </Link>
+            <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)]">← Dashboard</Link>
             <h2 className="text-lg" style={{ fontFamily: "Playfair Display, serif" }}>{team.team_name}</h2>
             <span className="text-sm text-[var(--color-grey)]">{completeCount} of {totalCount} complete</span>
             <span className={`text-xs px-3 py-1 rounded-full font-medium ${CONF_CLS[tier1.participation.confidence]}`}>
@@ -827,14 +372,15 @@ export default function TeamDashboardPage() {
             <Link href={`/teams/${teamId}/members`} className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
               Edit members
             </Link>
-            <Link href={`/teams/${teamId}/fish`} className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
-              Fish settings
-            </Link>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-xs text-[var(--color-grey)]">
-              Last analysed {formatDate(tier1.computed_at)}
-            </span>
+            <span className="text-xs text-[var(--color-grey)]">Last analysed {formatDate(tier1.computed_at)}</span>
+            {interpretation && (
+              <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
+                className="btn-secondary" style={{ padding: "8px 16px", fontSize: "13px" }}>
+                {interpreting ? "Thinking..." : "Re-run read"}
+              </button>
+            )}
             <button type="button" onClick={handleRunAnalysis} disabled={runningAnalysis}
               className="btn-secondary" style={{ padding: "8px 18px", fontSize: "13px" }}>
               {runningAnalysis ? "Running..." : "Re-run analysis"}
@@ -842,609 +388,113 @@ export default function TeamDashboardPage() {
           </div>
         </div>
         {runError && (
-          <div className="max-w-6xl mx-auto px-6 pb-2">
-            <p className="text-sm text-red-600">{runError}</p>
-          </div>
+          <div className="max-w-6xl mx-auto px-6 pb-2"><p className="text-sm text-red-600">{runError}</p></div>
         )}
-      </div>
-
-      <div className="max-w-6xl mx-auto px-6 py-10 space-y-14">
-
-        {/* ── Panel 2: Zone overview ────────────────────────────────────── */}
-        <section>
-          <h2 className="text-3xl mb-2">Psychological safety</h2>
-          <p className="text-sm text-[var(--color-grey)] mb-6">
-            Zones represent the three levels of psychological safety. The priority zone is where the team needs the most attention first.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {zones.map(({ num, result, div }) => (
-              <ZoneCard key={num} num={num} result={result} div={div} isPriority={effectivePriority === num} />
+        {/* Tabs */}
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="flex gap-1">
+            {([["analytics", "Analytics & Insights"], ["report", "Report & Release"], ["prework", "Pre-work"], ["workshop", "Workshop"]] as const).map(([id, label]) => (
+              <button key={id} type="button" onClick={() => setActiveTab(id)}
+                className={`px-4 py-2.5 text-sm border-b-2 transition-colors ${
+                  activeTab === id
+                    ? "border-[var(--color-navy)] text-[var(--color-ink)] font-medium"
+                    : "border-transparent text-[var(--color-grey)] hover:text-[var(--color-ink)]"
+                }`}>
+                {label}
+              </button>
             ))}
           </div>
-        </section>
+        </div>
+      </div>
 
-        {/* ── Panel 2b: Otis's interpretation (Tier 2 AI) ─────────────── */}
-        <section id="wavelength-read">
-          <div className="flex items-center justify-between gap-4 mb-2 flex-wrap">
-            <h2 className="text-3xl">Otis&apos;s read</h2>
-            {interpretation && (
-              <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
-                className="btn-secondary" style={{ padding: "8px 18px", fontSize: "13px" }}>
-                {interpreting ? "Thinking..." : "Re-run interpretation"}
-              </button>
-            )}
-          </div>
-          <p className="text-sm text-[var(--color-grey)] mb-6">
-            Otis reads the numbers and the words together, then proposes assumptions to check with the team. Everything here is provisional until you approve it.
-          </p>
-
-          {!interpretation ? (
-            <div className="card border border-dashed border-black/20 text-center" style={{ padding: "32px 24px" }}>
-              <img src="/wavelength-mark.png" alt="" className="h-10 w-auto mx-auto mb-4 opacity-80"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-              <p className="text-sm text-[var(--color-grey)] max-w-md mx-auto mb-6">
-                Ask Otis to interpret this team&apos;s results. It will surface strengths, name the focus issue, and draft questions for the feedback round.
+      {activeTab === "prework" ? (
+        <PreworkReview teamId={teamId} tier1={tier1} tier2={interpretation} />
+      ) : activeTab === "report" ? (
+        <ReportReview
+          teamId={teamId}
+          tier1={tier1}
+          tier2={interpretation}
+          existingReport={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
+        />
+      ) : activeTab === "analytics" ? (
+        <div className="max-w-6xl mx-auto px-6 py-10 space-y-14">
+          {/* Banner — textless ocean art (the TITLEONLY asset has baked-in zone
+              labels that collide with the heading), darkened for legible text. */}
+          <section className="relative rounded-2xl overflow-hidden">
+            <img src="/ps-ocean.png" alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+            <div className="absolute inset-0 bg-gradient-to-r from-[var(--color-navy)]/85 to-[var(--color-navy)]/55" />
+            <div className="relative px-8 py-10">
+              <h1 className="text-3xl sm:text-4xl text-white" style={{ fontFamily: "Playfair Display, serif" }}>
+                Analytics &amp; Insights
+              </h1>
+              <p className="text-sm text-white/80 mt-2">
+                {team.team_name}{subtitle ? ` · ${subtitle}` : ""}
               </p>
-              <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
-                className="btn-primary">
-                {interpreting ? "Otis is reading..." : "Run AI interpretation"}
+            </div>
+          </section>
+
+          {/* Run-interpretation CTA when the read hasn't been generated yet */}
+          {!interpretation && (
+            <div className="card border border-dashed border-black/20 text-center" style={{ padding: "28px 24px" }}>
+              <p className="text-sm text-[var(--color-grey)] max-w-md mx-auto mb-5">
+                The metrics are computed. Ask Otis to read them — it writes the psychological-safety and shared-purpose
+                reads, and this round&apos;s focus.
+              </p>
+              <button type="button" onClick={handleRunInterpretation} disabled={interpreting} className="btn-primary">
+                {interpreting ? "Otis is reading..." : "Run Otis's read"}
               </button>
               {interpretError && <p className="text-sm text-red-600 mt-4">{interpretError}</p>}
-              <p className="text-xs text-[var(--color-grey)] mt-6 max-w-md mx-auto">
-                Members who kept their words private still inform the analysis — their responses shape the read but are never quoted.
-              </p>
             </div>
-          ) : (
-            <div className="space-y-8">
-              {interpretError && <p className="text-sm text-red-600">{interpretError}</p>}
+          )}
+          {interpretation && interpretError && <p className="text-sm text-red-600">{interpretError}</p>}
 
-              {/* ═══ ZONE 1 — Otis's recommendation (the decision) ═══ */}
-              <div className="rounded-2xl border border-[var(--color-purple)]/30 bg-[var(--color-purple)]/5 p-6 sm:p-8 space-y-5">
-                <div className="flex items-center gap-3">
-                  <img src="/octopus.png" alt="" className="h-8 w-auto"
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-                  <h3 className="text-xl" style={{ fontFamily: "Playfair Display, serif" }}>
-                    Otis&apos;s recommendation
-                  </h3>
-                </div>
-
-                {interpretation.messy_or_insufficient_flag && (
-                  <p className="text-sm italic" style={{ color: PS_YELLOW }}>
-                    I flagged this as a messy read — treat the focus as a starting point and lean on the feedback round.
-                  </p>
-                )}
-
-                {hasText(interpretation.headline_read) && (
-                  <p className="text-2xl leading-snug" style={{ fontFamily: "Playfair Display, serif" }}>
-                    {interpretation.headline_read}
-                  </p>
-                )}
-
-                {interpretation.focus_issue && (
-                  <div className="rounded-xl border border-[var(--color-purple)]/20 bg-white/70 p-5">
-                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-3">
-                      I suggest building the feedback round around this:
-                    </p>
-                    {hasText(interpretation.focus_issue.buy_in_sentence) && (
-                      <p className="text-xl italic leading-relaxed mb-3" style={{ fontFamily: "Playfair Display, serif" }}>
-                        &ldquo;{interpretation.focus_issue.buy_in_sentence}&rdquo;
-                      </p>
-                    )}
-                    <p className="text-xs text-[var(--color-grey)]">
-                      {[
-                        hasText(interpretation.focus_issue.target_rung) && `Target: ${interpretation.focus_issue.target_rung}`,
-                        hasText(interpretation.focus_issue.fish) && `Fish: ${interpretation.focus_issue.fish}`,
-                        hasText(interpretation.focus_issue.vehicle) && `Vehicle: ${interpretation.focus_issue.vehicle}`,
-                      ].filter(Boolean).join("  ·  ")}
-                    </p>
-                    {hasText(interpretation.focus_issue.focus_tension) && (
-                      <p className="text-xs text-[var(--color-ink)] mt-3">
-                        <span className="font-medium">Note:</span> {interpretation.focus_issue.focus_tension}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* ═══ Talk to Otis (consultant chat) ═══ */}
-              <div className="rounded-2xl border border-black/10 p-6 sm:p-8">
-                <h3 className="text-xl mb-1" style={{ fontFamily: "Playfair Display, serif" }}>
-                  Talk it through with Otis
-                </h3>
-                <p className="text-sm text-[var(--color-grey)] mb-5">
-                  Push back on the focus, propose a different rung, or ask anything about the read. Otis follows your lead.
+          {/* Consultant-only read context (read-only; Phase 3 owns edit/approve) */}
+          {interpretation && (
+            <div className="space-y-4">
+              {interpretation.messy_or_insufficient_flag && (
+                <p className="text-sm italic text-[var(--color-amber)]">
+                  Otis flagged this as a messy or thin read — treat the focus as a starting point and lean on the feedback round.
                 </p>
-
-                {chatMessages.length > 0 && (
-                  <div className="space-y-3 mb-4">
-                    {chatMessages.map((m, i) => (
-                      <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                          m.role === "user"
-                            ? "bg-[var(--color-navy)] text-white"
-                            : "bg-[var(--color-purple)]/8 border border-[var(--color-purple)]/20"
-                        }`}>
-                          {m.content}
-                        </div>
-                      </div>
-                    ))}
-                    {chatSending && (
-                      <div className="flex justify-start">
-                        <div className="rounded-2xl px-4 py-2.5 text-sm bg-[var(--color-purple)]/8 border border-[var(--color-purple)]/20 text-[var(--color-grey)] italic">
-                          Otis is thinking...
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex items-end gap-2">
-                  <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)}
-                    rows={2} placeholder="Ask Otis..." className="form-input flex-1" style={{ resize: "vertical" }}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }} />
-                  <button type="button" onClick={handleSendChat} disabled={chatSending || !chatInput.trim()}
-                    className="btn-primary flex-shrink-0" style={{ padding: "10px 20px" }}>
-                    Send
-                  </button>
-                </div>
-                {chatError && <p className="text-sm text-red-600 mt-2">{chatError}</p>}
-                <p className="text-xs text-[var(--color-grey)] mt-2">
-                  This conversation is just for you — it is not saved and members never see it.
-                </p>
-              </div>
-
-              {/* ═══ ZONE 2 — What we'd put to the team (editable handoff) ═══ */}
-              <div className="rounded-2xl border border-black/10 p-6 sm:p-8 space-y-6">
-                <div>
-                  <h3 className="text-xl mb-1" style={{ fontFamily: "Playfair Display, serif" }}>
-                    What we&apos;d put to the team
-                  </h3>
-                  <p className="text-sm text-[var(--color-grey)]">
-                    This is the handoff into the feedback round. Edit it freely — nothing reaches members until you approve.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="form-label">Draft for members — edit freely, nothing is sent until you approve.</label>
-                  <textarea value={editedSummary} onChange={(e) => setEditedSummary(e.target.value)}
-                    rows={5} className="form-input mt-1" style={{ resize: "vertical" }} />
-                </div>
-
-                <div>
-                  <label className="form-label">Questions for the feedback round</label>
-                  <div className="space-y-2 mt-1">
-                    {editedQuestions.map((q, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <textarea value={q} rows={2}
-                          onChange={(e) => setEditedQuestions((prev) => prev.map((x, idx) => idx === i ? e.target.value : x))}
-                          className="form-input flex-1" style={{ resize: "vertical" }} />
-                        <div className="flex flex-col gap-1 flex-shrink-0">
-                          <button type="button" onClick={() => moveQuestion(i, -1)} disabled={i === 0}
-                            className="text-[var(--color-grey)] hover:text-[var(--color-ink)] disabled:opacity-30 text-sm leading-none px-1">↑</button>
-                          <button type="button" onClick={() => moveQuestion(i, 1)} disabled={i === editedQuestions.length - 1}
-                            className="text-[var(--color-grey)] hover:text-[var(--color-ink)] disabled:opacity-30 text-sm leading-none px-1">↓</button>
-                          <button type="button" onClick={() => setEditedQuestions((prev) => prev.filter((_, idx) => idx !== i))}
-                            className="text-[var(--color-grey)] hover:text-red-600 text-lg leading-none px-1">×</button>
-                        </div>
-                      </div>
-                    ))}
-                    {editedQuestions.length === 0 && (
-                      <p className="text-sm text-[var(--color-grey)] italic">No questions yet — add one below.</p>
-                    )}
-                  </div>
-                  <div className="flex items-start gap-2 mt-2">
-                    <input value={newQuestion} onChange={(e) => setNewQuestion(e.target.value)}
-                      placeholder="Add a question..." className="form-input flex-1"
-                      onKeyDown={(e) => { if (e.key === "Enter" && newQuestion.trim()) { e.preventDefault(); setEditedQuestions((prev) => [...prev, newQuestion.trim()]); setNewQuestion(""); } }} />
-                    <button type="button" className="btn-secondary flex-shrink-0"
-                      onClick={() => { if (newQuestion.trim()) { setEditedQuestions((prev) => [...prev, newQuestion.trim()]); setNewQuestion(""); } }}>
-                      Add
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button type="button" onClick={handleApproveFeedbackRound} disabled={savingApproval} className="btn-primary">
-                    {savingApproval ? "Saving..." : approved ? "Save updates" : "Approve and prepare feedback round"}
-                  </button>
-                  {approved && <span className="ml-3 text-sm text-green-700">Approved ✓ — edits here update what members will see.</span>}
-                  {approvalError && <p className="text-sm text-red-600 mt-2">{approvalError}</p>}
-                </div>
-              </div>
-
-              {/* ═══ ZONE 3 — Just for you (collapsed supporting detail) ═══ */}
-              <div>
-                <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-3">Just for you — supporting detail</p>
-                <div className="space-y-2">
-                  {interpretation.assumptions && interpretation.assumptions.length > 0 && (
-                    <Z3Section id="evidence" title="The evidence behind this" open={z3Open.has("evidence")} onToggle={toggleZ3}>
-                      <div className="space-y-3">
-                        <AssumptionCard a={interpretation.assumptions[0]} emphasized />
-                        {interpretation.assumptions.length > 1 && (
-                          <>
-                            <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] pt-2">
-                              Also true, parked for a later round
-                            </p>
-                            {interpretation.assumptions.slice(1).map((a, i) => <AssumptionCard key={i} a={a} />)}
-                            <p className="text-xs text-[var(--color-grey)] italic">
-                              These are sequenced behind the focus above, not set aside — see &ldquo;Set aside for later rounds&rdquo;.
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    </Z3Section>
-                  )}
-
-                  {(interpretation.purpose_alignment || hasText(interpretation.divergence_notes)) && (
-                    <Z3Section id="ppf" title="Purpose, PS, and fish in full" open={z3Open.has("ppf")} onToggle={toggleZ3}>
-                      {interpretation.purpose_alignment && (
-                        <div className="mb-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="text-xs uppercase tracking-widest text-[var(--color-grey)]">Shared purpose</p>
-                            {interpretation.purpose_alignment.level && (
-                              <span className={`text-xs px-2.5 py-0.5 rounded-full capitalize ${PURPOSE_LEVEL_CLS[interpretation.purpose_alignment.level] ?? "bg-gray-100 text-gray-700"}`}>
-                                {interpretation.purpose_alignment.level}
-                              </span>
-                            )}
-                          </div>
-                          {hasText(interpretation.purpose_alignment.description) && (
-                            <p className="text-sm leading-relaxed">{interpretation.purpose_alignment.description}</p>
-                          )}
-                        </div>
-                      )}
-                      {hasText(interpretation.divergence_notes) && (
-                        <div className="mb-3">
-                          <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-1">Divergence</p>
-                          <p className="text-sm leading-relaxed">{interpretation.divergence_notes}</p>
-                        </div>
-                      )}
-                      <a href="#tier1-detail" className="text-sm text-[var(--color-purple)] underline">
-                        See the full statement breakdown, dead fish, and coordination panels below →
-                      </a>
-                    </Z3Section>
-                  )}
-
-                  {hasText(interpretation.inout_plan) && (
-                    <Z3Section id="framing" title="How to frame the more-of / less-of activity" open={z3Open.has("framing")} onToggle={toggleZ3}>
-                      <p className="text-sm leading-relaxed">{interpretation.inout_plan}</p>
-                    </Z3Section>
-                  )}
-
-                  {interpretation.context_questions_for_consultant && interpretation.context_questions_for_consultant.length > 0 && (
-                    <Z3Section id="sharpen" title="What would sharpen your read" open={z3Open.has("sharpen")} onToggle={toggleZ3}>
-                      <ul className="text-sm list-disc pl-4 space-y-1">
-                        {interpretation.context_questions_for_consultant.map((q, i) => <li key={i}>{q}</li>)}
-                      </ul>
-                    </Z3Section>
-                  )}
-
-                  {interpretation.deferred_for_later && interpretation.deferred_for_later.length > 0 && (
-                    <Z3Section id="deferred" title="Set aside for later rounds" open={z3Open.has("deferred")} onToggle={toggleZ3}>
-                      <ul className="text-sm list-disc pl-4 space-y-1">
-                        {interpretation.deferred_for_later.map((d, i) => <li key={i}>{d}</li>)}
-                      </ul>
-                    </Z3Section>
-                  )}
-
-                  {hasText(interpretation.welfare_or_sensitive_note) && (
-                    <Z3Section id="welfare" title="Private welfare note" open={z3Open.has("welfare")} onToggle={toggleZ3}>
-                      <div className="rounded-lg border border-[var(--color-navy)]/30 bg-[var(--color-navy)]/5 px-4 py-3">
-                        <p className="text-xs uppercase tracking-widest text-[var(--color-navy)] mb-1.5 font-medium">For you only — described, never quoted</p>
-                        <p className="text-sm leading-relaxed">{interpretation.welfare_or_sensitive_note}</p>
-                      </div>
-                    </Z3Section>
-                  )}
-
-                  {hasText(interpretation.data_quality_note) && (
-                    <Z3Section id="dq" title="Data quality" open={z3Open.has("dq")} onToggle={toggleZ3}>
-                      <p className="text-sm leading-relaxed">{interpretation.data_quality_note}</p>
-                    </Z3Section>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* ── Panel 3: Statement breakdown ──────────────────────────────── */}
-        <section id="tier1-detail">
-          <h2 className="text-3xl mb-6">Statement breakdown</h2>
-          <div className="space-y-2">
-            {([1, 2, 3] as const).map((zoneNum) => {
-              const isOpen = openZones.has(zoneNum);
-              const zoneStmts = tier1.ps_statements
-                .filter((s) => stmtMap.get(s.statement_id)?.zone === zoneNum)
-                .sort((a, b) => b.counts.red - a.counts.red);
-              return (
-                <div key={zoneNum} className="card overflow-hidden" style={{ padding: 0 }}>
-                  <button type="button"
-                    onClick={() => setOpenZones((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(zoneNum)) next.delete(zoneNum); else next.add(zoneNum);
-                      return next;
-                    })}
-                    className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-black/5 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <span className={ZONE_BADGE[zoneNum]}>{ZONE_SHORT[zoneNum]}</span>
-                      <span className="font-medium">{ZONE_NAME[zoneNum]}</span>
-                    </div>
-                    <span className="text-[var(--color-grey)] text-xl leading-none">{isOpen ? "−" : "+"}</span>
-                  </button>
-
-                  {isOpen && (
-                    <div className="border-t border-black/5 px-6 pb-6">
-                      {zoneStmts.length === 0 ? (
-                        <p className="text-sm text-[var(--color-grey)] pt-4">No data for this zone.</p>
-                      ) : zoneStmts.map((s) => {
-                        const st = stmtMap.get(s.statement_id);
-                        const total = s.counts.green + s.counts.yellow + s.counts.red;
-                        const mean = total > 0
-                          ? (s.counts.green * 3 + s.counts.yellow * 2 + s.counts.red * 1) / total
-                          : 0;
-                        const isMixed = s.counts.green >= 1 && s.counts.red >= 1;
-                        return (
-                          <div key={s.statement_id} className="pt-4 pb-3 border-b border-black/5 last:border-0">
-                            <div className="flex items-start justify-between gap-4">
-                              <p className="text-sm flex-1 leading-relaxed">
-                                {st?.statement_text ?? `Statement ${s.statement_id}`}
-                              </p>
-                              <div className="flex items-center gap-1 flex-shrink-0 pt-0.5">
-                                {s.responses.map((r, i) => (
-                                  <span key={i} title={r.private_code}
-                                    className="w-3.5 h-3.5 rounded-full inline-block cursor-help"
-                                    style={{ backgroundColor: r.label === "green" ? PS_GREEN : r.label === "yellow" ? PS_YELLOW : PS_RED }}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                            <p className="text-xs text-[var(--color-grey)] mt-1.5">
-                              Mean: {mean.toFixed(1)} / 3.0
-                            </p>
-                            <p className="text-xs mt-0.5">
-                              <span style={{ color: PS_GREEN }}>Green: {s.counts.green}</span>
-                              {" · "}
-                              <span style={{ color: PS_YELLOW }}>Yellow: {s.counts.yellow}</span>
-                              {" · "}
-                              <span style={{ color: PS_RED }}>Red: {s.counts.red}</span>
-                            </p>
-                            {isMixed && (
-                              <p className="text-xs italic mt-1" style={{ color: PS_YELLOW }}>
-                                Mixed responses — members experience this differently.
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ── Panel 4: Dead fish ────────────────────────────────────────── */}
-        <section>
-          <div className="flex items-center gap-3 mb-6">
-            <h2 className="text-3xl">Dead fish</h2>
-            <img src="/dead-fish.png" alt="" className="h-6 w-auto" />
-          </div>
-          {tier1.fish.ranked.length === 0 ? (
-            <p className="text-sm text-[var(--color-grey)]">No fish response data yet.</p>
-          ) : (
-            <>
-            <div className="space-y-2">
-              {tier1.fish.ranked.slice(0, 5).map((fish, idx) => {
-                const fd = fishMap.get(fish.fish_id);
-                const zone = fd?.maps_to_zone ?? 1;
-                return (
-                  <div key={fish.fish_id}
-                    className={`card flex items-center gap-4${idx === 0 ? " bg-[var(--color-purple)]/5" : ""}`}
-                    style={{ padding: "14px 20px" }}>
-                    <span className="flex-shrink-0 h-7 w-7 rounded-full bg-[var(--color-navy)] text-white text-xs flex items-center justify-center font-semibold">
-                      {fish.rank}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <p className="font-medium text-sm">{fish.name}</p>
-                        <span className={ZONE_BADGE[zone]}>{ZONE_SHORT[zone]}</span>
-                      </div>
-                      {fish.responses && fish.responses.length > 0 && (
-                        <div className="flex items-center gap-2 flex-wrap mb-2">
-                          {fish.responses.map((r, i) => (
-                            <span key={i}
-                              title={`${r.private_code}: ${SEVERITY_LABEL[r.severity_label] ?? r.severity_label}`}
-                              className="flex items-center gap-1 cursor-help">
-                              <span className="w-3 h-3 rounded-full inline-block flex-shrink-0"
-                                style={{ backgroundColor: SEVERITY_COLOR[r.severity_label] ?? "#9CA3AF" }} />
-                              <span className="text-xs text-[var(--color-grey)]">{r.private_code}</span>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <p className="text-xs text-[var(--color-grey)]">
-                        Mean severity: {fish.mean_severity.toFixed(1)} / 4.0 · {Math.round(fish.flagged_pct)}% flagged
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-xs text-[var(--color-grey)] mt-4 leading-relaxed">
-              &lsquo;Flagged&rsquo; means the member rated this pattern as &ldquo;This could be a dead fish&rdquo; or &ldquo;This is definitely a dead fish&rdquo; (options 3 or 4 on the scale).
-            </p>
-            </>
-          )}
-        </section>
-
-        {/* ── Panel 5: Purpose alignment ────────────────────────────────── */}
-        <section>
-          <h2 className="text-3xl mb-6">Shared purpose</h2>
-          {tier1.purpose.length === 0 ? (
-            <p className="text-sm text-[var(--color-grey)]">No purpose responses recorded.</p>
-          ) : (
-            <div className="space-y-3">
-              {tier1.purpose.map((entry, i) => (
-                <div key={i} className="card" style={{ padding: "16px 20px" }}>
-                  <div className="flex items-start gap-3">
-                    <span className="bg-[var(--color-navy)] text-white text-xs px-3 py-1 rounded-full flex-shrink-0 mt-0.5">
-                      {entry.private_code}
-                    </span>
-                    {entry.share_verbatim ? (
-                      <p className="text-sm leading-relaxed">{entry.purpose_text}</p>
-                    ) : (
-                      <p className="text-sm text-[var(--color-grey)] italic">
-                        This member preferred to keep their words private.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <p className="mt-6 text-xs text-[var(--color-grey)]">
-            Otis&apos;s purpose alignment read is in the{" "}
-            <a href="#wavelength-read" className="underline">Otis&apos;s read</a> panel above.
-            Members who kept their words private still inform the alignment analysis — their responses are never quoted directly.
-          </p>
-        </section>
-
-        {/* ── Panel 6: Coordination map ─────────────────────────────────── */}
-        <section>
-          <h2 className="text-3xl mb-2">How the team connects</h2>
-          <p className="text-sm text-[var(--color-grey)] mb-6">
-            Lines show coordination frequency. Dashed circles are peripheral members. Amber lines indicate asymmetric pairs.
-          </p>
-          {tier1.coordination.pairs.length > 0 && (() => {
-            const n = completedCodes.length;
-            const totalPossible = n * (n - 1);
-            const activePairs = tier1.coordination.pairs.filter(
-              (p) => p.to_private_code && (p.frequency === "daily" || p.frequency === "weekly")
-            ).length;
-            const density = totalPossible > 0 ? Math.round((activePairs / totalPossible) * 100) : 0;
-
-            const incomingCounts = new Map<string, number>(completedCodes.map((c) => [c, 0]));
-            for (const p of tier1.coordination.pairs) {
-              if (p.to_private_code && (p.frequency === "daily" || p.frequency === "weekly")) {
-                incomingCounts.set(p.to_private_code, (incomingCounts.get(p.to_private_code) ?? 0) + 1);
-              }
-            }
-            const sorted = [...completedCodes].sort(
-              (a, b) => (incomingCounts.get(b) ?? 0) - (incomingCounts.get(a) ?? 0)
-            );
-            const mostConnected = sorted[0] ?? null;
-            const leastConnected = sorted[sorted.length - 1] ?? null;
-            const asymCount = tier1.coordination.asymmetric_pairs.length;
-
-            return (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                <div className="card" style={{ padding: "16px 20px" }}>
-                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-3">Network summary</p>
-                  <p className="text-sm mb-1.5">
-                    <span className="font-medium">Team density:</span>{" "}
-                    <span className="text-[var(--color-grey)]">{density}% of possible connections are active (weekly or more)</span>
-                  </p>
-                  {asymCount > 0 && (
-                    <p className="text-sm" style={{ color: PS_YELLOW }}>
-                      {asymCount} asymmetric pair{asymCount !== 1 ? "s" : ""} detected — where one member reports coordinating more frequently than the other.
-                    </p>
-                  )}
-                </div>
-                <div className="card" style={{ padding: "16px 20px" }}>
-                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-3">Connectivity</p>
-                  {mostConnected && (
-                    <p className="text-sm mb-1.5">
-                      <span className="font-medium">Most connected:</span>{" "}
-                      <span className="bg-[var(--color-navy)] text-white text-xs px-2 py-0.5 rounded-full">{mostConnected}</span>
-                    </p>
-                  )}
-                  {leastConnected && leastConnected !== mostConnected && (
-                    <p className="text-sm">
-                      <span className="font-medium">Least connected:</span>{" "}
-                      <span className="bg-[var(--color-navy)] text-white text-xs px-2 py-0.5 rounded-full">{leastConnected}</span>
-                      <span className="text-[var(--color-grey)] text-xs ml-2">— may be working in relative isolation</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-          {tier1.coordination.pairs.length === 0 ? (
-            <p className="text-sm text-[var(--color-grey)]">No coordination data yet.</p>
-          ) : (
-            <>
-              <CoordinationMap
-                pairs={tier1.coordination.pairs}
-                codes={completedCodes}
-                peripheralCodes={tier1.coordination.peripheral_member_codes}
-                asymmetricPairs={tier1.coordination.asymmetric_pairs}
-              />
-              <div className="flex flex-wrap gap-5 mt-4 text-xs text-[var(--color-grey)] justify-center">
-                {[
-                  { color: PS_GREEN, label: "Daily" },
-                  { color: "#3B82F6", label: "Weekly" },
-                  { color: "#9CA3AF", label: "Occasionally" },
-                  { color: "#D1D5DB", label: "Rarely" },
-                ].map(({ color, label }) => (
-                  <span key={label} className="flex items-center gap-1.5">
-                    <span className="inline-block w-6 h-0.5 rounded" style={{ backgroundColor: color }} />
-                    {label}
-                  </span>
-                ))}
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-3.5 h-3.5 rounded-full border border-dashed border-[#9CA3AF]" />
-                  Peripheral
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span style={{ color: PS_YELLOW }}>⚠</span>
-                  Asymmetric
-                </span>
-              </div>
-            </>
-          )}
-        </section>
-
-        {/* ── Panel 7: Consultant controls ──────────────────────────────── */}
-        <section className="border-t border-black/10 pt-10">
-          <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-6">
-            Consultant controls — these affect what members see
-          </p>
-          <div className="card space-y-8">
-            <div>
-              <label className="form-label">Priority zone</label>
-              <select
-                value={effectivePriority}
-                onChange={(e) => handlePriorityChange(parseInt(e.target.value) as 1 | 2 | 3)}
-                className="form-input mt-1"
-                style={{ maxWidth: "320px" }}
-              >
-                <option value={1}>Zone 1 — Safe to Belong</option>
-                <option value={2}>Zone 2 — Safe to Speak Freely</option>
-                <option value={3}>Zone 3 — Safe to Innovate</option>
-              </select>
-              <p className="text-xs text-[var(--color-grey)] mt-1">
-                Computed: Zone {tier1.ps_zones.priority_zone}
-                {priorityOverride ? " · overridden by you" : ""}
-              </p>
-            </div>
-
-            <div>
-              {approved ? (
-                <p className="text-sm font-medium text-green-700">
-                  ✓ Analysis approved and released to members.
-                </p>
-              ) : (
-                <button type="button" onClick={handleApprove} disabled={approving} className="btn-primary">
-                  {approving ? "Saving..." : "Approve and release to members"}
-                </button>
               )}
-              <p className="text-xs text-[var(--color-grey)] mt-2">All changes are logged.</p>
+              {focus && hasText(focus.hypothesis) && (
+                <div className="rounded-2xl border border-[var(--color-purple)]/30 bg-[var(--color-purple)]/5 p-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)]">This round&apos;s focus — a seed for the workshop</p>
+                    {focus.zone ? <span className={ZONE_BADGE[focus.zone] ?? ""}>{ZONE_SHORT[focus.zone] ?? `Zone ${focus.zone}`}</span> : null}
+                  </div>
+                  <p className="text-base leading-relaxed">{focus.hypothesis}</p>
+                </div>
+              )}
+              {hasText(interpretation.welfare_or_sensitive_note) && (
+                <div className="rounded-xl border border-[var(--color-navy)]/30 bg-[var(--color-navy)]/5 px-5 py-4">
+                  <p className="text-xs uppercase tracking-widest text-[var(--color-navy)] mb-1.5 font-medium">
+                    For you only — described, never quoted
+                  </p>
+                  <p className="text-sm leading-relaxed">{interpretation.welfare_or_sensitive_note}</p>
+                </div>
+              )}
+              {hasText(interpretation.data_quality_note) && (
+                <p className="text-xs text-[var(--color-grey)]">{interpretation.data_quality_note}</p>
+              )}
             </div>
-          </div>
-        </section>
+          )}
 
-      </div>
+          <SharedPurposePanel tier1={tier1} tier2={interpretation} />
+          <PsSafetyPanel tier1={tier1} tier2={interpretation} />
+          <TeamConnectivityPanel tier1={tier1} codes={completedCodes} />
+        </div>
+      ) : (
+        <WorkshopPanel
+          teamId={teamId}
+          teamName={team.team_name}
+          members={members}
+          focus={interpretation?.focus_hypothesis}
+        />
+      )}
+
+      {/* Persistent Otis chat, available in both tabs */}
+      <OtisChatBubble teamId={teamId} />
     </main>
   );
 }

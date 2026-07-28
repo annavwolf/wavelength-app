@@ -1,0 +1,107 @@
+import { NextRequest, NextResponse } from "next/server";
+import { Resend } from "resend";
+import { supabase } from "@/lib/supabase";
+import type { Phase3ReportJson } from "@/types/database";
+
+// POST /api/phase3/release
+// { team_id, report: Phase3ReportJson, dry_run?: boolean }
+// dry_run=true  → save draft only, no emails sent
+// dry_run=false → save + send Phase 3 links to members not yet invited
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => null);
+  const { team_id, report, dry_run = false } = body ?? {};
+
+  if (!team_id || !report) {
+    return NextResponse.json({ error: "team_id and report required" }, { status: 400 });
+  }
+
+  const { data: analysis, error: aErr } = await supabase
+    .from("analysis")
+    .select("id, phase3_report_json")
+    .eq("team_id", team_id)
+    .maybeSingle();
+
+  if (aErr || !analysis) {
+    return NextResponse.json({ error: "Analysis not found for this team" }, { status: 404 });
+  }
+
+  const existing = (analysis.phase3_report_json as Phase3ReportJson | null) ?? null;
+  const alreadySentIds: string[] = existing?.sent_member_ids ?? [];
+
+  const now = new Date().toISOString();
+  let sentCount = 0;
+  const newSentIds = [...alreadySentIds];
+
+  if (!dry_run) {
+    const apiKey = process.env.RESEND_API_KEY;
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
+    const [membersRes, teamRes] = await Promise.all([
+      supabase.from("members").select("member_id, display_name, email").eq("team_id", team_id),
+      supabase.from("teams").select("team_name").eq("team_id", team_id).single(),
+    ]);
+
+    const teamName = teamRes.data?.team_name ?? "your team";
+    const toSend = (membersRes.data ?? []).filter(
+      (m) => m.email && !alreadySentIds.includes(m.member_id)
+    );
+
+    if (apiKey && toSend.length > 0) {
+      const resend = new Resend(apiKey);
+      const loginUrl = `${APP_URL}/member-login`;
+
+      for (const m of toSend) {
+        const firstName = m.display_name.split(" ")[0];
+        const { error: sendErr } = await resend.emails.send({
+          from: "Wavelength <onboarding@resend.dev>",
+          to: m.email!,
+          subject: `Your pre-workshop activity — ${teamName}`,
+          html: `
+<p>Hi ${firstName},</p>
+
+<p>Your consultant has finished the analysis for <strong>${teamName}</strong> and your pre-workshop activity is ready.</p>
+
+<p>Before the workshop, Otis wants to hear a short story from you — a real moment connected to what your session will focus on. It takes around 10 minutes.</p>
+
+<p><a href="${loginUrl}" style="display:inline-block;background:#2B2B6B;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Start my pre-workshop activity</a></p>
+
+<p>Or paste this link into your browser:<br/><a href="${loginUrl}">${loginUrl}</a></p>
+
+<p>Log in with the email address you used for your assessment. Once you're in, you'll see a link to start the activity at the top of your profile page.</p>
+
+<p style="color:#888;font-size:13px;">If you have any questions, contact your consultant directly.</p>
+          `.trim(),
+        });
+        if (!sendErr) {
+          newSentIds.push(m.member_id);
+          sentCount++;
+        } else {
+          console.error("[phase3/release] Resend error for", m.member_id, sendErr);
+        }
+      }
+    }
+  }
+
+  const updatedReport: Phase3ReportJson = {
+    ...(report as Phase3ReportJson),
+    sent_member_ids: newSentIds,
+    released_at: dry_run ? (existing?.released_at ?? null) : now,
+  };
+
+  const { error: saveErr } = await supabase
+    .from("analysis")
+    .update({ phase3_report_json: updatedReport as unknown as import("@/types/database").Json })
+    .eq("team_id", team_id);
+
+  if (saveErr) {
+    console.error("[phase3/release] save failed:", saveErr);
+    return NextResponse.json({ error: saveErr.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    success: true,
+    released_at: updatedReport.released_at,
+    sent_count: sentCount,
+    dry_run,
+  });
+}

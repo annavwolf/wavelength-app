@@ -96,7 +96,43 @@ Otis then transitions to the workshop preview. Script as authored (consultant-ed
 
 ---
 
-## 4. The sorting activity (PRE-WORK — this is the real task, not a preview)
+## 3.5 Consultant pre-release review (NEW — closes a spec gap, see note below)
+
+**Gap note:** D-052 locked that the consultant can override Otis's item selection and edit the seeded behaviors before members see them. Earlier drafts of this spec referenced that decision but never fully specified the screen that does it — this section fixes that.
+
+**This screen sits between Phase 2 (analysis) and Phase 3 (member release).** The consultant reaches it from the dashboard, before pressing "release to team." Nothing in §1–3 above (what members see) exists until the consultant completes this step and releases.
+
+### What the consultant sees
+
+1. **Otis's primary recommendation:**
+   - The focus PS item (per D-051's zone-first team-level selection)
+   - The situation (context + objective) derived from clustering
+   - The direct-voice focus hypothesis (D-049) from `tier2_json`
+   - The seeded behaviours for the sorting activity: candidate NEVER (out-behaviours) and ALWAYS (in-behaviours) for this item, **as exploded specific source labels** (Analytics Spec §2.4 — never cluster headings)
+
+2. **Item override control:** "Use a different focus item" — shows the next 1–2 ranked alternatives *that have story data* (D-052). Selecting one repopulates the situation and seeded behaviours for that item. The primary is always restorable via a visible toggle/back control — this is not a one-way switch.
+
+3. **Behaviour editing, per D-052:**
+   - Remove any seeded behaviour
+   - Add a behaviour typed by the consultant
+   - **Pull from the cross-item library:** browse behaviours surfaced under other PS items (each labelled with its source item) and add them to this item's NEVER/ALWAYS set — available at any time, not gated on a shortfall (D-052 extends D-045)
+   - Edit the wording of any seeded behaviour directly; Otis's original is preserved and viewable (provenance tracked per D-052: Otis / member / consultant)
+   - Edit the situation (context + objective) sentence itself
+
+4. **Review the rest of the member-facing report** (the reads, the networks, the pulse-check questions) with the same edit-in-place capability already specified in §1's "consultant editability" rule.
+
+5. **Release:** a single action that locks in the reviewed item, situation, and behaviour set, and makes the member report (§1–4 of this document) available. This is what the member sees in §4.2's circles — the consultant's final, reviewed version, not Otis's raw output.
+
+### Data implication
+
+The behaviours a member drags in §4.2 must be read from the **consultant-approved, possibly-edited set**, not directly from `tier2_json`'s raw clustering output. This requires a small persisted "approved workshop seed" record (item, situation, final behaviour list with provenance) written at release time — this is the missing data contract Claude Code needs.
+
+### What's still open
+
+- Exact UI layout of this screen (cards vs. table, how the cross-item library is browsed) — a build detail, not a design question.
+- Whether re-running compute/interpret after a consultant has already reviewed/edited should warn before overwriting their edits. Flag for Claude Code to raise if it becomes relevant.
+
+---
 
 **Decision (locked, changed from earlier draft):** the individual sort happens **here, in pre-work**, NOT live in the workshop. Rationale: solitary sorting produces no interaction and would waste scarce live time; nothing is *decided* by one person sorting, so nothing is pre-empted. All decisions still happen live, together.
 

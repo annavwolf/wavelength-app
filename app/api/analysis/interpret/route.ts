@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import { PART2_SYSTEM_PROMPT } from "@/prompts/part2_analytics";
+import { MODELS } from "@/lib/models";
 import type { Json } from "@/types/database";
 
-const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 4000;
+const MODEL = MODELS.interpret;
+// Zone read + shared-purpose read + focus hypothesis. 6000 tokens is ample.
+const MAX_TOKENS = 6000;
 
 export async function POST(req: NextRequest) {
   let teamId: string;
@@ -48,7 +50,7 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
     return NextResponse.json({ error: "Run Tier 1 analysis first" }, { status: 400 });
   }
 
-  // ── Team context ────────────────────────────────────────────────────────────
+  // ── Team context (only thing not already inside tier1_json) ─────────────────
   const { data: team, error: teamError } = await supabase
     .from("teams")
     .select("*")
@@ -67,101 +69,22 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
     known_sensitivities: team.known_sensitivities,
   };
 
-  // ── Members (for private_code + privacy flag) ───────────────────────────────
-  const { data: members, error: membersError } = await supabase
-    .from("members")
-    .select("*")
-    .eq("team_id", teamId);
-
-  if (membersError) {
-    return NextResponse.json({ error: "db_error", detail: membersError.message }, { status: 500 });
-  }
-
-  const memberById = new Map((members ?? []).map((m) => [m.member_id, m]));
-
-  // ── Qualitative material + per-item PS detail ───────────────────────────────
-  const [purposeRes, fishRes, stmtRes, psRes] = await Promise.all([
-    supabase.from("purpose_responses").select("*").eq("team_id", teamId),
-    supabase.from("fish_responses").select("*").eq("team_id", teamId).is("fish_id", null),
-    supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),
-    supabase.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1),
-  ]);
-
-  if (purposeRes.error) {
-    return NextResponse.json({ error: "db_error", detail: purposeRes.error.message }, { status: 500 });
-  }
-  if (fishRes.error) {
-    return NextResponse.json({ error: "db_error", detail: fishRes.error.message }, { status: 500 });
-  }
-  if (stmtRes.error) {
-    return NextResponse.json({ error: "db_error", detail: stmtRes.error.message }, { status: 500 });
-  }
-  if (psRes.error) {
-    return NextResponse.json({ error: "db_error", detail: psRes.error.message }, { status: 500 });
-  }
-
-  const purposeStatements = (purposeRes.data ?? []).map((r) => {
-    const m = memberById.get(r.member_id);
-    return {
-      private_code: m?.private_code ?? "unknown",
-      kept_private: !(m?.share_verbatim_with_team ?? false),
-      purpose_text: r.purpose_text,
-    };
-  });
-
-  const customFish = (fishRes.data ?? []).map((r) => {
-    const m = memberById.get(r.member_id);
-    return {
-      private_code: m?.private_code ?? "unknown",
-      kept_private: !(m?.share_verbatim_with_team ?? false),
-      severity_label: r.severity_label,
-      custom_text: r.custom_text ?? "",
-    };
-  });
-
-  // Each PS statement with its full wording/zone, plus every member's response.
-  const psResponses = psRes.data ?? [];
-  const psItems = (stmtRes.data ?? []).map((s) => ({
-    statement_id: s.statement_id,
-    zone: s.zone,
-    zone_name: s.zone_name,
-    statement_text: s.statement_text,
-    responses: psResponses
-      .filter((r) => r.statement_id === s.statement_id)
-      .map((r) => ({
-        private_code: memberById.get(r.member_id)?.private_code ?? "unknown",
-        label: r.label,
-        response_value: r.response_value,
-      })),
-  }));
-
-  // Co-location / timezone, so the model can answer who works where.
-  const memberLocations = (members ?? []).map((m) => ({
-    private_code: m.private_code,
-    location: m.location,
-    timezone: m.timezone,
-  }));
-
   // ── Assemble the data package for the model ─────────────────────────────────
+  // tier1_json carries zones, per-statement detail, shared-purpose classification,
+  // purpose passthrough (with the share_verbatim flag), and the networks.
   const dataPackage = {
     instruction:
-      "Below is the full Tier 1 computed metrics package, the team context, and all qualitative material. " +
-      "Members marked kept_private kept their words private from the team. Their text is included here for " +
-      "your reasoning only — never quote or attribute it, even to the consultant. Return ONLY the JSON object " +
-      "specified in your instructions.",
+      "Below is the full Tier 1 computed metrics package and the team context. Members whose " +
+      "purpose text is marked share_verbatim:false kept their words private from the team — use them " +
+      "for reasoning only, never quote or attribute them, even to the consultant. Return ONLY the JSON " +
+      "object specified in your instructions.",
     team_context: teamContext,
     computed_metrics_tier1: analysisRow.tier1_json,
-    ps_items: psItems,
-    member_locations: memberLocations,
-    qualitative_material: {
-      purpose_statements: purposeStatements,
-      custom_fish: customFish,
-    },
   };
 
   const userMessage = JSON.stringify(dataPackage, null, 2);
 
-  // ── Call Anthropic ──────────────────────────────────────────────────────────
+  // ── Call Anthropic (written reads + focus hypothesis only) ──────────────────
   const anthropic = new Anthropic({ apiKey });
 
   let rawText: string;
@@ -205,12 +128,11 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
     );
   }
 
+  interpretation.generated_at = new Date().toISOString();
+
   // ── Save to analysis table ──────────────────────────────────────────────────
-  // tier2_json is the single source of truth — it holds the whole interpretation
-  // (headline_read, assumptions, focus_issue, purpose_alignment, divergence_notes,
-  // welfare note, member-facing draft, etc.). We deliberately do not mirror fields
-  // into separate flat columns: those don't all exist in the live schema, and the
-  // dashboard reads everything it needs straight from tier2_json.
+  // tier2_json is the single source of truth for the interpretation: the PS zone
+  // read, shared-purpose read, focus hypothesis, and the member-facing draft.
   const { error: updateError } = await supabase
     .from("analysis")
     .update({

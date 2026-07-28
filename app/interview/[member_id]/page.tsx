@@ -10,7 +10,6 @@ import type {
   PsStatement,
   Team,
 } from "@/types/database";
-import { selectProbeItems } from "@/lib/psSelection";
 import type { InterviewStep } from "@/components/interview/types";
 import ProgressBar from "@/components/interview/ProgressBar";
 import BackButton from "@/components/interview/BackButton";
@@ -29,14 +28,13 @@ import PsDescentStep from "@/components/interview/steps/PsDescentStep";
 import PsIntroCloseStep from "@/components/interview/steps/PsIntroCloseStep";
 import PsFrameStep from "@/components/interview/steps/PsFrameStep";
 import PsDiagnosticStep from "@/components/interview/steps/PsDiagnosticStep";
-import PsInterviewStep from "@/components/interview/steps/PsInterviewStep";
 import ReviewStep from "@/components/interview/steps/ReviewStep";
 import CloseStep from "@/components/interview/steps/CloseStep";
 import AlreadyCompleteStep from "@/components/interview/steps/AlreadyCompleteStep";
 
 // landing → foreshadow → faq → consent → profile → personal_context →
 // purpose → roster → coordination → ps_intro_open → ps_descent →
-// ps_intro_close → ps_frame → ps_diagnostic → ps_interview → review → close
+// ps_intro_close → ps_frame → ps_diagnostic → review → close
 const STEP_ORDER: InterviewStep[] = [
   "landing",
   "foreshadow",
@@ -52,7 +50,6 @@ const STEP_ORDER: InterviewStep[] = [
   "ps_intro_close",
   "ps_frame",
   "ps_diagnostic",
-  "ps_interview",
   "review",
   "close",
   "already_complete",
@@ -152,7 +149,6 @@ export default function InterviewPage() {
         { data: statementsData, error: statementsError },
         { data: psResponsesData },
         { count: purposeCount },
-        { count: interviewCount },
         { count: coordCount },
       ] = await Promise.all([
         supabase
@@ -169,8 +165,7 @@ export default function InterviewPage() {
           .from("ps_statements")
           .select("*")
           .order("statement_id", { ascending: true }),
-        // Actual round-1 rows (not just a count) so we can recompute item
-        // selection deterministically on resume.
+        // Round-1 rows to detect whether the diagnostic is complete on resume.
         supabase
           .from("ps_responses")
           .select("statement_id, label")
@@ -178,10 +173,6 @@ export default function InterviewPage() {
           .eq("round", 1),
         supabase
           .from("purpose_responses")
-          .select("*", { count: "exact", head: true })
-          .eq("member_id", memberData.member_id),
-        supabase
-          .from("ps_interview_responses")
           .select("*", { count: "exact", head: true })
           .eq("member_id", memberData.member_id),
         supabase
@@ -207,19 +198,8 @@ export default function InterviewPage() {
       if (memberData.status === "complete") {
         setStep("already_complete");
       } else if (allRated) {
-        // Diagnostic done — decide between the interview and review by
-        // recomputing which items would be probed (same logic the step uses).
-        const ratingsMap: Record<number, PsLabel> = {};
-        for (const row of psResponsesData ?? []) {
-          ratingsMap[row.statement_id] = row.label as PsLabel;
-        }
-        const sel = selectProbeItems(statements, ratingsMap);
-        const selectedCount = sel.allPositive ? 1 : sel.items.length;
-        if ((interviewCount ?? 0) >= selectedCount) {
-          setStep("review");
-        } else {
-          setStep("ps_interview");
-        }
+        // Diagnostic done — Phase 1 is survey-only; go straight to review.
+        setStep("review");
         setResuming(true);
       } else if (psCount > 0) {
         // Mid-diagnostic — PsDiagnosticStep prefills the saved ratings.
@@ -493,18 +473,6 @@ export default function InterviewPage() {
             supabase={supabase}
             ratings={draft.psRatings}
             onRatingsChange={(v) => updateDraft({ psRatings: v })}
-            onAdvance={() => goToStep("ps_interview")}
-          />
-        )}
-
-        {step === "ps_interview" && (
-          <PsInterviewStep
-            member={member}
-            team={team}
-            statements={psStatements}
-            supabase={supabase}
-            ratings={draft.psRatings}
-            readAloud={readAloud}
             onAdvance={() => goToStep("review")}
           />
         )}

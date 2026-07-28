@@ -22,6 +22,7 @@ type MeResponse = {
     share_verbatim_with_team: boolean;
   };
   team: { team_id: string; team_name: string } | null;
+  phase3_released: boolean;
   statements: PsStatement[];
   ps_responses: PsResponse[];
   interview_responses: PsInterviewResponse[];
@@ -243,11 +244,30 @@ export default function MemberProfilePage() {
         )}
       </section>
 
-      {/* ── Coming soon (Phases 3 & 4) ─────────────────────────────────── */}
-      <LockedSection
-        title="Your team report"
-        body="Available once your consultant releases it. You'll do a short pre-workshop activity here."
-      />
+      {/* ── Phase 3 / workshop (unlocks when consultant releases) ──────── */}
+      {data.phase3_released ? (
+        <section className="card" style={{ padding: "20px 24px" }}>
+          <h2 className="text-lg mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
+            Pre-workshop activity
+          </h2>
+          <p className="text-sm text-[var(--color-grey)] mb-4 leading-relaxed">
+            Your consultant has released your pre-workshop activity. Otis wants to hear a short story from
+            you before the session — it takes around 10 minutes.
+          </p>
+          <a
+            href="/me/phase3"
+            className="btn-primary inline-block text-center"
+            style={{ padding: "10px 20px", fontSize: "14px", textDecoration: "none" }}
+          >
+            Start my pre-workshop activity →
+          </a>
+        </section>
+      ) : (
+        <LockedSection
+          title="Pre-workshop activity"
+          body="Available once your consultant releases it. You'll do a short activity with Otis here."
+        />
+      )}
       <LockedSection
         title="Workshop room"
         body="Opens when your facilitator starts your live session."

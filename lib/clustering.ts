@@ -34,15 +34,18 @@ export type SourceLabel = {
   member_id: string;
   statement_id: number;
   multi_member_flag: boolean;
+  sensitive_specific: boolean;
 };
 
 export type Cluster = {
   name: string;
+  workshop_form: string; // transferable behaviour phrase for the workshop circles
   member_count: number; // distinct members (the convergence count)
   label_count: number; // raw label count
   statement_ids: number[]; // distinct PS items contributing
   surfaced: boolean; // member_count >= 2 (safe to surface as a team pattern)
-  source_labels: SourceLabel[]; // exploded, preserved (workshop input)
+  all_sensitive: boolean; // every source label is sensitive_specific — do not surface to workshop
+  source_labels: SourceLabel[]; // exploded, preserved (workshop input + expander)
 };
 
 export type ClusterResult = Record<StreamKey, Cluster[]>;
@@ -103,6 +106,7 @@ function buildClusters(
       member_id: labels[i].member_id,
       statement_id: labels[i].statement_id,
       multi_member_flag: labels[i].multi_member_flag,
+      sensitive_specific: labels[i].sensitive_specific,
     }));
     const memberCount = new Set(source_labels.map((s) => s.member_id)).size;
     const statementIds = Array.from(
@@ -110,10 +114,12 @@ function buildClusters(
     ).sort((a, b) => a - b);
     return {
       name: "", // filled by nameClusters
+      workshop_form: "", // filled by nameClusters
       member_count: memberCount,
       label_count: source_labels.length,
       statement_ids: statementIds,
       surfaced: memberCount >= 2,
+      all_sensitive: source_labels.every((s) => s.sensitive_specific),
       source_labels,
     };
   });
@@ -122,17 +128,22 @@ function buildClusters(
 const NAME_CLUSTERS_TOOL: Anthropic.Tool = {
   name: "name_clusters",
   description:
-    "Give each cluster a short canonical name. Return names in the SAME ORDER as the clusters provided.",
+    "Give each cluster a short canonical name and a workshop-ready behaviour phrase. Return both arrays in the SAME ORDER as the clusters provided.",
   input_schema: {
     type: "object",
     properties: {
       names: {
         type: "array",
         items: { type: "string" },
-        description: "One short name per cluster, in order.",
+        description: "One short canonical name per cluster (2-5 words, consultant dashboard). In order.",
+      },
+      workshop_forms: {
+        type: "array",
+        items: { type: "string" },
+        description: "One workshop-ready behaviour phrase per cluster (see rules). In order.",
       },
     },
-    required: ["names"],
+    required: ["names", "workshop_forms"],
   },
 };
 
@@ -154,11 +165,25 @@ export async function nameClusters(
     )
     .join("\n");
 
-  const system = `You name clusters of coded team-behaviour labels for a consultant dashboard. Each cluster is a group of near-synonymous labels members used. Give each a SHORT, canonical, human-readable name (2-5 words) that captures what the grouped labels share, staying close to the members' language. Do not invent behaviours not present. Return exactly one name per cluster, in order. This is naming only — it must not change the grouping.`;
+  const system = `You name clusters of coded team-behaviour labels for a consultant dashboard. Each cluster is a group of near-synonymous labels members used.
+
+For each cluster produce TWO things:
+
+1. name (for the consultant dashboard): a SHORT, canonical, human-readable label (2-5 words) that captures what the grouped labels share, staying close to the members' language. Do not invent behaviours not present.
+
+2. workshop_form (for the member-facing workshop circles): a short, transferable behaviour phrase a team could realistically adopt or avoid across many future situations not discussed in this data. Five rules:
+   - Transferable: not tied to the specific incident. Could this phrase apply to three different situations the team hasn't discussed? If yes, it passes.
+   - Positive-form action even for out-behaviour clusters: a NEVER cluster's workshop_form names the concrete action the team commits NOT to do — never an absence. "talking over others in group discussions" (action, NEVER it) not "not interrupting" (absence, forbidden).
+   - De-identifiable: strip roles, quotes, cultural specifics. No "the manager", no near-quotes.
+   - Close to members' vocabulary: "talking over each other" beats "practising conversational turn-taking".
+   - Observable: something someone could see or hear.
+   - Absence head verbs are forbidden in workshop_form: "not", "failing to", "holding back", "withholding", "refraining from", "never X-ing", "neglecting to".
+
+Return exactly one name and one workshop_form per cluster, in order. This is naming only — it must not change the grouping.`;
 
   const response = await anthropic.messages.create({
     model: MODELS.clusterNaming,
-    max_tokens: 1024,
+    max_tokens: 1536,
     system,
     tools: [NAME_CLUSTERS_TOOL],
     tool_choice: { type: "tool", name: "name_clusters" },
@@ -168,9 +193,12 @@ export async function nameClusters(
   const toolUse = response.content.find(
     (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "name_clusters"
   );
-  const names = (toolUse?.input as { names?: string[] } | undefined)?.names ?? [];
+  const input = toolUse?.input as { names?: string[]; workshop_forms?: string[] } | undefined;
+  const names = input?.names ?? [];
+  const workshopForms = input?.workshop_forms ?? [];
   clusters.forEach((c, i) => {
     c.name = (names[i] ?? "").trim() || `${stream} group ${i + 1}`;
+    c.workshop_form = (workshopForms[i] ?? "").trim() || c.name;
   });
 }
 

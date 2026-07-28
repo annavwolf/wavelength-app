@@ -38,3 +38,5 @@ next-env.d.ts
 # claude code local settings — machine-local permissions, may contain
 # tokens/keys captured during debugging sessions; never share publicly
 .claude/settings.local.json
+
+.vercel

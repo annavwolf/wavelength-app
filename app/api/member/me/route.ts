@@ -55,11 +55,15 @@ export async function GET(req: NextRequest) {
 
   const member = memberRes.data;
 
-  const { data: team } = await supabase
-    .from("teams")
-    .select("team_id, team_name")
-    .eq("team_id", member.team_id)
-    .maybeSingle();
+  const [{ data: team }, { data: analysisRow }] = await Promise.all([
+    supabase.from("teams").select("team_id, team_name").eq("team_id", member.team_id).maybeSingle(),
+    supabase.from("analysis").select("phase3_report_json").eq("team_id", member.team_id).maybeSingle(),
+  ]);
+
+  const phase3Released = !!(
+    analysisRow?.phase3_report_json &&
+    (analysisRow.phase3_report_json as Record<string, unknown>).released_at
+  );
 
   // The member's own view: only the fields the profile needs. Own data is shown
   // in full (privacy flags gate what OTHERS see, not the member themselves), but
@@ -75,6 +79,7 @@ export async function GET(req: NextRequest) {
       share_verbatim_with_team: member.share_verbatim_with_team,
     },
     team: team ?? null,
+    phase3_released: phase3Released,
     statements: statementsRes.data ?? [],
     ps_responses: responsesRes.data ?? [],
     interview_responses: interviewRes.data ?? [],

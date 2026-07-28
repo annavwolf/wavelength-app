@@ -95,18 +95,17 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   const memberById = new Map((members ?? []).map((m) => [m.member_id, m]));
 
   // ── Qualitative material + per-item PS detail ───────────────────────────────
-  const [purposeRes, fishRes, stmtRes, psRes] = await Promise.all([
+  // Re-anchored off the retired fish path: the interview material now reaches the
+  // model through the coded clusters inside tier1_json (below), alongside the
+  // per-statement PS detail and the purpose statements. No fish_responses read.
+  const [purposeRes, stmtRes, psRes] = await Promise.all([
     supabase.from("purpose_responses").select("*").eq("team_id", teamId),
-    supabase.from("fish_responses").select("*").eq("team_id", teamId).is("fish_id", null),
     supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),
     supabase.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1),
   ]);
 
   if (purposeRes.error) {
     return NextResponse.json({ error: "db_error", detail: purposeRes.error.message }, { status: 500 });
-  }
-  if (fishRes.error) {
-    return NextResponse.json({ error: "db_error", detail: fishRes.error.message }, { status: 500 });
   }
   if (stmtRes.error) {
     return NextResponse.json({ error: "db_error", detail: stmtRes.error.message }, { status: 500 });
@@ -121,16 +120,6 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
       private_code: m?.private_code ?? "unknown",
       kept_private: !(m?.share_verbatim_with_team ?? false),
       purpose_text: r.purpose_text,
-    };
-  });
-
-  const customFish = (fishRes.data ?? []).map((r) => {
-    const m = memberById.get(r.member_id);
-    return {
-      private_code: m?.private_code ?? "unknown",
-      kept_private: !(m?.share_verbatim_with_team ?? false),
-      severity_label: r.severity_label,
-      custom_text: r.custom_text ?? "",
     };
   });
 
@@ -170,7 +159,6 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
     member_locations: memberLocations,
     qualitative_material: {
       purpose_statements: purposeStatements,
-      custom_fish: customFish,
     },
     proposed_interpretation_tier2: analysisRow.tier2_json ?? null,
   };
