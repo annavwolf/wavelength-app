@@ -4,12 +4,12 @@ import { supabase } from "@/lib/supabase";
 import type { Phase3ReportJson } from "@/types/database";
 
 // POST /api/phase3/release
-// { team_id, report: Phase3ReportJson, dry_run?: boolean }
-// dry_run=true  → save draft only, no emails sent
-// dry_run=false → save + send Phase 3 links to members not yet invited
+// { team_id, report: Phase3ReportJson, dry_run?: boolean, resend_all?: boolean }
+// dry_run=true    → save draft only, no emails sent
+// resend_all=true → ignore sent_member_ids and re-send to everyone with an email
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const { team_id, report, dry_run = false } = body ?? {};
+  const { team_id, report, dry_run = false, resend_all = false } = body ?? {};
 
   if (!team_id || !report) {
     return NextResponse.json({ error: "team_id and report required" }, { status: 400 });
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString();
   let sentCount = 0;
+  let skippedAlreadySent = 0;
   const newSentIds = [...alreadySentIds];
 
   if (!dry_run) {
@@ -44,11 +45,16 @@ export async function POST(req: NextRequest) {
     const teamName = teamRes.data?.team_name ?? "your team";
     const allMembers = membersRes.data ?? [];
     const noEmail = allMembers.filter((m) => !m.email).length;
+    skippedAlreadySent = resend_all ? 0 :
+      allMembers.filter((m) => m.email && alreadySentIds.includes(m.member_id)).length;
     const toSend = allMembers.filter(
-      (m) => m.email && !alreadySentIds.includes(m.member_id)
+      (m) => m.email && (resend_all || !alreadySentIds.includes(m.member_id))
     );
     if (noEmail > 0) {
       console.warn(`[phase3/release] ${noEmail} member(s) have no email address — skipped.`);
+    }
+    if (skippedAlreadySent > 0) {
+      console.log(`[phase3/release] ${skippedAlreadySent} already sent — skipped. Use resend_all=true to override.`);
     }
 
     if (apiKey && toSend.length > 0) {
@@ -111,6 +117,7 @@ export async function POST(req: NextRequest) {
     success: true,
     released_at: updatedReport.released_at,
     sent_count: sentCount,
+    skipped_already_sent: skippedAlreadySent,
     dry_run,
     using_test_sender: !process.env.RESEND_FROM_EMAIL,
   });

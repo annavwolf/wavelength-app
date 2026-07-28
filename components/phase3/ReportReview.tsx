@@ -40,7 +40,9 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [releasedAt, setReleasedAt] = useState<string | null>(existingReport?.released_at ?? null);
   const [sentCount, setSentCount] = useState<number | null>(null);
+  const [skippedCount, setSkippedCount] = useState<number | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
+  const [confirmResendAll, setConfirmResendAll] = useState(false);
 
   useEffect(() => {
     setReport(seedReport(tier2, existingReport));
@@ -52,15 +54,16 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
     setSavedAt(null);
   }
 
-  async function save(dryRun: boolean) {
+  async function save(dryRun: boolean, resendAll = false) {
     setBusy(true);
     setErr(null);
     setSentCount(null);
+    setSkippedCount(null);
 
     const res = await fetch("/api/phase3/release", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ team_id: teamId, report, dry_run: dryRun }),
+      body: JSON.stringify({ team_id: teamId, report, dry_run: dryRun, resend_all: resendAll }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -76,6 +79,7 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
     } else {
       setReleasedAt(data.released_at ?? new Date().toISOString());
       setSentCount(data.sent_count ?? 0);
+      setSkippedCount(data.skipped_already_sent ?? 0);
       setReport((prev) => ({
         ...prev,
         released_at: data.released_at,
@@ -83,13 +87,14 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
       }));
       if (data.using_test_sender) {
         setErr(
-          `Sent via Resend's shared test domain — emails may not arrive or may land in spam. ` +
-          `Set RESEND_FROM_EMAIL in .env.local to a verified sender for reliable delivery.`
+          `Using Resend's shared test domain — emails may land in spam or not arrive. ` +
+          `Add RESEND_FROM_EMAIL to Vercel env vars once you have a verified Resend sender domain.`
         );
       }
     }
 
     setConfirmRelease(false);
+    setConfirmResendAll(false);
     setBusy(false);
   }
 
@@ -241,15 +246,19 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
           )}
           {releasedAt && sentCount !== null && (
             <p className="text-xs text-green-700">
-              Sent to {sentCount} member{sentCount !== 1 ? "s" : ""}.
-              {" "}{report.sent_member_ids?.length > sentCount
-                ? `${report.sent_member_ids.length - sentCount} already had it.`
-                : ""}
+              {sentCount > 0
+                ? `Sent to ${sentCount} member${sentCount !== 1 ? "s" : ""}.`
+                : "No new emails sent."}
+              {skippedCount !== null && skippedCount > 0 && (
+                <span className="text-[var(--color-amber)]">
+                  {" "}{skippedCount} skipped — already sent previously. Use &ldquo;Re-send to all&rdquo; to override.
+                </span>
+              )}
             </p>
           )}
           {releasedAt && sentCount === null && (
             <p className="text-xs text-[var(--color-grey)]">
-              Re-releasing will send links to any members not yet invited.
+              Already released. New members added since will receive a link automatically.
             </p>
           )}
         </div>
@@ -295,6 +304,40 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
                 Cancel
               </button>
             </div>
+          )}
+
+          {/* Re-send to all — bypasses sent_member_ids, for when emails didn't arrive */}
+          {releasedAt && !confirmRelease && (
+            confirmResendAll ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-[var(--color-grey)]">Re-send to everyone?</span>
+                <button
+                  type="button"
+                  onClick={() => void save(false, true)}
+                  disabled={busy}
+                  className="btn-secondary"
+                  style={{ padding: "6px 14px", fontSize: "13px" }}
+                >
+                  {busy ? "Sending…" : "Confirm"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmResendAll(false)}
+                  className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)]"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmResendAll(true)}
+                disabled={busy}
+                className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline"
+              >
+                Re-send to all
+              </button>
+            )
           )}
         </div>
       </div>
