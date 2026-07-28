@@ -1,6 +1,7 @@
 // preworkSeed.ts — Phase 3 pivot: PreworkReview now reads member_behaviors
 // directly from the DB. This file is retained only for any legacy import
 // references; the functions are no-ops. See PreworkReview.tsx for the real logic.
+/* eslint-disable @typescript-eslint/no-unused-vars */
 
 import type { SeedBehaviour } from "@/types/database";
 import type { Tier1Result, Tier2Result } from "@/components/dashboard/types";

@@ -8,7 +8,7 @@
 import { useState, useEffect } from "react";
 import type { Phase3ReportJson } from "@/types/database";
 import type { Tier1Result, Tier2Result } from "@/components/dashboard/types";
-import { ZONE_NAME, ZONE_BADGE, ZONE_SHORT, hasText } from "@/components/dashboard/types";
+import { ZONE_NAME, ZONE_BADGE, ZONE_SHORT } from "@/components/dashboard/types";
 
 type Props = {
   teamId: string;
