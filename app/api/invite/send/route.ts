@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     from: process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>",
     to: member.email,
     subject: `Your Wavelength assessment — ${team.team_name}`,
+    text: `Hi ${firstName},\n\nYour consultant has set up a Wavelength psychological safety assessment for ${team.team_name}.\n\nThis is a private, confidential interview — your individual responses are never shared with your team. It takes around 15-20 minutes and you can pause and resume at any time.\n\nStart your assessment here:\n${interviewUrl}\n\nThis link is personal to you — please don't share it. If you have questions, contact your consultant directly.`,
     html: `
 <p>Hi ${firstName},</p>
 
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
 
 <p>Or paste this link into your browser:<br/><a href="${interviewUrl}">${interviewUrl}</a></p>
 
-<p style="color:#888;font-size:13px;">This link is personal to you — please don't share it. If you have questions, reply to this email or contact your consultant directly.</p>
+<p style="color:#888;font-size:13px;">This link is personal to you — please don't share it. If you have questions, contact your consultant directly.</p>
     `.trim(),
   });
 

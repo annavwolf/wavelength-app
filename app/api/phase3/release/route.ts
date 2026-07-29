@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
           from: fromAddress,
           to: m.email!,
           subject: `Your pre-workshop activity — ${teamName}`,
+          text: `Hi ${firstName},\n\nYour consultant has finished the analysis for ${teamName} and your pre-workshop activity is ready.\n\nBefore the workshop, Otis wants to hear a short story from you — a real moment connected to what your session will focus on. It takes around 10 minutes.\n\nStart here:\n${loginUrl}\n\nLog in with the email address you used for your assessment. Once you're in, you'll see a link to start the activity at the top of your profile page.\n\nIf you have any questions, contact your consultant directly.`,
           html: `
 <p>Hi ${firstName},</p>
 
