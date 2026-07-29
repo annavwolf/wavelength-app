@@ -443,6 +443,37 @@ export type FeedbackResponseInsert = {
 
 export type FeedbackResponseUpdate = Partial<FeedbackResponseInsert>;
 
+// ── Phase 3 §2.5: Per-zone pulse checks ──────────────────────────────────────
+export type PulseCheckRating =
+  | "Not at all accurate"
+  | "Somewhat accurate"
+  | "Very accurate"
+  | "Don't know"
+  | "Decline to answer";
+
+export type PulseCheckKey = "zone1" | "zone2" | "zone3" | "purpose";
+
+export type PulseCheck = {
+  id: string;
+  member_id: string;
+  team_id: string;
+  read_key: PulseCheckKey;
+  accuracy_rating: PulseCheckRating;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PulseCheckInsert = {
+  id?: string;
+  member_id: string;
+  team_id: string;
+  read_key: PulseCheckKey;
+  accuracy_rating: PulseCheckRating;
+  comment?: string | null;
+  updated_at?: string;
+};
+
 export type CodeOfConduct = {
   id: string;
   team_id: string;
@@ -967,6 +998,12 @@ export type Database = {
         Row: MemberBehavior;
         Insert: MemberBehaviorInsert;
         Update: MemberBehaviorUpdate;
+        Relationships: [];
+      };
+      phase3_pulse_checks: {
+        Row: PulseCheck;
+        Insert: PulseCheckInsert;
+        Update: Partial<PulseCheckInsert>;
         Relationships: [];
       };
     };

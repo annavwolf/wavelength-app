@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
-import { buildPhase3SystemPrompt, ACTION_PHRASES } from "@/prompts/phase3_conversation";
+import { buildPhase3SystemPrompt, ACTION_PHRASES, buildPhase3Opening } from "@/prompts/phase3_conversation";
 import { MODELS } from "@/lib/models";
 
 const MODEL = MODELS.interpret; // reuse the sonnet-tier model
@@ -77,12 +77,11 @@ export async function POST(req: NextRequest) {
   if (stmtErr) return NextResponse.json({ error: "db_error", detail: stmtErr.message }, { status: 500 });
   if (!statement) return NextResponse.json({ error: "statement_not_found" }, { status: 404 });
 
-  // First turn: skip the AI call and return the locked opening verbatim.
-  // This guarantees the exact welcome-back phrasing regardless of model behaviour.
+  // First turn: skip the AI call and return the locked §4.2 opening verbatim.
+  // This guarantees the exact wording regardless of model behaviour.
   if (messages.length === 0) {
-    const firstName = memberName.split(" ")[0] || memberName;
-    const opening =
-      `Welcome back, ${firstName}. Has there been a moment on your team, recently or a while back, where this came up? Doesn't need to be a big thing, small moments count too.`;
+    const actionPhrase = ACTION_PHRASES[statementId] ?? "work well and safely together";
+    const opening = buildPhase3Opening(actionPhrase);
     return NextResponse.json({
       say: opening,
       state: emptyState(),
@@ -137,7 +136,7 @@ export async function POST(req: NextRequest) {
 
   // Auto-save story when complete.
   if (nextState.story_complete && !state.story_complete && nextState.story_text) {
-    await supabase.from("member_stories").upsert(
+    const { error: storyErr } = await supabase.from("member_stories").upsert(
       {
         member_id: memberId,
         team_id: teamId,
@@ -148,6 +147,9 @@ export async function POST(req: NextRequest) {
       },
       { onConflict: "member_id,team_id,statement_id" }
     );
+    if (storyErr) {
+      console.error("[phase3/conversation] story save failed:", storyErr.code, storyErr.message, storyErr.details ?? "");
+    }
   }
 
   return NextResponse.json({

@@ -43,6 +43,18 @@ Psychological safety is a depth. Belong is the surface, Speak Freely is deeper w
 - Variability (members disagreeing with EACH OTHER, shown by a high agreement_sd) is a real signal worth surfacing, but describe the disagreement, never explain WHY it exists.
 - A survey cannot see the team. It points the team toward what to look at together.
 
+## Hypothesis framing (§3.5 amendment — added for pulse-check-per-zone design)
+The member report now runs a pulse check beside each zone read ("How accurate do you feel Otis's conclusions are?"). Members can only meaningfully react to a read that says something. Prefer hypothesis over recommendation:
+
+- OLD (consulting posture): "Addressing candor first is the right sequence."
+- NEW (hypothesis): "Low innovation likely follows from the candor gap rather than standing on its own — we'd expect risk-taking to be hard when speaking up itself feels hard."
+
+Two rules:
+1. PREFER HYPOTHESIS OVER RECOMMENDATION. Extrapolate one visible step from what the data shows, then invite reaction. Use humble hedges: "likely," "we'd expect," "this pattern suggests," "may be."
+2. HUMBLE HEDGES ARE STILL REQUIRED. A specific-but-hedged claim is better than a vague non-claim. "It may be worth exploring" is a weak cop-out; "this pattern suggests X" is what members can actually react to.
+
+This does NOT override the humility rules above — no causal leaps beyond one visible step, no team-type inferences, no naming of causes.
+
 ## Per-zone, per-condition substance
 Zone 1 Belong (surface) — whether people feel accepted, respected, included enough to show up as themselves.
 - High favorable: a solid footing of acceptance; the surface is calm. The foundation deeper zones rest on. Name it as a genuine strength, not a finish line.

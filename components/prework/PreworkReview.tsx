@@ -208,105 +208,110 @@ export default function PreworkReview({ teamId, tier1, tier2 }: Props) {
         <div>
           <h1 className="text-3xl" style={{ fontFamily: "Playfair Display, serif" }}>Pre-work review</h1>
           <p className="text-sm text-[var(--color-grey)] mt-1 max-w-2xl">
-            Review what members submitted before releasing to the workshop pool. You can edit or delete any entry.
+            Review what members submitted before publishing to the workshop pool. You can edit or delete any entry.
           </p>
         </div>
         {released && (
           <span className="text-xs px-3 py-1.5 rounded-full bg-green-100 text-green-700 whitespace-nowrap">
-            Released {new Date(seed!.released_at!).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+            Published {new Date(seed!.released_at!).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
           </span>
         )}
       </div>
 
       {err && <p className="text-sm text-red-600">{err}</p>}
 
-      {/* Focus item */}
-      {focus?.statement_id && (
-        <div className="card" style={{ padding: "18px 24px" }}>
-          <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-1">Focus item</p>
-          <div className="flex items-center gap-2">
-            {zone ? <span className={ZONE_BADGE[zone] ?? ""}>{ZONE_SHORT[zone] ?? `Zone ${zone}`}</span> : null}
-            <p className="text-base font-medium">{itemText}</p>
-          </div>
-          {focus.hypothesis && (
-            <p className="text-sm text-[var(--color-grey)] mt-2">{focus.hypothesis}</p>
-          )}
-        </div>
-      )}
-
-      {/* Situation-tag summary */}
-      {tagSummary && (
-        <div className="card" style={{ padding: "14px 20px" }}>
-          <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">
-            Stories — situation context ({allStories.length} members)
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(tagSummary).map(([tag, count]) => (
-              <span key={tag} className="text-xs px-2.5 py-1 rounded-full bg-black/6 text-[var(--color-ink)]">
-                {TAG_LABEL[tag] ?? tag} · {count}
-              </span>
-            ))}
-          </div>
-          {allStories.some((g) => !g.story?.situation_tag) && (
-            <button
-              type="button"
-              onClick={() => void runTagger()}
-              disabled={tagging}
-              className="mt-3 text-xs text-[var(--color-purple)] hover:underline"
-            >
-              {tagging ? "Tagging…" : "Tag untagged stories"}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Flagged entries banner */}
-      {flaggedCount > 0 && (
-        <div className="rounded-xl border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/6 px-5 py-3">
-          <p className="text-sm text-amber-800">
-            {flaggedCount} entr{flaggedCount === 1 ? "y was" : "ies were"} flagged — Otis suggested a revision but the member chose to keep their original wording. Review and edit before releasing if needed.
-          </p>
-        </div>
-      )}
-
+      {/* Placeholder — shown until members have submitted */}
       {!hasSubmissions && (
         <div className="card text-center" style={{ padding: "40px 32px" }}>
           <p className="text-sm text-[var(--color-grey)] max-w-md mx-auto">
-            No Phase 3 submissions yet. Members complete this activity after you send them the Phase 3 link.
+            Pre-work review will appear here once members complete the Phase 3 activity.
           </p>
         </div>
       )}
 
-      {/* Per-member cards */}
-      {groups.map((group, i) => (
-        <MemberCard
-          key={group.member_id}
-          group={group}
-          memberLabel={`Member ${String.fromCharCode(65 + i)}`}
-          onUpdate={updateBehavior}
-          onDelete={deleteBehavior}
-          onAdd={addBehaviorManually}
-          busy={busy}
-        />
-      ))}
+      {hasSubmissions && (
+        <>
+          {/* Focus item */}
+          {focus?.statement_id && (
+            <div className="card" style={{ padding: "18px 24px" }}>
+              <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-1">Focus item</p>
+              <div className="flex items-center gap-2">
+                {zone ? <span className={ZONE_BADGE[zone] ?? ""}>{ZONE_SHORT[zone] ?? `Zone ${zone}`}</span> : null}
+                <p className="text-base font-medium">{itemText}</p>
+              </div>
+              {focus.hypothesis && (
+                <p className="text-sm text-[var(--color-grey)] mt-2">{focus.hypothesis}</p>
+              )}
+            </div>
+          )}
 
-      {/* Release */}
-      <div className="flex items-center justify-between pt-4 border-t border-black/10">
-        <p className="text-xs text-[var(--color-grey)]">
-          {busy ? "Saving…"
-            : released
-              ? "Released. Re-releasing updates what the workshop pool shows."
-              : "Draft — members see nothing until you release."}
-        </p>
-        <button
-          type="button"
-          onClick={() => void release()}
-          disabled={busy || !hasSubmissions}
-          className="btn-primary"
-        >
-          {released ? "Re-release to team" : "Release to team"}
-        </button>
-      </div>
+          {/* Situation-tag summary */}
+          {tagSummary && (
+            <div className="card" style={{ padding: "14px 20px" }}>
+              <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">
+                Stories — situation context ({allStories.length} members)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(tagSummary).map(([tag, count]) => (
+                  <span key={tag} className="text-xs px-2.5 py-1 rounded-full bg-black/6 text-[var(--color-ink)]">
+                    {TAG_LABEL[tag] ?? tag} · {count}
+                  </span>
+                ))}
+              </div>
+              {allStories.some((g) => !g.story?.situation_tag) && (
+                <button
+                  type="button"
+                  onClick={() => void runTagger()}
+                  disabled={tagging}
+                  className="mt-3 text-xs text-[var(--color-purple)] hover:underline"
+                >
+                  {tagging ? "Tagging…" : "Tag untagged stories"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Flagged entries banner */}
+          {flaggedCount > 0 && (
+            <div className="rounded-xl border border-[var(--color-amber)]/40 bg-[var(--color-amber)]/6 px-5 py-3">
+              <p className="text-sm text-amber-800">
+                {flaggedCount} entr{flaggedCount === 1 ? "y was" : "ies were"} flagged — Otis suggested a revision but the member chose to keep their original wording. Review and edit before publishing if needed.
+              </p>
+            </div>
+          )}
+
+          {/* Per-member cards */}
+          {groups.map((group, i) => (
+            <MemberCard
+              key={group.member_id}
+              group={group}
+              memberLabel={`Member ${String.fromCharCode(65 + i)}`}
+              onUpdate={updateBehavior}
+              onDelete={deleteBehavior}
+              onAdd={addBehaviorManually}
+              busy={busy}
+            />
+          ))}
+
+          {/* Publish action */}
+          <div className="flex items-center justify-between pt-4 border-t border-black/10">
+            <p className="text-xs text-[var(--color-grey)]">
+              {busy ? "Saving…"
+                : released
+                  ? "Published. Re-publishing updates what the workshop pool shows."
+                  : "Draft — workshop facilitator sees nothing until you publish."}
+            </p>
+            <button
+              type="button"
+              onClick={() => void release()}
+              disabled={busy}
+              className="btn-primary"
+            >
+              {released ? "Re-publish to workshop" : "Publish to workshop"}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

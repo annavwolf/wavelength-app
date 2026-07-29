@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const firstName = member.display_name.split(" ")[0];
 
   const { error: sendError } = await resend.emails.send({
-    from: "Wavelength <onboarding@resend.dev>",
+    from: process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>",
     to: member.email,
     subject: `Your Wavelength assessment — ${team.team_name}`,
     html: `

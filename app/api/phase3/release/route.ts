@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
       // Use RESEND_FROM_EMAIL if set (requires a verified Resend domain).
       // Falls back to the shared test sender — only reliably delivers to the
       // Resend account owner's address; use a verified domain for production.
-      const fromAddress = process.env.RESEND_FROM_EMAIL ?? "Wavelength <onboarding@resend.dev>";
+      const fromAddress = process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>";
 
       for (const m of toSend) {
         const firstName = m.display_name.split(" ")[0];

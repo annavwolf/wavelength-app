@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
 
   const resend = new Resend(apiKey);
   const { error: sendError } = await resend.emails.send({
-    from: "Wavelength <onboarding@resend.dev>",
+    from: process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>",
     to: email,
     subject: "Your Wavelength sign-in link",
     html: `

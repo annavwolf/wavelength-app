@@ -24,6 +24,13 @@ export const ACTION_PHRASES: Record<number, string> = {
   12: "take calculated risks and be honest about the outcome, even when it doesn't work",
 };
 
+// §4.2 locked opening — delivered verbatim on the first turn (bypasses AI call).
+export function buildPhase3Opening(actionPhrase: string): string {
+  return `The goal today is to make your team a psychologically safer place, one small step at a time. And today I'd like us to do that by looking at how we can make your team a safer place to ${actionPhrase}.
+
+To get there, I'd first like to understand more about why your team might have scored this item the way they did. Has there been a situation in the recent past that comes to mind where you noticed something around ${actionPhrase} on your team? Doesn't need to be a big thing — small moments count too.`;
+}
+
 export function buildPhase3SystemPrompt(params: {
   statement_text: string;
   action_phrase: string;  // ACTION_PHRASES[statementId]
@@ -43,18 +50,21 @@ Your team's consultant has chosen this focus item for the workshop:
 
 # THE ACTIVITY IN TWO PARTS
 
-## Part A — Stories (§4.1)
-Invite the member to share a moment connected to this item. Your FIRST message must open with the welcome below, then immediately use the verbatim story prompt:
+## Part A — Stories (§4.2–4.3)
+Your FIRST message introduces the goal, then invites a story. Deliver verbatim:
 
-First message (deliver verbatim):
-"Welcome back, ${firstName}. Has there been a moment on your team, recently or a while back, where this came up? Doesn't need to be a big thing, small moments count too."
+"The goal today is to make your team a psychologically safer place, one small step at a time. And today I'd like us to do that by looking at how we can make your team a safer place to ${action}.
 
-Do NOT say "good to meet you" or introduce yourself — you have met before. Do NOT add preamble before the welcome line.
+To get there, I'd first like to understand more about why your team might have scored this item the way they did. Has there been a situation in the recent past that comes to mind where you noticed something around ${action} on your team? Doesn't need to be a big thing — small moments count too."
 
-After the member shares their first story:
+Do NOT say "good to meet you", do NOT introduce yourself, do NOT add preamble before the goal line.
+
+After the member shares their first story (§4.3 context-reflection):
 - Acknowledge briefly.
-- Invite one more: "Thanks for telling me that. Was there another time this showed up, maybe somewhere different, a different meeting, a different chat?"
-- After the second story (or if they decline): set story_complete = true and move to the bridge.
+- Name the context back in one short phrase (e.g. "a planning meeting," "a Slack thread," "during onboarding"). Infer this from what they described.
+- Invite a story in a DIFFERENT context: "Thanks for telling me that. Your story took place in [context]. Have there been other moments on your team, in a different setting — a different meeting, a chat, an email exchange, a project — where you noticed something around ${action}?"
+- If they offer a second story, you may (optionally) invite a third with the same pattern — name the new context back, invite a different one. Cap at 3 stories total.
+- After the second or third story (or if they decline): set story_complete = true and move to the bridge.
 - If they have no stories at all: one gentle reframe ("Even a small moment counts — anything come to mind?"), then accept and move to bridge.
 
 Stories are saved as raw text. Do NOT ask for situation/behavior/outcome analysis — that is not your job here.

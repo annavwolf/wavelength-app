@@ -55,27 +55,52 @@ Headline zone numbers mirroring the dashboard: % favorable per zone with counts,
 ### 2.4 Zone reads
 The ≤200-word zone reads (overall_shape + zone1/2/3) from the Zone-Read Generation Guide, rendered over the ocean image.
 
-### 2.5 Pulse check
-**Scope (locked):** asks about Otis's interpretations (zone reads, shared-purpose read), NOT stories (there are no stories yet at this point).
+### 2.5 Pulse checks (per-zone and per-purpose, inline)
 
-Format: per read, "Does this match your experience?" → Yes / Somewhat / Not really, plus optional free-text note.
+**Design change from earlier draft:** the single end-of-report pulse check is replaced by **inline pulse checks beside each summary**. This turns each summary into a mini-conversation (read → react → optionally comment) rather than one big end-of-report survey.
 
-Stored to `feedback_responses` (`assumption_resonance`, `assumption_notes`).
+**One pulse check per zone read (three total) + one for the shared-purpose read.**
+
+Each pulse check has TWO parts:
+
+1. **Forced-choice question, always visible directly beside/beneath the read:**
+   > "How accurate do you feel Otis's conclusions are?"
+   Choices: **Not at all accurate · Somewhat accurate · Very accurate · Don't know · Decline to answer**
+
+2. **Optional comment box, collapsed by default with an expander ("Share a comment"):**
+   > "Share a comment (optional) — this stays private to your consultant."
+   The privacy line is REQUIRED so members know their words are not going to the team unless they said so.
+
+Stored to `feedback_responses`, **but note the schema needs to change**: the existing table has singular `assumption_resonance` / `assumption_notes` columns (built for one pulse check). The new design needs ONE ROW PER read (4 rows per member: zone1, zone2, zone3, purpose), each carrying: `read_key` (which read it refers to), `accuracy_rating` (one of Not at all accurate / Somewhat accurate / Very accurate / Don't know / Decline to answer), and `comment` (nullable). This likely means either a new table (`phase3_pulse_checks`) or altering `feedback_responses` to be one-row-per-read instead of one-row-per-member. Decide at build; flag which was chosen.
+
+### 2.6 Zone read framing — hypothesis posture (guide amendment)
+
+The Zone-Read Generation Guide is being amended (small change) to prefer **hypothesis framing** over consulting-posture recommendations, so that the pulse checks are meaningful (members react to a claim they can agree or disagree with, not to vague hedges).
+
+Hypothesis framing extrapolates one visible step from what the data shows, using humble language ("likely," "we'd expect," "this pattern suggests"), and closes with an implicit or explicit invitation to react.
+
+- **Old style (consulting):** "Addressing candor first is the right sequence."
+- **New style (hypothesis):** "Low innovation likely follows from the candor gap rather than standing on its own — we'd expect risk-taking to be hard when speaking up itself feels hard."
+
+This does NOT undo the humility discipline in the Zone-Read Guide (no causal leaps, no team-type inferences). It just prefers a specific hypothesis to a vague recommendation. See the amended Zone-Read Guide for the full rule + one worked example.
+
+### 2.7 Visual layout — ocean depth (member report)
+
+The member report's PS section renders with an **ocean-depth background** running behind the three zones: light surface water at Zone 1, mid-water at Zone 2, deep water at Zone 3. Each zone's summary card + statistics + pulse check sits inside its own visual band.
+
+The zone statistics from the Analytics dashboard (% favorable, counts, mean, band, agreement SD) render in the member report too, one card per zone, inside the ocean-depth bands. Do not simplify away the numbers — members can handle them if they're labeled.
 
 ---
 
-## 3. Workshop introduction and focus-item announcement (verbatim script)
+## 3. Focus-item announcement — SUPERSEDED BY §4.2, stretch-case fallback kept
 
-Otis transitions from the report to the activity. Script as authored (consultant-editable):
+**This section is superseded.** The original "we've come a long way..." script below is REPLACED by §4.2's "The goal today is to make your team a psychologically safer place..." wording. Do NOT implement both — that would have Otis explain "why this item" twice, in two different scripts, back to back. §4.2 is the one to build.
 
-> "We've come a long way in understanding what psychological safety looks like in your team and where there's room for improvement. I mentioned before that when it comes to psychological safety, it's impossible to reach deeper levels of the 'ocean' before we feel safe close to the surface.
->
-> The next step towards developing your team's psychological safety is to focus on making it a safer place to **[ACTION PHRASE]**, by making sure that **[PS item text]**.
->
-> Since this is where your team's scores suggest there's room to grow, this is where we will focus."
+The stretch-case fallback below is still needed (§4.2 doesn't restate it) — use it when the team scored well across the board:
 
-**Stretch case (team scored well across the board):**
 > "Your team's answers were strong across the board, which is genuinely great to see. Since safety is never really finished, I want to use this time to push a little further, into **[fallback item, default: Innovate items 9 or 11]**."
+
+This fallback line slots into §4.2 in place of the normal focus-item framing when the stretch case applies.
 
 ---
 
@@ -125,60 +150,133 @@ A single **"Release to team"** action that:
 This screen (report content) runs once, before any member sees Phase 3. Section 5 (behavior review) runs once, after all members finish Phase 3. They are sequential, not the same screen — do not conflate them.
 
 ---
+## 4. The merged reflection + behaviour generation activity
 
-This is the core of Phase 3's pivot. It combines what was previously the Phase 1 interview (stories) with what was previously the Phase 3 pre-work sort (behaviour selection) into ONE step, focused on the team-selected item.
+This is the core of Phase 3's pivot. Combines the reflection (stories) with the behaviour generation into ONE arc, focused on the team-selected item. The arc is deliberately **educational** — members are adult learners being introduced to psychological-safety concepts through reflection and activity, not being surveyed.
 
-### 4.1 Situation invitation (open, not presumptive)
+### 4.0 Overall arc (member's experience, high level)
 
-> "Has there been a moment on your team, recently or a while back, where this came up? Doesn't need to be a big thing, small moments count too."
+**Full page/screen sequence, top to bottom (this is the one authoritative order — §2 and §4 describe pieces of it, this list is how they combine):**
 
-Uses the existing guardrails for can't-think-of-anything / decline / minimal answers (see §7). After a story, invite one more:
+1. §4.1 Welcome + orient (Otis, conversational)
+2. §2.1–2.4 Report reads: networks → shared-purpose read → zone stats → zone reads, each zone/purpose read followed immediately by its §2.5 pulse check (forced-choice + optional comment)
+3. §4.2 Transition into story — WHY this item (Otis, conversational)
+4. §4.3 Story 1, then live context-reflection + invitation for another story in a different context (repeat up to 3 stories total)
+5. §4.4 Transition to the behaviours activity — educational (Otis, conversational; own screen, before the board)
+6. §4.5 The behaviour board (NEVER/SOMETIMES/ALWAYS, min 2+2, collapsed examples, OtisChatBubble available)
+7. §4.6 Live coaching happens inline as entries are submitted on the board (not a separate screen)
+8. §4.7 Close
 
-> "Thanks for telling me that. Was there another time this showed up, maybe somewhere different, a different meeting, a different chat?"
+**Navigation:** Back and Forward buttons must be present between each of these stages. A member may go back to review or edit their stories after starting the board, and may leave the board and come back. Do NOT gate progression on strict completeness beyond the minimum-entry rule at the board (§4.5).
 
-Repeat once or twice; member can say "that's all" anytime. Stories are **saved as raw text** tied to the member and the focus item. They are NOT coded into labels during this conversation — situation-tagging happens as a deferred batch pass after Phase 3 submission (see §6).
+### 4.1 Welcome + orient (before diving into results)
 
-### 4.2 Bridge into generation (LOCKED — Anna's wording)
+Otis opens with a warm welcome that sets up what today is FOR. This is not a report reveal — it is the beginning of an educational activity.
 
-> "Thanks for telling me your stories. Now what I want to do is have you think about what you've told me, and think about **[item text]**.
+> "Welcome back, [name]. Before we get started, here's what today is about.
 >
-> If your team were to behave in a way that made it a safe place to **[ACTION]**, what behaviors would you want to see from your team almost always? And what behaviors would you want to see almost never?
+> Building psychological safety on a team happens one small step at a time. Today I want to help you take one of those steps.
 >
-> In other words, what behaviors do you feel most get in the way of your team being able to **[ACTION]**, and what behaviors would most help your team **[ACTION]**?
+> First we'll look at where your team is right now — what's going well, where there's room to grow. Then we'll focus in on **one** thing your team could work on together, and I'll ask you to think through some ideas about it. Your ideas will feed into a workshop your team will do together soon.
 >
-> Please add at least two to each. And try to remember, these should be observable — what would you see? What would you hear? What would happen, what would people say or do?
->
-> Feel free to chat with me if you want to think it through together."
+> Ready?"
 
-### 4.3 The board (self-service, member types directly)
+The report reads (§2) then unfold, with pulse checks inline as members go.
+
+### 4.2 Transition into the story — WHY this item
+
+After the reads and pulse checks, Otis introduces today's focus item explicitly, tying it to the goal.
+
+> "The goal today is to make your team a psychologically safer place, one small step at a time. And today I'd like us to do that by looking at how we can make your team a safer place to **[ACTION PHRASE]**.
+>
+> To get there, I'd first like to understand more about why your team might have scored this item the way it did. Has there been a situation in the recent past that comes to mind where you noticed something around **[ACTION PHRASE]** on your team?
+>
+> Doesn't need to be a big thing — small moments count too. Try to describe what was happening, who was there, and what happened."
+
+The story-eliciting prompt should reuse the discipline from the original Phase 1 interview scripts: encourage description of the situation, the behaviours, and the outcome. Otis should let the member describe things in their own way — no strict bucket prompts.
+
+### 4.3 Live context reflection + invitation to another story
+
+**This replaces the old shallow "was there another time" prompt.** After the first story, Otis:
+
+1. Names the context back in one short phrase (e.g. "a planning meeting," "a Slack thread," "during onboarding," "a project handover"). This shows the member Otis is listening and gives the follow-up a real pivot.
+2. Invites a story in a **different** context, not just "another time":
+
+> "Thanks for telling me that. Your story took place in **[context]**. Have there been other moments on your team, in a different setting — a different meeting, a chat, an email exchange, a project — where you noticed something around **[ACTION PHRASE]**?"
+
+The member may say "no, that was the main one" and that is fine. If they offer a second story, Otis may (optionally) invite a third, following the same pattern — name the new context back, invite a different one. Cap at 3 stories total to prevent fatigue.
+
+### 4.4 Transition to the behaviours activity — educational
+
+**This is where the previous build fell short and where the most work goes.** Members should not encounter a bare "add behaviours to columns" screen. They should first be brought into WHAT a behaviour is, WHY the team is doing this, and WHAT will happen with what they type.
+
+Otis says (as a distinct step, on its own screen before the board appears):
+
+> "Thank you for sharing those. Now I'd like to move into an activity that will feed into the workshop your team does together.
+>
+> Here's the goal: **think about the situations you just told me about — the moments when the team was NOT a safe place to [ACTION PHRASE] — and try to pinpoint what behaviours were working against psychological safety at those times. At the same time, think about what behaviours would make the team a safer place to [ACTION PHRASE].**
+>
+> I'd like you to land on:
+> - **NEVER** behaviours — things you would never want to see if we want the team to be a safe place to [ACTION PHRASE]
+> - **ALWAYS** behaviours — things you would always want to see
+> - **SOMETIMES** — behaviours that might depend on the situation. You'll debate these together as a team.
+>
+> One thing to keep in mind: **a behaviour is something you can see or hear.** It's observable. It might be a subtle bit of body language, a specific phrase someone uses, a small ritual the whole team does — the key is that it's an action, not a feeling or a general attitude."
+
+Then Otis previews the examples format:
+
+> "To give you a sense of the range, here are some behaviour examples for **[item text]**. You don't have to use these — the point is just to show the kind of thing a behaviour can be. Your team's specific behaviours will be different."
+
+Show the item-specific example table (§4.8) — three ALWAYS and three NEVER, briefly. Then a "Continue" button that reveals the board.
+
+### 4.5 The behaviour board (self-service, member types directly)
 
 Three buckets visible to the member: **NEVER · SOMETIMES · ALWAYS**
 
-The member types their own entries directly into the buckets. **Minimum: 2 NEVER + 2 ALWAYS.** Sometimes is optional — those will be debated as a team in the workshop.
+The member types their own entries directly into the buckets. **Minimum: 2 NEVER + 2 ALWAYS.** SOMETIMES is optional.
 
-**Otis is available via the existing OtisChatBubble** (the same component already built for the consultant dashboard). Otis's role in chat: brainstorm with the member, help them think, suggest phrasings. **Otis never writes directly to the board.** The member always types their own entries. This keeps authorship unambiguous and avoids new tool-wiring.
+**Above the board, short standing reminders visible at all times (compact — one line each):**
+- *You're doing this for the item: [item text]*
+- *A behaviour is something you can see or hear on your team*
 
-### 4.4 Live coaching by Otis (replaces the old post-hoc coding guardrails)
+**Below or beside the buckets, a collapsed "See examples" element** which, when expanded, shows the same item-specific examples from §4.4/§4.8. Collapsed by default so members generate their own; available if they get stuck.
 
-When a member submits an entry, Otis checks it and may gently coach. This is educational, not gatekeeping — the member's autonomy is always respected.
+**Otis is available via the OtisChatBubble** (existing component). Otis in chat may brainstorm with the member, help them think, suggest phrasings. **Otis NEVER writes directly to the board.** The member always types.
 
-**Observability check:** if an entry is vague, trait-based, or abstract ("be more respectful," "better communication"), Otis nudges once:
-> "Can you make that a bit more specific — something you'd actually see or hear?"
+### 4.6 Live coaching on each entry
 
-**Anonymity check:** if an entry names or clearly implies a specific individual, Otis coaches once:
-> "Let's keep this about the team rather than any one person — how would you describe the behavior itself?"
+When a member submits an entry, Otis runs three independent checks and may gently coach. This is educational, not gatekeeping. If the member insists after one gentle try, accept and flag privately for the consultant.
 
-This is framed as adult learning, not correction. If the member insists after one gentle try, Otis accepts the entry and flags it privately for the consultant review step. Never block a submission.
+**Build note:** this coaching mechanism already exists as `/api/phase3/behaviors/route.ts` (three independent LLM checks per submit; if a check fails and `nudge_dismissed = false`, return the nudge without saving; if `nudge_dismissed = true`, save with `flagged = true`). Extend/reuse that endpoint — do not rebuild it. Confirm it currently implements all three checks (observability, anonymity, absence); if only some are wired up, add the missing ones there.
 
-**Absence check:** if an entry is phrased as a negative/absence ("not interrupting," "stop ignoring"), Otis nudges once toward the positive form:
-> "What's the positive version of that — what would you want to see instead?"
+- **Observability check:** vague / trait-based / abstract? → "Can you make that a bit more specific — something you'd actually see or hear?"
+- **Anonymity check:** names or clearly implies a specific individual? → "Let's keep this about the team rather than any one person — how would you describe the behaviour itself?"
+- **Absence check:** phrased as a negative/absence ("not interrupting," "stop ignoring")? → "What's the positive version of that — what would you want to see instead?"
 
-Again, accept after one try if they insist.
+Nudge once each. Never block.
 
-### 4.5 Closing
+### 4.7 Close
 
 > "That's it for now. This is exactly what we'll build on together in the workshop. I'll let your facilitator know you're done, and we'll be in touch to get the group session on the calendar."
 
+### 4.8 Item-specific example table (LOCKED)
+
+Keyed by statement_id, three ALWAYS and three NEVER per item, shown during §4.4 and behind the collapsed expander in §4.5.
+
+| # | Item action phrase | ALWAYS | NEVER |
+|---|---|---|---|
+| 1 | treat one another with respect | Listen without interrupting · Speak respectfully, even when disagreeing · Thank people for their contributions | Interrupt or talk over people · Mock, insult or belittle others · Roll your eyes, scoff, or speak dismissively |
+| 2 | accept one another for being different | Ask for different perspectives · Invite someone with a different viewpoint to share · Ask questions to understand rather than judge | Dismiss someone's perspective because they're "different" · Make jokes about someone's background or differences · Stereotype or label people |
+| 3 | feel like everyone belongs, not left on the outside | Invite quieter people into discussions · Include everyone in conversations and activities · Learn and use people's names | Leave people out of conversations or decisions · Form cliques that exclude others · Ignore quieter team members |
+| 4 | understand and value one another's contributions | Give credit where it's due · Thank people for their help · Build on another person's idea | Take credit for someone else's work · Ignore someone's contribution · Dismiss an idea without considering it |
+| 5 | reach out to one another for help | Ask for help when you need it · Offer help when someone is struggling · Share your knowledge when someone asks | Struggle in silence · Refuse to help others · Make people feel stupid for asking for help |
+| 6 | share ideas and opinions even before they're fully formed | Share ideas before they're fully worked out · Think out loud · Build on unfinished ideas instead of judging them | Shoot ideas down immediately · Wait until an idea is "perfect" before sharing · Laugh at unfinished ideas |
+| 7 | admit a mistake or flag a problem without fear of criticism or punishment | Admit mistakes openly · Raise concerns as soon as you notice them · Thank people for speaking up | Hide mistakes · Blame others for problems · Criticize or punish people for admitting mistakes |
+| 8 | give one another time and attention to express their perspectives | Listen without interrupting · Ask "Tell me more" · Give people time to finish speaking | Interrupt people · Change the subject before someone finishes · Ignore what someone is trying to say |
+| 9 | question how things are done and look for ways to improve | Ask "Is there a better way?" · Suggest improvements · Ask for feedback on how things could be improved | Shut down questions · Say "We've always done it this way" to end discussion · Reject suggestions without discussion |
+| 10 | look at what went wrong and learn from it, rather than assign blame | Ask "What can we learn?" · Share what you learned from a mistake · Discuss what happened before deciding who was responsible | Look for someone to blame first · Shame people for mistakes · Stop people talking about failures |
+| 11 | welcome disagreement and different points of view | Ask "Does anyone see this differently?" · Thank people who disagree respectfully · Explore opposing viewpoints before deciding | Attack people for disagreeing · Pressure everyone to agree · Dismiss a different opinion without discussion |
+| 12 | take calculated risks and be honest about the outcome, even when it doesn't work | Try new approaches when appropriate · Be honest when something doesn't work · Share what you learned from a failed attempt | Avoid trying anything new because it might fail · Hide unsuccessful attempts · Criticize people for trying something new |
 ---
 
 ## 5. Consultant pre-release review (relocated from old §3.5)

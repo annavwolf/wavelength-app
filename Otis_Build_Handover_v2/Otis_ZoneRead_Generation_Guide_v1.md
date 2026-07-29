@@ -37,6 +37,21 @@ Psychological safety is a depth: Belong is the surface, Speak Freely is deeper w
 
 ## 3. Humility rules (non-negotiable, apply to every read)
 
+## 3.5 Hypothesis framing (amendment — added for the pulse-check-per-zone design)
+
+The reads should extrapolate **one visible step** from the data using humble language, rather than defaulting to vague hedges or consulting-posture recommendations. This is because the member report now runs a pulse check beside each zone read ("How accurate do you feel Otis's conclusions are?"), and members can only meaningfully react to a claim that says something.
+
+Two rules:
+
+1. **Prefer hypothesis over recommendation.** Where the old style would say "addressing candor first is the right sequence," the new style says "low innovation likely follows from the candor gap rather than standing on its own — we'd expect risk-taking to be hard when speaking up itself feels hard." One is advice, the other is a claim members can agree or disagree with.
+2. **Humble hedges stay required.** "Likely," "we'd expect," "this pattern suggests," "may be" — keep them. Hypothesis framing is *not* a licence to state confident causal claims. It is a licence to extrapolate one visible step and invite reaction.
+
+This amendment does NOT undo §3 (no causal leaps beyond one step, no team-type inferences, no standards-of-comparison). It refines §3 by preferring specific-but-hedged claims to vague-and-safe non-claims.
+
+---
+
+
+
 - Use "may," "could," "worth exploring," "the team might look at." Never "is," "the team lacks," "this proves."
 - Psychological safety is a property of the team's **shared patterns**, never of any individual. Never attribute a score to a person or a role.
 - **Never name a cause.** A low or split score raises a question; it does not answer one. Do not guess at power distance, leadership, in-groups, personalities, standards, or history, we don't measure those.

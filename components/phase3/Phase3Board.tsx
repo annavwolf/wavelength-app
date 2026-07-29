@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { MemberBehavior, BehaviorBucket } from "@/types/database";
+import { ITEM_EXAMPLES } from "@/lib/itemExamples";
 
 const BUCKET_LABEL: Record<BehaviorBucket, string> = {
   never: "NEVER",
@@ -25,13 +26,13 @@ type Props = {
   memberId: string;
   teamId: string;
   statementId: number | null;
-  // Called with the nudge text when Otis wants to gently redirect.
+  statementText?: string;
+  actionPhrase?: string;
   onNudge: (nudge: string) => void;
-  // Called when the member has met the minimum and clicks Done.
   onSubmit: () => void;
 };
 
-export default function Phase3Board({ memberId, teamId, statementId, onNudge, onSubmit }: Props) {
+export default function Phase3Board({ memberId, teamId, statementId, statementText, actionPhrase, onNudge, onSubmit }: Props) {
   const [behaviors, setBehaviors] = useState<MemberBehavior[]>([]);
   const [drafts, setDrafts] = useState<Record<BehaviorBucket, string>>({ never: "", sometimes: "", always: "" });
   const [loadError, setLoadError] = useState(false);
@@ -108,6 +109,8 @@ export default function Phase3Board({ memberId, teamId, statementId, onNudge, on
     void fetch(`/api/phase3/behaviors?id=${id}&member_id=${memberId}`, { method: "DELETE" });
   }
 
+  const examples = statementId ? (ITEM_EXAMPLES[statementId] ?? null) : null;
+
   return (
     <div className="space-y-6">
       {loadError && (
@@ -115,6 +118,42 @@ export default function Phase3Board({ memberId, teamId, statementId, onNudge, on
           Could not load your saved behaviors. Check your connection and refresh to try again.
         </p>
       )}
+
+      {/* Standing reminders */}
+      <div className="space-y-1">
+        {statementText && (
+          <p className="text-xs text-[var(--color-grey)]">
+            <span className="font-medium text-[var(--color-ink)]">Focus:</span> {statementText}
+          </p>
+        )}
+        <p className="text-xs text-[var(--color-grey)]">
+          A behaviour is something you can see or hear on your team.
+        </p>
+      </div>
+
+      {/* Collapsed examples expander */}
+      {examples && (
+        <details className="rounded-xl border border-black/10 overflow-hidden">
+          <summary className="px-4 py-2.5 text-xs font-medium text-[var(--color-grey)] cursor-pointer hover:bg-black/3 select-none">
+            See examples {actionPhrase ? `for "${actionPhrase}"` : ""}
+          </summary>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 px-4 pb-4 pt-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-navy)] mb-1.5">ALWAYS</p>
+              <ul className="space-y-1">
+                {examples.always.map((ex) => <li key={ex} className="text-xs leading-snug text-[var(--color-ink)]">· {ex}</li>)}
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-amber)] mb-1.5">NEVER</p>
+              <ul className="space-y-1">
+                {examples.never.map((ex) => <li key={ex} className="text-xs leading-snug text-[var(--color-ink)]">· {ex}</li>)}
+              </ul>
+            </div>
+          </div>
+        </details>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {(["never", "sometimes", "always"] as BehaviorBucket[]).map((bucket) => {
           const items = behaviors.filter((b) => b.bucket === bucket);

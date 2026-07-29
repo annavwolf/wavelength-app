@@ -105,23 +105,33 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-10 space-y-8">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl" style={{ fontFamily: "Playfair Display, serif" }}>
-            Report &amp; Release
-          </h1>
-          <p className="text-sm text-[var(--color-grey)] mt-1 max-w-2xl">
-            Edit Otis&rsquo;s reads below, then release — this sends Phase 3 links to all members. Members
-            see nothing until you release.
-          </p>
+      {/* Header — ocean banner */}
+      <section className="relative rounded-2xl overflow-hidden">
+        <img
+          src="/ps-ocean.png"
+          alt=""
+          aria-hidden
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-[var(--color-navy)]/85 to-[var(--color-navy)]/55" />
+        <div className="relative px-8 py-10 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl text-white" style={{ fontFamily: "Playfair Display, serif" }}>
+              Report &amp; Release
+            </h1>
+            <p className="text-sm text-white/75 mt-1 max-w-2xl">
+              Edit Otis&rsquo;s reads below, then release — this sends Phase 3 links to all members. Members
+              see nothing until you release.
+            </p>
+          </div>
+          {releasedAt && (
+            <span className="text-xs px-3 py-1.5 rounded-full bg-white/20 text-white whitespace-nowrap flex-shrink-0 self-start">
+              Released {new Date(releasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+            </span>
+          )}
         </div>
-        {releasedAt && (
-          <span className="text-xs px-3 py-1.5 rounded-full bg-green-100 text-green-700 whitespace-nowrap flex-shrink-0">
-            Released {new Date(releasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-          </span>
-        )}
-      </div>
+      </section>
 
       {tier2Missing && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
