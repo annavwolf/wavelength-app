@@ -375,6 +375,7 @@ export type Analysis = {
   tier1_json: Json | null;
   tier2_json: Json | null;
   phase3_report_json: Json | null;
+  phase4_selfserve_json: Json | null;
   assumptions: string | null;
   focus_issue: string | null;
   inout_plan: string | null;
@@ -397,6 +398,7 @@ export type AnalysisInsert = {
   tier1_json?: Json | null;
   tier2_json?: Json | null;
   phase3_report_json?: Json | null;
+  phase4_selfserve_json?: Json | null;
   assumptions?: string | null;
   focus_issue?: string | null;
   inout_plan?: string | null;
@@ -698,6 +700,119 @@ export type MemberBehaviorInsert = {
 };
 
 export type MemberBehaviorUpdate = Partial<MemberBehaviorInsert>;
+
+// ── Phase 4 self-serve: new Phase 3 questions (spec §1, migration 0015) ──────
+
+export type ContextFrequency =
+  | "Several times a day"
+  | "Several times a week"
+  | "Several times a month"
+  | "Several times a year";
+
+export type ContextCommitment = "Yes" | "It depends" | "I don't think so";
+
+export type ContextSynchronicity =
+  | "Easy, we do it regularly"
+  | "It happens occasionally"
+  | "Easier with some people, but not everyone"
+  | "Not easy, we rarely do this";
+
+export type Phase3ContextResponse = {
+  id: string;
+  member_id: string;
+  team_id: string;
+  impact_text: string | null;
+  frequency: ContextFrequency | null;
+  commitment: ContextCommitment | null;
+  commitment_comment: string | null;
+  synchronicity: ContextSynchronicity | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Phase3ContextResponseInsert = {
+  id?: string;
+  member_id: string;
+  team_id: string;
+  impact_text?: string | null;
+  frequency?: ContextFrequency | null;
+  commitment?: ContextCommitment | null;
+  commitment_comment?: string | null;
+  synchronicity?: ContextSynchronicity | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type Phase3ContextResponseUpdate = Partial<Phase3ContextResponseInsert>;
+
+// ── Phase 4 self-serve: generated output (spec §6/§7, analysis.phase4_selfserve_json) ──
+// The consultant edits the exit-interview text before releasing. Everything a
+// member sees (agreement, script, roadmap) plus the per-team filled artifacts.
+
+export type Phase4ClarityState = "clear" | "mixed" | "unclear";
+
+// One grouped behaviour on the board — member links removed, convergence count kept.
+export type Phase4BehaviourGroup = {
+  name: string;               // LLM canonical name (dashboard)
+  representative: string;     // centroid-closest member phrasing (team's own voice)
+  bucket: BehaviorBucket;     // dominant bucket
+  member_count: number;       // distinct members (convergence)
+  never_members: number;
+  sometimes_members: number;
+  always_members: number;
+  bucket_split: boolean;      // members placed it in different buckets
+};
+
+export type Phase4Distribution = {
+  counts: Record<string, number>;
+  summary: string;
+};
+
+export type Phase4Agreement = {
+  ps_item: string;            // focus item text
+  situations: string[];       // max 2
+  always: string[];           // top 2-3 representative behaviours
+  never: string[];            // top 2-3 representative behaviours
+};
+
+export type Phase4Clarity = {
+  state: Phase4ClarityState;
+  message: string;            // what Otis tells the team
+  split_behaviours: string[]; // specific behaviours that split buckets
+  scattered_situations: boolean;
+};
+
+// A per-team filled artifact (content is markdown; wording locked, fields filled).
+export type Phase4Artifact = {
+  slug: "game_plan" | "meeting_agenda" | "check_in";
+  title: string;
+  content: string;            // filled markdown
+};
+
+export type Phase4SelfServeJson = {
+  behaviour_board: Phase4BehaviourGroup[];
+  agreement: Phase4Agreement;
+  clarity: Phase4Clarity;
+  commitment_distribution: Phase4Distribution;
+  touchpoint_distribution: Phase4Distribution;
+  low_commitment_note: string | null;   // consultant-only
+  touchpoint_note: string | null;        // consultant-only (timezone realism)
+  roadmap: string;                       // recommendation text
+  // Editable exit-interview text (member-facing). Otis originals preserved.
+  agreement_text: string;                // rendered agreement sentence
+  what_to_do_next: string;               // §6.2 script
+  closing_note: string;                  // §6.5
+  otis_original: {
+    agreement_text: string;
+    what_to_do_next: string;
+    closing_note: string;
+  };
+  // Async tailoring flag (§7.1) derived from synchronicity answers.
+  async_skew: boolean;
+  artifacts: Phase4Artifact[];           // filled at release time
+  released_at: string | null;
+  sent_member_ids: string[];
+};
 
 // ── Phase 3 §3.5: Consultant pre-release review (D-052) ─────────────────────
 // The "approved workshop seed" — the consultant-reviewed focus item, situation,
@@ -1004,6 +1119,12 @@ export type Database = {
         Row: PulseCheck;
         Insert: PulseCheckInsert;
         Update: Partial<PulseCheckInsert>;
+        Relationships: [];
+      };
+      phase3_context_responses: {
+        Row: Phase3ContextResponse;
+        Insert: Phase3ContextResponseInsert;
+        Update: Phase3ContextResponseUpdate;
         Relationships: [];
       };
     };

@@ -16,7 +16,8 @@ import OtisChatBubble from "@/components/dashboard/OtisChatBubble";
 import WorkshopPanel from "@/components/workshop/WorkshopPanel";
 import PreworkReview from "@/components/prework/PreworkReview";
 import ReportReview from "@/components/phase3/ReportReview";
-import type { Phase3ReportJson } from "@/types/database";
+import Phase4Panel from "@/components/phase4/Phase4Panel";
+import type { Phase3ReportJson, Phase4SelfServeJson } from "@/types/database";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ export default function TeamDashboardPage() {
   const [interpretation, setInterpretation] = useState<Tier2Result | null>(null);
   const [interpreting, setInterpreting] = useState(false);
   const [interpretError, setInterpretError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"analytics" | "report" | "workshop">("analytics");
+  const [activeTab, setActiveTab] = useState<"analytics" | "report" | "agreement" | "workshop">("analytics");
 
   useEffect(() => { load(); }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -393,7 +394,7 @@ export default function TeamDashboardPage() {
         {/* Tabs */}
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex gap-1">
-            {([["analytics", "Analytics & Insights"], ["report", "Phase 3"], ["workshop", "Workshop"]] as const).map(([id, label]) => (
+            {([["analytics", "Analytics & Insights"], ["report", "Phase 3"], ["agreement", "Team Agreement"], ["workshop", "Workshop"]] as const).map(([id, label]) => (
               <button key={id} type="button" onClick={() => setActiveTab(id)}
                 className={`px-4 py-2.5 text-sm border-b-2 transition-colors ${
                   activeTab === id
@@ -489,6 +490,12 @@ export default function TeamDashboardPage() {
           <PsSafetyPanel tier1={tier1} tier2={interpretation} />
           <TeamConnectivityPanel tier1={tier1} codes={completedCodes} />
         </div>
+      ) : activeTab === "agreement" ? (
+        <Phase4Panel
+          teamId={teamId}
+          initial={(analysis?.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null}
+          allComplete={members.length > 0 && members.every((m) => m.status === "complete")}
+        />
       ) : (
         <WorkshopPanel
           teamId={teamId}

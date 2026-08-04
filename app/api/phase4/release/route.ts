@@ -1,0 +1,133 @@
+import { NextRequest, NextResponse } from "next/server";
+import { Resend } from "resend";
+import { supabase } from "@/lib/supabase";
+import { buildArtifacts } from "@/lib/phase4Artifacts";
+import type { Json, Phase4SelfServeJson } from "@/types/database";
+
+// POST /api/phase4/release
+// { team_id, selfserve: Phase4SelfServeJson, dry_run?, resend_all? }
+// Mirrors /api/phase3/release: dry_run saves the (edited) draft only; release
+// locks the exit-interview content, generates the two read-only artifacts filled
+// with the team's data (§7.1), writes everything to analysis.phase4_selfserve_json
+// (per-team storage, surfaced on member profiles), and emails members a link.
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => null);
+  const { team_id, selfserve, dry_run = false, resend_all = false } = body ?? {};
+
+  if (!team_id || !selfserve) {
+    return NextResponse.json({ error: "team_id and selfserve required" }, { status: 400 });
+  }
+
+  const { data: analysis, error: aErr } = await supabase
+    .from("analysis")
+    .select("id, phase4_selfserve_json")
+    .eq("team_id", team_id)
+    .maybeSingle();
+  if (aErr || !analysis) {
+    return NextResponse.json({ error: "Analysis not found for this team" }, { status: 404 });
+  }
+
+  const existing = (analysis.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null;
+  const alreadySentIds: string[] = existing?.sent_member_ids ?? [];
+
+  const now = new Date().toISOString();
+  let sentCount = 0;
+  let skippedAlreadySent = 0;
+  const newSentIds = [...alreadySentIds];
+
+  const incoming = selfserve as Phase4SelfServeJson;
+
+  // Generate the filled read-only artifacts from the (possibly edited) content.
+  const artifacts = dry_run
+    ? existing?.artifacts ?? []
+    : buildArtifacts({
+        agreement: incoming.agreement,
+        agreementText: incoming.agreement_text,
+        clarity: incoming.clarity,
+        asyncSkew: incoming.async_skew,
+      });
+
+  if (!dry_run) {
+    const apiKey = process.env.RESEND_API_KEY;
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
+    const [membersRes, teamRes] = await Promise.all([
+      supabase.from("members").select("member_id, display_name, email").eq("team_id", team_id),
+      supabase.from("teams").select("team_name").eq("team_id", team_id).single(),
+    ]);
+
+    const teamName = teamRes.data?.team_name ?? "your team";
+    const allMembers = membersRes.data ?? [];
+    const noEmail = allMembers.filter((m) => !m.email).length;
+    skippedAlreadySent = resend_all ? 0 :
+      allMembers.filter((m) => m.email && alreadySentIds.includes(m.member_id)).length;
+    const toSend = allMembers.filter(
+      (m) => m.email && (resend_all || !alreadySentIds.includes(m.member_id))
+    );
+    if (noEmail > 0) {
+      console.warn(`[phase4/release] ${noEmail} member(s) have no email address — skipped.`);
+    }
+
+    if (apiKey && toSend.length > 0) {
+      const resend = new Resend(apiKey);
+      const loginUrl = `${APP_URL}/member-login`;
+      const fromAddress = process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>";
+
+      for (const m of toSend) {
+        const firstName = m.display_name.split(" ")[0];
+        const { error: sendErr } = await resend.emails.send({
+          from: fromAddress,
+          to: m.email!,
+          subject: `Your team's results are ready — ${teamName}`,
+          text: `Hi ${firstName},\n\nOtis has drawn up a Team Behaviour Agreement for ${teamName}, along with a game plan for the next 30 days.\n\nYour results include your team's agreement, what to do next, and three guides to run your own team meeting.\n\nSee them here:\n${loginUrl}\n\nLog in with the email address you used for your assessment. Your results are on your profile page.\n\nIf you have any questions, contact your consultant directly.`,
+          html: `
+<p>Hi ${firstName},</p>
+
+<p>Otis has drawn up a Team Behaviour Agreement for <strong>${teamName}</strong>, along with a game plan for the next 30 days.</p>
+
+<p>Your results include your team's agreement, what to do next, and three guides to run your own team meeting.</p>
+
+<p><a href="${loginUrl}" style="display:inline-block;background:#2B2B6B;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">See my team's results</a></p>
+
+<p>Or paste this link into your browser:<br/><a href="${loginUrl}">${loginUrl}</a></p>
+
+<p>Log in with the email address you used for your assessment. Your results are on your profile page.</p>
+
+<p style="color:#888;font-size:13px;">If you have any questions, contact your consultant directly.</p>
+          `.trim(),
+        });
+        if (!sendErr) {
+          newSentIds.push(m.member_id);
+          sentCount++;
+        } else {
+          console.error("[phase4/release] Resend error for", m.member_id, sendErr);
+        }
+      }
+    }
+  }
+
+  const updated: Phase4SelfServeJson = {
+    ...incoming,
+    artifacts,
+    sent_member_ids: newSentIds,
+    released_at: dry_run ? (existing?.released_at ?? null) : now,
+  };
+
+  const { error: saveErr } = await supabase
+    .from("analysis")
+    .update({ phase4_selfserve_json: updated as unknown as Json })
+    .eq("team_id", team_id);
+  if (saveErr) {
+    console.error("[phase4/release] save failed:", saveErr);
+    return NextResponse.json({ error: saveErr.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    success: true,
+    released_at: updated.released_at,
+    sent_count: sentCount,
+    skipped_already_sent: skippedAlreadySent,
+    dry_run,
+    using_test_sender: !process.env.RESEND_FROM_EMAIL,
+  });
+}

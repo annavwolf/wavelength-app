@@ -23,6 +23,7 @@ type MeResponse = {
   };
   team: { team_id: string; team_name: string } | null;
   phase3_released: boolean;
+  phase4_released: boolean;
   statements: PsStatement[];
   ps_responses: PsResponse[];
   interview_responses: PsInterviewResponse[];
@@ -272,10 +273,30 @@ export default function MemberProfilePage() {
         title="Workshop room"
         body="Opens when your facilitator starts your live session."
       />
-      <LockedSection
-        title="Your Team Agreement"
-        body="Appears here after your workshop, so you can always come back to it."
-      />
+      {/* ── Team results (unlocks when consultant releases Phase 4) ────── */}
+      {data.phase4_released ? (
+        <section className="card" style={{ padding: "20px 24px" }}>
+          <h2 className="text-lg mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
+            Your team&apos;s results
+          </h2>
+          <p className="text-sm text-[var(--color-grey)] mb-4 leading-relaxed">
+            Otis has drawn up your Team Behaviour Agreement and a 30-day game plan. Your agreement,
+            what to do next, and your guides are all here.
+          </p>
+          <a
+            href="/me/results"
+            className="btn-primary inline-block text-center"
+            style={{ padding: "10px 20px", fontSize: "14px", textDecoration: "none" }}
+          >
+            View my team&apos;s results →
+          </a>
+        </section>
+      ) : (
+        <LockedSection
+          title="Your Team Agreement"
+          body="Appears here once your consultant releases your team's results, so you can always come back to it."
+        />
+      )}
     </div>
   );
 }

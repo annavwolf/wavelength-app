@@ -439,6 +439,9 @@ function BehaviorRow({
   busy: boolean;
 }) {
   const [editing, setEditing] = useState(b.text);
+  // Delete protection (spec §5): deleting a member behaviour is too easy to do
+  // by accident, so require an explicit confirm step before it fires.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <div className="rounded-lg border border-black/8 px-3 py-2 text-sm">
       <div className="flex items-start gap-2">
@@ -452,12 +455,23 @@ function BehaviorRow({
           disabled={busy}
           className="form-input flex-1 text-sm"
         />
-        <button type="button" onClick={() => onDelete(b.id)}
-          className="text-xs text-[var(--color-grey)] hover:text-red-600 mt-1 flex-shrink-0">✕</button>
+        {confirmDelete ? (
+          <div className="flex items-center gap-1.5 mt-1 flex-shrink-0">
+            <button type="button" onClick={() => { onDelete(b.id); setConfirmDelete(false); }}
+              className="text-[11px] text-red-600 hover:underline">Delete</button>
+            <button type="button" onClick={() => setConfirmDelete(false)}
+              className="text-[11px] text-[var(--color-grey)] hover:text-[var(--color-ink)]">Cancel</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setConfirmDelete(true)}
+            title="Remove this behaviour"
+            className="text-xs text-[var(--color-grey)] hover:text-red-600 mt-1 flex-shrink-0">✕</button>
+        )}
       </div>
       <p className="text-[10px] text-[var(--color-grey)] mt-1">
         {b.source === "consultant" ? "you edited" : "member"}
         {b.flagged ? " · kept after nudge" : ""}
+        {confirmDelete ? " · confirm delete?" : ""}
       </p>
     </div>
   );

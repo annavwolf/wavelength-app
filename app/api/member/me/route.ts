@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { verifySession, SESSION_COOKIE } from "@/lib/memberSession";
+import type { Phase4SelfServeJson } from "@/types/database";
 
 // GET /api/member/me
 // The single source of member-facing data. Verifies the session cookie
@@ -57,13 +58,34 @@ export async function GET(req: NextRequest) {
 
   const [{ data: team }, { data: analysisRow }] = await Promise.all([
     supabase.from("teams").select("team_id, team_name").eq("team_id", member.team_id).maybeSingle(),
-    supabase.from("analysis").select("phase3_report_json").eq("team_id", member.team_id).maybeSingle(),
+    supabase
+      .from("analysis")
+      .select("phase3_report_json, phase4_selfserve_json")
+      .eq("team_id", member.team_id)
+      .maybeSingle(),
   ]);
 
   const phase3Released = !!(
     analysisRow?.phase3_report_json &&
     (analysisRow.phase3_report_json as Record<string, unknown>).released_at
   );
+
+  // Phase 4 self-serve results — only surfaced to the member once released, and
+  // projected to the member-safe fields only. The behaviour board, distributions
+  // and the consultant-only low-commitment note (spec §5 — "not shown to
+  // members") are deliberately withheld from this payload.
+  const p4 = (analysisRow?.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null;
+  const phase4Released = !!p4?.released_at;
+  const phase4 = phase4Released && p4
+    ? {
+        agreement: p4.agreement,
+        agreement_text: p4.agreement_text,
+        what_to_do_next: p4.what_to_do_next,
+        closing_note: p4.closing_note,
+        artifacts: p4.artifacts,
+        released_at: p4.released_at,
+      }
+    : null;
 
   // The member's own view: only the fields the profile needs. Own data is shown
   // in full (privacy flags gate what OTHERS see, not the member themselves), but
@@ -80,6 +102,8 @@ export async function GET(req: NextRequest) {
     },
     team: team ?? null,
     phase3_released: phase3Released,
+    phase4_released: phase4Released,
+    phase4: phase4,
     statements: statementsRes.data ?? [],
     ps_responses: responsesRes.data ?? [],
     interview_responses: interviewRes.data ?? [],

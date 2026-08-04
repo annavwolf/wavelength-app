@@ -9,12 +9,16 @@ import { createBrowserClient } from "@/lib/supabase";
 import type { PsStatement, Phase3ReportJson } from "@/types/database";
 import Phase3Chat from "@/components/phase3/Phase3Chat";
 import Phase3Board from "@/components/phase3/Phase3Board";
+import Phase3ContextStep from "@/components/phase3/Phase3ContextStep";
+import Phase3CommitmentStep from "@/components/phase3/Phase3CommitmentStep";
 import PulseCheckWidget from "@/components/phase3/PulseCheckWidget";
 import { ITEM_EXAMPLES } from "@/lib/itemExamples";
 import { ACTION_PHRASES } from "@/prompts/phase3_conversation";
 
 type SessionMember = { member_id: string; display_name: string };
-type PageState = "loading" | "not_ready" | "intro" | "chat" | "transition" | "board" | "done";
+type PageState =
+  | "loading" | "not_ready" | "intro" | "chat" | "context"
+  | "transition" | "board" | "commitment" | "done";
 
 const ZONE_NAME = ["", "Safe to Belong", "Safe to Speak Freely", "Safe to Innovate"];
 
@@ -28,6 +32,8 @@ export default function MemberPhase3Page() {
   const [reportJson, setReportJson] = useState<Phase3ReportJson | null>(null);
   const [pageState, setPageState] = useState<PageState>("loading");
   const [nudge, setNudge] = useState<string | null>(null);
+  const [rosterNames, setRosterNames] = useState<string[]>([]);
+  const [commitmentAnswered, setCommitmentAnswered] = useState(false);
 
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -82,15 +88,35 @@ export default function MemberPhase3Page() {
 
     setFocusStatement(statementData ?? null);
 
-    // Resume at the board if the member has already submitted a story.
-    const { count: storyCount } = await supabase
-      .from("member_stories")
-      .select("*", { count: "exact", head: true })
-      .eq("member_id", me.member_id)
-      .eq("team_id", tid);
+    // Roster names — for the §1.2 synchronicity question wording.
+    const { data: roster } = await supabase
+      .from("members")
+      .select("display_name")
+      .eq("team_id", tid)
+      .order("created_at", { ascending: true });
+    setRosterNames((roster ?? []).map((r) => r.display_name).filter(Boolean));
+
+    // Resume: story → the §1.1 context questions → board. Track whether the
+    // §1.2 commitment questions are already answered (so we don't re-ask).
+    const [{ count: storyCount }, { data: ctx }] = await Promise.all([
+      supabase
+        .from("member_stories")
+        .select("*", { count: "exact", head: true })
+        .eq("member_id", me.member_id)
+        .eq("team_id", tid),
+      supabase
+        .from("phase3_context_responses")
+        .select("frequency, commitment, synchronicity")
+        .eq("member_id", me.member_id)
+        .eq("team_id", tid)
+        .maybeSingle(),
+    ]);
+
+    const contextDone = !!ctx?.frequency;
+    setCommitmentAnswered(!!ctx?.commitment && !!ctx?.synchronicity);
 
     if (storyCount && storyCount > 0) {
-      setPageState("board");
+      setPageState(contextDone ? "board" : "context");
     } else {
       setPageState("intro");
     }
@@ -101,12 +127,16 @@ export default function MemberPhase3Page() {
   }
 
   function handleChatComplete() {
-    setPageState("transition");
+    setPageState("context");
     setNudge(null);
   }
 
+  function handleContextComplete() {
+    setPageState("transition");
+  }
+
   function handleBoardSubmit() {
-    setPageState("done");
+    setPageState(commitmentAnswered ? "done" : "commitment");
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -265,6 +295,29 @@ export default function MemberPhase3Page() {
   const statementId = focusStatement?.statement_id ?? null;
   const actionPhrase = statementId ? (ACTION_PHRASES[statementId] ?? "") : "";
   const itemExamples = statementId ? (ITEM_EXAMPLES[statementId] ?? null) : null;
+
+  // §1.1 — impact + frequency, after storytelling, before the board.
+  if (pageState === "context" && teamId) {
+    return (
+      <Phase3ContextStep
+        memberId={memberId}
+        teamId={teamId}
+        onComplete={handleContextComplete}
+      />
+    );
+  }
+
+  // §1.2 — commitment + synchronicity, right before the end of Phase 3.
+  if (pageState === "commitment" && teamId) {
+    return (
+      <Phase3CommitmentStep
+        memberId={memberId}
+        teamId={teamId}
+        rosterNames={rosterNames}
+        onComplete={() => setPageState("done")}
+      />
+    );
+  }
 
   // §4.4 — Transition screen (educational, shown between chat and board)
   if (pageState === "transition") {

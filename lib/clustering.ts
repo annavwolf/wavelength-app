@@ -61,7 +61,8 @@ function streamOf(label: InterviewLabel): StreamKey | null {
 
 // Union-find over labels: edge between i,j when cosine(vec_i, vec_j) >= threshold.
 // Order-independent (unlike greedy assignment), so clusters are deterministic.
-function clusterIndices(vectors: number[][], threshold: number): number[][] {
+// Exported so the Phase 4 single-stream behaviour grouping can reuse it.
+export function clusterIndices(vectors: number[][], threshold: number): number[][] {
   const n = vectors.length;
   const parent = Array.from({ length: n }, (_, i) => i);
   const find = (x: number): number => {
