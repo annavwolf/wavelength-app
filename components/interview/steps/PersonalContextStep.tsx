@@ -89,52 +89,30 @@ export default function PersonalContextStep({
   return (
     <div>
       <ChatBubble readAloud={readAloud}>
-        I&apos;d also love to know a little more about you — if you&apos;re
-        comfortable sharing. Things like: is English your first language, or
-        do you work primarily in another language? And is there anything
-        else about your background or working style that you&apos;d like me
-        to keep in mind as we talk?
-      </ChatBubble>
-      <ChatBubble readAloud={readAloud}>
-        There&apos;s no obligation here — share as much or as little as
-        you&apos;d like.
+        I&apos;d like to know more about you. It&apos;s completely optional to
+        share. Mind telling me...
       </ChatBubble>
 
       <div className="mt-6 mb-4 space-y-4">
         <div>
-          <label className="form-label">
-            Language you work in (optional)
-          </label>
+          <label className="form-label">What languages you speak (optional)</label>
           <VoiceTextInput
             value={language}
             onChange={onLanguageChange}
             placeholder="e.g. English, Spanish, Mandarin..."
           />
         </div>
-        <div>
-          <label className="form-label">Anything else? (optional)</label>
-          <VoiceTextarea
-            value={context}
-            onChange={onContextChange}
-            rows={3}
-            placeholder="Share anything that would help me understand you better..."
-          />
-        </div>
       </div>
 
       {/* Demographic fields — with explicit consent note */}
-      <div className="card mt-6 mb-6 space-y-4">
+      <div className="card mt-2 mb-6 space-y-4">
         <p className="text-sm text-[var(--color-grey)] leading-relaxed">
-          These next few are completely optional. I ask because team
-          experience can sometimes differ across backgrounds, and it helps
-          me understand the whole team. You&apos;re free to skip any or all
-          of them, and they&apos;re never shared individually.
+          These are completely optional and never shared individually — I ask
+          because team experience can differ across backgrounds.
         </p>
 
         <div>
-          <label className="form-label">
-            How would you describe your gender identity? (optional)
-          </label>
+          <label className="form-label">Your gender identity (optional)</label>
           <VoiceTextInput
             value={genderIdentity}
             onChange={onGenderIdentityChange}
@@ -143,8 +121,7 @@ export default function PersonalContextStep({
         </div>
         <div>
           <label className="form-label">
-            How would you describe your cultural background or ethnicity?
-            (optional)
+            Your ethnicity, nationality, or cultural background (optional)
           </label>
           <VoiceTextInput
             value={ethnicityCultural}
@@ -158,6 +135,15 @@ export default function PersonalContextStep({
             value={ageText}
             onChange={onAgeTextChange}
             placeholder="e.g. 34"
+          />
+        </div>
+        <div>
+          <label className="form-label">Anything else you&apos;d like me to know? (optional)</label>
+          <VoiceTextarea
+            value={context}
+            onChange={onContextChange}
+            rows={3}
+            placeholder="Loved ones, passions, talents, favourite things..."
           />
         </div>
       </div>

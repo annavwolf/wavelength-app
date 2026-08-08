@@ -80,6 +80,13 @@ export async function POST(req: NextRequest) {
   const loginUrl = `${APP_URL}/api/member/auth/verify?token=${rawToken}`;
   const firstName = (members[0].display_name || "there").split(" ")[0];
 
+  // In local dev: skip Resend entirely and log the link to the terminal so
+  // there's no email round-trip to wait for.
+  if (process.env.NODE_ENV === "development") {
+    console.log(`\n[DEV] Magic link for ${email}:\n${loginUrl}\n`);
+    return genericOk;
+  }
+
   const resend = new Resend(apiKey);
   const { error: sendError } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>",

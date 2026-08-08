@@ -66,16 +66,15 @@ export default function ConsentStep({
   onSaved: (fields: Partial<Member>) => void;
   onAdvance: () => void;
 }) {
-  // Selecting a card is purely local — instant feedback, no network round
-  // trip in the way of the click. The actual save happens on Continue.
-  const [choice, setChoice] = useState<ShareChoice | null>(
-    choiceFromMember(member)
+  // Default to "open" (opt-in). Only restore "private" if the member has
+  // previously and explicitly chosen it (both share fields saved as false).
+  const [choice, setChoice] = useState<ShareChoice>(
+    choiceFromMember(member) === "private" ? "private" : "open"
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleContinue() {
-    if (!choice) return;
 
     setSaving(true);
     setError(null);
@@ -109,32 +108,29 @@ export default function ConsentStep({
 
   return (
     <div>
-      <ChatBubble readAloud={readAloud}>
-        Before we go any further, I want to be clear about how I handle what
-        you share with me.
+      <ChatBubble
+        readAloud={readAloud}
+        speakText="Before that, please know that everything you tell me can be held private if that's what you want."
+      >
+        Before that, please know that{" "}
+        <strong>
+          everything you tell me can be held private if that&apos;s what you
+          want.
+        </strong>
       </ChatBubble>
       <ChatBubble readAloud={readAloud}>
-        Everything you say in this conversation is private. Your exact words
-        are never shared with your manager, your team leader, or anyone else
-        on your team.
+        If you&apos;d like to be anonymous, I won&apos;t share your exact
+        words or name. Instead, I&apos;ll paraphrase and replace your name
+        with a random ID.
       </ChatBubble>
       <ChatBubble readAloud={readAloud}>
-        When I produce a report for the team, I describe patterns across the
-        whole group — not what any individual person said. Where I do
-        reference specific experiences, I paraphrase rather than quote.
+        {smallTeam
+          ? "Please note that complete anonymity can never be guaranteed, especially with small groups like yours."
+          : "Please note that complete anonymity can never be guaranteed, especially with small groups."}
       </ChatBubble>
       <ChatBubble readAloud={readAloud}>
-        Your responses are stored securely and linked to a private code, not
-        your name, so that individual answers cannot be traced back to you
-        in the team report.
+        What would you like to do? You can change this later.
       </ChatBubble>
-      {smallTeam && (
-        <ChatBubble readAloud={readAloud}>
-          If your team has fewer than five members, I&apos;ll flag that some
-          patterns may be easier to trace, and give you the option to review
-          before anything is shared.
-        </ChatBubble>
-      )}
 
       <div className="space-y-3 mt-6 mb-6">
         <RadioCard
@@ -148,8 +144,8 @@ export default function ConsentStep({
           selected={choice === "open"}
           onSelect={() => setChoice("open")}
         >
-          I&apos;m comfortable sharing my exact words, and my name, with my
-          team — as a step toward open conversation.
+          I&apos;m comfortable sharing my exact words with my team — shown under
+          a random ID, not my name — as a step toward open conversation.
         </RadioCard>
       </div>
 
@@ -158,7 +154,7 @@ export default function ConsentStep({
       <button
         type="button"
         onClick={handleContinue}
-        disabled={!choice || saving}
+        disabled={saving}
         className="btn-primary"
       >
         {saving ? "Saving..." : "Continue"}

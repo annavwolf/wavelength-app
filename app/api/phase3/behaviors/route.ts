@@ -92,17 +92,21 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/phase3/behaviors
-// Body: { member_id, team_id, statement_id, bucket, text, nudge_dismissed?, behavior_id? }
-// nudge_dismissed = true → skip checks, save with flagged = true
-// behavior_id present → update existing row
-// Returns: { saved: bool, coaching_nudge: string | null, behavior?: row }
+// Body: { member_id, team_id, statement_id, bucket, text, behavior_id? }
+//
+// The entry is ALWAYS saved (adding a behavior never blocks the member). If a
+// coaching check fails, the warning is stored on the row as nudge_text and the
+// row is flagged. The board surfaces that warning at the bottom and clears it
+// only when the member edits the entry into something that passes. Editing an
+// existing entry (behavior_id present) re-runs the checks and updates/clears
+// nudge_text accordingly.
+// Returns: { saved: true, behavior: row }  (row.nudge_text carries any warning)
 export async function POST(req: NextRequest) {
   let memberId: string;
   let teamId: string;
   let statementId: number | null;
   let bucket: BehaviorBucket;
   let text: string;
-  let nudgeDismissed: boolean;
   let behaviorId: string | undefined;
 
   try {
@@ -112,7 +116,6 @@ export async function POST(req: NextRequest) {
     statementId = typeof body.statement_id === "number" ? body.statement_id : null;
     bucket = body.bucket;
     text = body.text?.trim() ?? "";
-    nudgeDismissed = !!body.nudge_dismissed;
     behaviorId = body.behavior_id;
 
     if (!memberId || !teamId || !["never","sometimes","always"].includes(bucket) || !text) {
@@ -125,47 +128,40 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI service not configured" }, { status: 500 });
 
-  // If not force-saving, run checks first.
-  if (!nudgeDismissed) {
-    let checks: CheckResult;
-    try {
-      checks = await runChecks(text, apiKey);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[phase3/behaviors] coaching check failed:", msg);
-      // If the check errors, accept the entry (don't block the member over infra issues).
-      checks = { observability_ok: true, anonymity_ok: true, absence_ok: true, nudge: "" };
-    }
-
-    const needsNudge = !checks.observability_ok || !checks.anonymity_ok || !checks.absence_ok;
-    if (needsNudge && checks.nudge) {
-      return NextResponse.json({ saved: false, coaching_nudge: checks.nudge });
-    }
+  // Run the coaching checks, but never block on them — infra failures pass.
+  let checks: CheckResult;
+  try {
+    checks = await runChecks(text, apiKey);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[phase3/behaviors] coaching check failed:", msg);
+    checks = { observability_ok: true, anonymity_ok: true, absence_ok: true, nudge: "" };
   }
 
-  // Save (or update) the behavior.
-  const flagged = nudgeDismissed;
+  const needsNudge = !checks.observability_ok || !checks.anonymity_ok || !checks.absence_ok;
+  const nudgeText = needsNudge && checks.nudge ? checks.nudge : null;
+  const flagged = !!nudgeText;
   const now = new Date().toISOString();
 
   if (behaviorId) {
     const { data, error } = await supabase
       .from("member_behaviors")
-      .update({ text, bucket, flagged, updated_at: now })
+      .update({ text, bucket, flagged, nudge_text: nudgeText, updated_at: now })
       .eq("id", behaviorId)
       .eq("member_id", memberId)
       .select()
       .single();
     if (error) return NextResponse.json({ error: "db_error", detail: error.message }, { status: 500 });
-    return NextResponse.json({ saved: true, coaching_nudge: null, behavior: data });
+    return NextResponse.json({ saved: true, behavior: data });
   }
 
   const { data, error } = await supabase
     .from("member_behaviors")
-    .insert({ member_id: memberId, team_id: teamId, statement_id: statementId, bucket, text, source: "member", flagged })
+    .insert({ member_id: memberId, team_id: teamId, statement_id: statementId, bucket, text, source: "member", flagged, nudge_text: nudgeText })
     .select()
     .single();
   if (error) return NextResponse.json({ error: "db_error", detail: error.message }, { status: 500 });
-  return NextResponse.json({ saved: true, coaching_nudge: null, behavior: data });
+  return NextResponse.json({ saved: true, behavior: data });
 }
 
 // DELETE /api/phase3/behaviors?id=&member_id=

@@ -115,7 +115,6 @@ export default function CoordinationStep({
           <div key={m.member_id} className="card">
             <p className="font-medium mb-3">
               {m.display_name}
-              {m.role ? ` · ${m.role}` : ""}
             </p>
             <div className="flex flex-wrap gap-2">
               {OPTIONS.map((opt) => (

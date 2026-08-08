@@ -21,7 +21,6 @@ export async function GET(req: NextRequest) {
     memberRes,
     statementsRes,
     responsesRes,
-    interviewRes,
     purposeRes,
     coordinationRes,
   ] = await Promise.all([
@@ -32,11 +31,6 @@ export async function GET(req: NextRequest) {
       .select("*")
       .eq("member_id", member_id)
       .eq("round", 1)
-      .order("statement_id", { ascending: true }),
-    supabase
-      .from("ps_interview_responses")
-      .select("*")
-      .eq("member_id", member_id)
       .order("statement_id", { ascending: true }),
     supabase
       .from("purpose_responses")
@@ -106,7 +100,6 @@ export async function GET(req: NextRequest) {
     phase4: phase4,
     statements: statementsRes.data ?? [],
     ps_responses: responsesRes.data ?? [],
-    interview_responses: interviewRes.data ?? [],
     purpose_response: purposeRes.data ?? null,
     coordination_ratings: coordinationRes.data ?? [],
   });

@@ -3,7 +3,6 @@
 // and the interpret route (tier2_json, increment 4). Fish is fully retired.
 
 export type Band = "red" | "yellow" | "green";
-export type StreamKey = "context" | "objective" | "out_behavior" | "outcome" | "in_behavior";
 
 export type ZoneCounts = { favorable: number; neutral: number; unfavorable: number; total: number };
 
@@ -27,27 +26,6 @@ export type PsStatementScore = {
   mean_effective: number;
   per_member: Array<{ private_code: string; effective_value: number; label: string }>;
 };
-
-export type SourceLabel = {
-  secondary_label: string;
-  member_id: string;
-  statement_id: number;
-  multi_member_flag?: boolean;
-  sensitive_specific?: boolean;
-};
-
-export type Cluster = {
-  name: string;
-  workshop_form?: string; // transferable behaviour phrase; absent on old stored data
-  member_count: number;
-  label_count: number;
-  statement_ids: number[];
-  surfaced: boolean;
-  all_sensitive?: boolean; // every source label is sensitive — suppressed from workshop
-  source_labels: SourceLabel[];
-};
-
-export type ClusterResult = Record<StreamKey, Cluster[]>;
 
 export type SharedPurpose = {
   classification: "aligned" | "broadly_aligned" | "fuzzy" | "bifurcated" | "fragmented" | "insufficient";
@@ -91,6 +69,7 @@ export type Networks = {
 };
 
 export type PurposeEntry = { private_code: string; purpose_text: string; share_verbatim: boolean };
+export type FreeTextEntry = { private_code: string; text: string };
 
 export type Tier1Result = {
   computed_at: string;
@@ -101,10 +80,13 @@ export type Tier1Result = {
   };
   ps_zones: ZoneScore[];
   ps_statements: PsStatementScore[];
-  clusters?: ClusterResult;
   shared_purpose: SharedPurpose;
   networks: Networks;
   purpose: PurposeEntry[];
+  // Raw free-text passthrough (consultant-only; absent on analyses computed
+  // before migration 0016).
+  own_roles?: FreeTextEntry[];
+  ps_importance?: FreeTextEntry[];
 };
 
 // ── Tier 2 (interpret) ────────────────────────────────────────────────────────
@@ -114,6 +96,8 @@ export type Tier2Result = {
   ps_read?: { overall_shape?: string; zone1?: string; zone2?: string; zone3?: string };
   shared_purpose_read?: { classification?: string; read?: string };
   focus_hypothesis?: { statement_id?: number; statement_text?: string; zone?: number; hypothesis?: string };
+  // Ranked focus picks (top 2-3), best first. focus_hypothesis mirrors the top one.
+  focus_candidates?: { statement_id?: number; statement_text?: string; zone?: number; why?: string }[];
   member_facing_summary?: string;
   data_quality_note?: string;
   messy_or_insufficient_flag?: boolean;
@@ -130,14 +114,6 @@ export const FAV_GREEN = "#2D7A4F";
 export const NEU_YELLOW = "#C4860A";
 export const UNFAV_RED = "#B94040";
 export const BAND_COLOR: Record<Band, string> = { green: FAV_GREEN, yellow: NEU_YELLOW, red: UNFAV_RED };
-
-export const STREAM_LABEL: Record<StreamKey, string> = {
-  context: "Situation — context",
-  objective: "Situation — objective",
-  out_behavior: "Out-Behavior",
-  outcome: "Outcome",
-  in_behavior: "In-Behavior",
-};
 
 // True when a model-returned string carries real content (not empty, not "none").
 export function hasText(s?: string | null): s is string {

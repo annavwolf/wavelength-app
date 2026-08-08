@@ -5,6 +5,9 @@ import ChatBubble from "@/components/interview/ChatBubble";
 import VoiceTextInput from "@/components/interview/VoiceTextInput";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member } from "@/types/database";
+import { propagateDisplayNameChange } from "@/lib/memberRename";
+
+type Stage = "confirm" | "greeting" | "correction_form" | "correction_done";
 
 export default function ProfileStep({
   member,
@@ -19,7 +22,7 @@ export default function ProfileStep({
   onSaved: (fields: Partial<Member>) => void;
   onAdvance: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [stage, setStage] = useState<Stage>("confirm");
   const [displayName, setDisplayName] = useState(member.display_name);
   const [role, setRole] = useState(member.role ?? "");
   const [location, setLocation] = useState(member.location ?? "");
@@ -27,12 +30,13 @@ export default function ProfileStep({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSave() {
+  async function handleSaveCorrection() {
     setSaving(true);
     setError(null);
 
+    const previousName = member.display_name;
     const fields = {
-      display_name: displayName,
+      display_name: displayName || member.display_name,
       role: role || null,
       location: location || null,
       timezone: timezone || null,
@@ -44,10 +48,8 @@ export default function ProfileStep({
       .eq("member_id", member.member_id);
 
     if (updateError) {
-      console.error("[interview/profile] failed to save profile:", {
+      console.error("[interview/profile] failed to save correction:", {
         message: updateError.message,
-        details: updateError.details,
-        hint: updateError.hint,
         code: updateError.code,
       });
       setError("Something went wrong saving your details. Please try again.");
@@ -55,82 +57,128 @@ export default function ProfileStep({
       return;
     }
 
+    // Repoint any ratings other members already gave this member under the old name.
+    await propagateDisplayNameChange(
+      supabase,
+      member.team_id,
+      previousName,
+      fields.display_name
+    );
+
+    console.info(
+      `[interview/profile] profile corrected: "${member.display_name}" → "${fields.display_name}"`
+    );
     onSaved(fields);
     setSaving(false);
-    onAdvance();
+    setStage("correction_done");
   }
+
+  const currentFirstName = (displayName || member.display_name).split(" ")[0];
 
   return (
     <div>
-      <ChatBubble readAloud={readAloud}>
-        Let me make sure I have you right.
-      </ChatBubble>
-
-      {!editing ? (
+      {stage === "confirm" && (
         <>
-          <div className="card mt-6 mb-6">
+          <ChatBubble readAloud={readAloud}>
+            Now that you know a bit about me, I&apos;d like to know more about
+            you. Here&apos;s what I think I know already.
+          </ChatBubble>
+
+          {/* Profile card — values rendered with real <strong>, no markdown syntax */}
+          <div className="card mt-2 mb-6 space-y-1">
             <p className="font-medium text-lg">{member.display_name}</p>
-            <p className="text-sm text-[var(--color-grey)] mt-1">
+            <p className="text-sm text-[var(--color-grey)]">
               {[member.role, member.location, member.timezone]
                 .filter(Boolean)
                 .join(" · ") || "No further details on file."}
             </p>
           </div>
 
-          <p className="mb-6">Is this correct?</p>
-
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={onAdvance} className="btn-primary">
+            <button
+              type="button"
+              onClick={() => setStage("greeting")}
+              className="btn-primary"
+            >
               Yes, that&apos;s me
             </button>
             <button
               type="button"
-              onClick={() => setEditing(true)}
+              onClick={() => setStage("correction_form")}
               className="btn-secondary"
             >
-              Let me fix something
+              That&apos;s not quite right.
             </button>
           </div>
         </>
-      ) : (
-        <div className="card space-y-4 mt-6">
-          <div>
-            <label className="form-label">Name</label>
-            <VoiceTextInput value={displayName} onChange={setDisplayName} />
-          </div>
-          <div>
-            <label className="form-label">Role</label>
-            <VoiceTextInput value={role} onChange={setRole} />
-          </div>
-          <div>
-            <label className="form-label">Location</label>
-            <VoiceTextInput value={location} onChange={setLocation} />
-          </div>
-          <div>
-            <label className="form-label">Time zone</label>
-            <VoiceTextInput value={timezone} onChange={setTimezone} />
-          </div>
+      )}
 
-          {error && <p className="text-[var(--color-grey)]">{error}</p>}
+      {stage === "greeting" && (
+        <>
+          <ChatBubble readAloud={readAloud}>
+            {`It's nice to meet you, ${member.display_name.split(" ")[0]}.`}
+          </ChatBubble>
+          <button type="button" onClick={onAdvance} className="btn-primary mt-8">
+            Continue
+          </button>
+        </>
+      )}
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving || !displayName.trim()}
-              className="btn-primary"
-            >
-              {saving ? "Saving..." : "Save and continue"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              className="btn-secondary"
-            >
-              Cancel
-            </button>
+      {stage === "correction_form" && (
+        <>
+          <ChatBubble readAloud={readAloud}>
+            Sorry about that. What did I get wrong?
+          </ChatBubble>
+          <div className="card space-y-4 mt-6">
+            <div>
+              <label className="form-label">Name</label>
+              <VoiceTextInput value={displayName} onChange={setDisplayName} />
+            </div>
+            <div>
+              <label className="form-label">Role</label>
+              <VoiceTextInput value={role} onChange={setRole} />
+            </div>
+            <div>
+              <label className="form-label">Location</label>
+              <VoiceTextInput value={location} onChange={setLocation} />
+            </div>
+            <div>
+              <label className="form-label">Time zone</label>
+              <VoiceTextInput value={timezone} onChange={setTimezone} />
+            </div>
+
+            {error && <p className="text-[var(--color-grey)]">{error}</p>}
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleSaveCorrection}
+                disabled={saving || !displayName.trim()}
+                className="btn-primary"
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setStage("confirm")}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-        </div>
+        </>
+      )}
+
+      {stage === "correction_done" && (
+        <>
+          <ChatBubble readAloud={readAloud}>
+            {`It's nice to meet you, ${currentFirstName}.`}
+          </ChatBubble>
+          <button type="button" onClick={onAdvance} className="btn-primary mt-8">
+            Continue
+          </button>
+        </>
       )}
     </div>
   );

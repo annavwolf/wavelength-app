@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
+import MemberBubble from "@/components/interview/MemberBubble";
 import VoiceTextInput from "@/components/interview/VoiceTextInput";
 import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member, Team } from "@/types/database";
@@ -10,7 +11,7 @@ const FAQ_ITEMS = [
   {
     question: "Who will see my answers?",
     answer:
-      "Nobody sees your exact words unless you're okay with it. Otherwise, your teammates only see patterns across the whole group — never what you said individually.",
+      "Your team members and team lead. If you choose to remain anonymous, leads will see paraphrased information and team members will see patterns.",
   },
   {
     question: "Can I stop and come back?",
@@ -18,36 +19,73 @@ const FAQ_ITEMS = [
       "Yes. You can close this at any point and return using the same link. Your progress is saved automatically.",
   },
   {
-    question: "How long will this take?",
-    answer:
-      "Around 20 to 30 minutes for this first conversation. You can go faster or slower — there's no time limit.",
-  },
-  {
     question: "What happens after this?",
     answer:
-      "Once everyone on your team has spoken with me, I'll bring the findings together into a team report. Then I'll come back to each of you individually to check whether my conclusions make sense.",
-  },
-  {
-    question: "Why is my organisation doing this?",
-    answer:
-      "Dr. Wolf, working with your team, wants to understand how the team is experiencing working together — and to open up an honest conversation about what could be better. This is about improving the team, not evaluating individuals.",
+      "Once everyone on your team has spoken with me, I'll analyze the information and get back to you with the results. We'll begin identifying ways to improve psychological safety.",
   },
   {
     question: "Is this being used to assess my performance?",
     answer:
-      "No. This is not a performance assessment. Nothing you say here will be used to evaluate you individually or shared with anyone in a way that could affect your role.",
+      "No. This is not a performance assessment. Nothing you say here will be used to evaluate you, or anyone else, individually.",
   },
   {
     question: "What if I decide I don't want to participate?",
     answer:
-      "That's completely your choice. If you decide not to take part, just let Dr. Wolf know at anna.v.wolf@gmail.com and your data will be deleted within 30 days. You won't need to explain yourself.",
+      "That's completely your choice. If you decide not to take part there's an opt-out option at the end of this assessment.",
   },
   {
     question: "What is psychological safety?",
     answer:
-      "Psychological safety is the shared sense that it's safe to speak up, take risks, and be honest on a team — without fear of being punished or embarrassed for doing so. It's one of the strongest predictors of how well teams perform, and it's what Otis is designed to help teams build.",
+      "Psychological safety is the shared sense that it's safe to be oneself, speak up, take risks, without fear of being punished for doing so.",
   },
 ];
+
+// Keyword-based Q&A matching for Otis's live replies.
+const QA_MATCHES: { keywords: string[]; answer: string }[] = [
+  {
+    keywords: ["see", "who", "results", "access", "share", "view", "read"],
+    answer:
+      "Your team members and team lead will see the aggregated results. If you chose to remain anonymous, leads see paraphrased patterns — your specific words and name won't be attached.",
+  },
+  {
+    keywords: ["stop", "come back", "return", "progress", "save", "pause", "later", "close"],
+    answer:
+      "Yes — you can close this at any point and return using the same link. Your progress is saved automatically.",
+  },
+  {
+    keywords: ["after", "happens", "next", "then", "what will", "timeline"],
+    answer:
+      "Once everyone on your team has spoken with me, your consultant will analyze the results and be in touch. We'll identify where psychological safety could be stronger and how to build it.",
+  },
+  {
+    keywords: ["performance", "assess", "evaluate", "judge", "rate"],
+    answer:
+      "No — this is not a performance assessment. Nothing you share here will be used to evaluate you, or anyone else, individually.",
+  },
+  {
+    keywords: ["opt out", "don't want", "not participate", "leave", "quit", "withdraw", "skip"],
+    answer:
+      "Completely your choice. There's an opt-out option at the end of this assessment if you decide you'd rather not take part.",
+  },
+  {
+    keywords: ["psychological safety", "what is", "define", "definition", "mean", "concept", "what does"],
+    answer:
+      "Psychological safety is the shared sense that it's safe to be yourself, speak up, and take calculated risks — without fear of being penalized for doing so.",
+  },
+  {
+    keywords: ["anonymous", "anonymity", "private", "identity", "name", "confidential"],
+    answer:
+      "You'll choose your privacy level during the consent step. If you stay anonymous, your responses are paraphrased — your name is never attached to specific answers.",
+  },
+];
+
+function findAnswer(question: string): string | null {
+  const q = question.toLowerCase();
+  for (const item of QA_MATCHES) {
+    if (item.keywords.some((kw) => q.includes(kw))) return item.answer;
+  }
+  return null;
+}
 
 export default function FaqStep({
   member,
@@ -72,62 +110,60 @@ export default function FaqStep({
 }) {
   const [openIndices, setOpenIndices] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [otisReply, setOtisReply] = useState<string | null>(null);
+  const [askedQuestion, setAskedQuestion] = useState("");
+
+  const isAnonymous = !member.share_name_with_team;
 
   function toggleFaq(index: number) {
     setOpenIndices((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   }
 
-  async function handleSubmitQuestion() {
+  async function handleAskQuestion() {
     if (!question.trim()) return;
     setSaving(true);
-    setError(null);
 
-    const { error: insertError } = await supabase
-      .from("member_questions")
-      .insert({
+    const matched = findAnswer(question);
+    setAskedQuestion(question);
+
+    if (matched) {
+      setOtisReply(matched);
+    } else {
+      // Save unmatched question to DB for follow-up.
+      await supabase.from("member_questions").insert({
         member_id: member.member_id,
         team_id: team.team_id,
         question_text: question,
       });
 
-    if (insertError) {
-      console.error("[interview/faq] failed to save member question:", {
-        message: insertError.message,
-        details: insertError.details,
-        hint: insertError.hint,
-        code: insertError.code,
-      });
-      // Show acknowledgment regardless — don't block progress over a question save.
+      const anonNote = isAnonymous
+        ? "Since you've chosen to stay anonymous, this note won't have your name attached."
+        : "I've noted your name alongside the question so someone can get back to you directly.";
+
+      setOtisReply(
+        `I don't have an answer to that right now, but I've made a note of it so someone can follow up. ${anonNote}`
+      );
     }
 
-    setSaving(false);
     onAcknowledged();
+    setSaving(false);
   }
 
   return (
     <div>
       <ChatBubble readAloud={readAloud}>
-        Before we get into the conversation itself, I want to make sure you
-        feel comfortable. I&apos;ve put together answers to some questions
-        people often have at this point — you can expand any of them below.
-      </ChatBubble>
-      <ChatBubble readAloud={readAloud}>
-        And if you have something else on your mind, you can type it here
-        — or, if you&apos;d like, this is a good moment to try the
-        microphone. Just click the mic icon and speak naturally. I&apos;ll
-        listen.
+        Got it. Do you have any questions for me at this point?
       </ChatBubble>
 
-      <div className="space-y-2 mt-6 mb-8">
+      <p className="text-sm text-[var(--color-grey)] mt-6 mb-3">
+        Take a look at some frequently asked questions, if you like.
+      </p>
+      <div className="space-y-2 mb-8">
         {FAQ_ITEMS.map((item, i) => (
           <div key={item.question} className="card p-0 overflow-hidden">
             <button
@@ -138,9 +174,7 @@ export default function FaqStep({
               <span>{item.question}</span>
               <span
                 className="flex-shrink-0 text-[var(--color-purple)] transition-transform duration-200"
-                style={{
-                  transform: openIndices.has(i) ? "rotate(180deg)" : "none",
-                }}
+                style={{ transform: openIndices.has(i) ? "rotate(180deg)" : "none" }}
                 aria-hidden
               >
                 ▾
@@ -165,31 +199,28 @@ export default function FaqStep({
             onChange={onQuestionChange}
             placeholder="Type or speak your question..."
           />
-          {error && (
-            <p className="text-[var(--color-grey)] text-sm">{error}</p>
-          )}
           {question.trim() && (
             <button
               type="button"
-              onClick={handleSubmitQuestion}
+              onClick={handleAskQuestion}
               disabled={saving}
               className="btn-secondary"
             >
-              {saving ? "Sending..." : "Ask this"}
+              {saving ? "Thinking..." : "Ask this"}
             </button>
           )}
         </div>
       ) : (
-        <div className="card mb-6 bg-[var(--color-purple)]/5 border border-[var(--color-purple)]/20">
-          <p className="text-[var(--color-grey)]">
-            Thanks for asking — I&apos;ve noted that, and you can always
-            reach Dr. Wolf directly at anna.v.wolf@gmail.com.
-          </p>
+        <div className="space-y-3 mb-6">
+          {askedQuestion && <MemberBubble>{askedQuestion}</MemberBubble>}
+          {otisReply && (
+            <ChatBubble readAloud={readAloud}>{otisReply}</ChatBubble>
+          )}
         </div>
       )}
 
       <button type="button" onClick={onAdvance} className="btn-primary">
-        I&apos;m ready to begin
+        Start the Assessment
       </button>
     </div>
   );

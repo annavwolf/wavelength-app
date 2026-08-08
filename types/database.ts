@@ -71,6 +71,11 @@ export type Member = {
   is_point_person: boolean;
   share_verbatim_with_team: boolean;
   share_name_with_team: boolean;
+  // Phase 3 has two independent confidentiality checks (migration 0017):
+  // one for the stories they told, one for the behaviors they contributed.
+  // Both default true (opt-in verbatim + name).
+  phase3_story_verbatim: boolean;
+  phase3_behavior_verbatim: boolean;
   status: string;
   // Optional member-volunteered context collected in the interview.
   primary_language: string | null;
@@ -81,6 +86,13 @@ export type Member = {
   age: string | null;
   // When the member joined this team (free text, e.g. "January 2024").
   tenure_start: string | null;
+  // Optional interview free-text (migration 0016). Consultant-facing only,
+  // never shown to other members. own_role: how the member describes their own
+  // role; ps_importance: their take on whether PS matters for the team;
+  // team_name_suggestion: a name the member proposes for the team.
+  own_role: string | null;
+  ps_importance: string | null;
+  team_name_suggestion: string | null;
   invited_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -99,6 +111,8 @@ export type MemberInsert = {
   is_point_person?: boolean;
   share_verbatim_with_team?: boolean;
   share_name_with_team?: boolean;
+  phase3_story_verbatim?: boolean;
+  phase3_behavior_verbatim?: boolean;
   status?: string;
   primary_language?: string | null;
   personal_context?: string | null;
@@ -106,6 +120,9 @@ export type MemberInsert = {
   ethnicity_cultural?: string | null;
   age?: string | null;
   tenure_start?: string | null;
+  own_role?: string | null;
+  ps_importance?: string | null;
+  team_name_suggestion?: string | null;
   invited_at?: string | null;
   completed_at?: string | null;
   created_at?: string;
@@ -356,6 +373,15 @@ export type PsInterviewResponseUpdate = Partial<PsInterviewResponseInsert>;
 
 // Stored in analysis.phase3_report_json (migration 0012).
 // The consultant edits these fields before releasing Phase 3 links to members.
+// One ranked focus candidate Otis proposes (top 2-3). `why` is the one-line
+// justification the consultant sees (and can optionally surface to members).
+export type FocusCandidate = {
+  statement_id: number;
+  statement_text: string;
+  zone: number;
+  why: string;
+};
+
 export type Phase3ReportJson = {
   ps_read_overall: string;
   ps_read_zone1: string;
@@ -364,7 +390,18 @@ export type Phase3ReportJson = {
   shared_purpose_read: string;
   focus_statement_id: number | null;
   focus_narrative: string;
+  // Deprecated (workshop intro script removed from the release editor); kept for
+  // back-compat with older saved reports.
   workshop_intro: string;
+  // Ranked focus picks captured from Otis's read at report time (top 2-3).
+  focus_candidates?: FocusCandidate[];
+  // Release toggles (Report & Activity Release):
+  //   include_shared_purpose — show the shared-purpose results section to members
+  //   include_stories        — include the Team Stories section
+  //   include_rationalization_in_report — surface the focus "why" to members
+  include_shared_purpose?: boolean;
+  include_stories?: boolean;
+  include_rationalization_in_report?: boolean;
   released_at: string | null;
   sent_member_ids: string[];
 };
@@ -682,6 +719,9 @@ export type MemberBehavior = {
   text: string;
   source: BehaviorSource;
   flagged: boolean;
+  // Persisted coaching warning (migration 0017). Non-null = Otis is asking the
+  // member to make this entry more specific; cleared once they resolve it.
+  nudge_text: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -695,6 +735,7 @@ export type MemberBehaviorInsert = {
   text: string;
   source?: BehaviorSource;
   flagged?: boolean;
+  nudge_text?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -712,10 +753,11 @@ export type ContextFrequency =
 export type ContextCommitment = "Yes" | "It depends" | "I don't think so";
 
 export type ContextSynchronicity =
-  | "Easy, we do it regularly"
-  | "It happens occasionally"
-  | "Easier with some people, but not everyone"
-  | "Not easy, we rarely do this";
+  | "Easily, we do it regularly"
+  | "Pretty easily, we do it occasionally"
+  | "Not so easy, we do it sometimes"
+  | "Difficult, we rarely meet all together"
+  | "It's easier with some people but not others";
 
 export type Phase3ContextResponse = {
   id: string;
@@ -725,6 +767,9 @@ export type Phase3ContextResponse = {
   frequency: ContextFrequency | null;
   commitment: ContextCommitment | null;
   commitment_comment: string | null;
+  // "What do you think the result would be?" — free text after the 30-day
+  // commitment question (migration 0017).
+  commitment_result: string | null;
   synchronicity: ContextSynchronicity | null;
   created_at: string;
   updated_at: string;
@@ -738,12 +783,40 @@ export type Phase3ContextResponseInsert = {
   frequency?: ContextFrequency | null;
   commitment?: ContextCommitment | null;
   commitment_comment?: string | null;
+  commitment_result?: string | null;
   synchronicity?: ContextSynchronicity | null;
   created_at?: string;
   updated_at?: string;
 };
 
 export type Phase3ContextResponseUpdate = Partial<Phase3ContextResponseInsert>;
+
+// ── Phase 3 durable chat transcripts (migration 0017) ────────────────────────
+// One row per member/team/kind. Lets members leave and resume the story chat
+// and the impact chat exactly where they left off.
+export type Phase3ConversationKind = "story" | "impact";
+
+export type Phase3ConversationMessage = {
+  id: string;
+  member_id: string;
+  team_id: string;
+  kind: Phase3ConversationKind;
+  messages: Json;
+  state: Json | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Phase3ConversationMessageInsert = {
+  id?: string;
+  member_id: string;
+  team_id: string;
+  kind: Phase3ConversationKind;
+  messages?: Json;
+  state?: Json | null;
+  created_at?: string;
+  updated_at?: string;
+};
 
 // ── Phase 4 self-serve: generated output (spec §6/§7, analysis.phase4_selfserve_json) ──
 // The consultant edits the exit-interview text before releasing. Everything a
@@ -1125,6 +1198,12 @@ export type Database = {
         Row: Phase3ContextResponse;
         Insert: Phase3ContextResponseInsert;
         Update: Phase3ContextResponseUpdate;
+        Relationships: [];
+      };
+      phase3_conversation_messages: {
+        Row: Phase3ConversationMessage;
+        Insert: Phase3ConversationMessageInsert;
+        Update: Partial<Phase3ConversationMessageInsert>;
         Relationships: [];
       };
     };

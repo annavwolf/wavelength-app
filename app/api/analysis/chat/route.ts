@@ -95,9 +95,10 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   const memberById = new Map((members ?? []).map((m) => [m.member_id, m]));
 
   // ── Qualitative material + per-item PS detail ───────────────────────────────
-  // Re-anchored off the retired fish path: the interview material now reaches the
-  // model through the coded clusters inside tier1_json (below), alongside the
-  // per-statement PS detail and the purpose statements. No fish_responses read.
+  // Phase 2 is quantitative-only: the interview coding/clustering pipeline was
+  // retired, so there is no coded qualitative material. The model's grounding is
+  // the per-statement PS detail (below), the purpose statements, and the Tier 1
+  // metrics inside tier1_json. No fish_responses, no interview clusters.
   const [purposeRes, stmtRes, psRes] = await Promise.all([
     supabase.from("purpose_responses").select("*").eq("team_id", teamId),
     supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),

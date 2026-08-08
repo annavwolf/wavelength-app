@@ -194,12 +194,15 @@ function touchpointDistribution(
 ): { dist: Phase4Distribution; note: string | null; asyncSkew: boolean } {
   const counts = tally(rows.map((r) => r.synchronicity));
   const total = rows.filter((r) => r.synchronicity).length;
-  const hard = (counts["Easier with some people, but not everyone"] ?? 0) + (counts["Not easy, we rarely do this"] ?? 0);
+  const hard =
+    (counts["Not so easy, we do it sometimes"] ?? 0) +
+    (counts["Difficult, we rarely meet all together"] ?? 0) +
+    (counts["It's easier with some people but not others"] ?? 0);
   const asyncSkew = total > 0 && hard >= Math.ceil(total / 2);
   const timezones = networks?.geographic?.distinct_timezones ?? 1;
 
   const summary = total
-    ? `${counts["Easy, we do it regularly"] ?? 0} meet easily, ${counts["It happens occasionally"] ?? 0} occasionally, ${counts["Easier with some people, but not everyone"] ?? 0} easier with some, ${counts["Not easy, we rarely do this"] ?? 0} rarely.`
+    ? `${counts["Easily, we do it regularly"] ?? 0} meet easily, ${counts["Pretty easily, we do it occasionally"] ?? 0} occasionally, ${counts["Not so easy, we do it sometimes"] ?? 0} sometimes, ${counts["Difficult, we rarely meet all together"] ?? 0} rarely, ${counts["It's easier with some people but not others"] ?? 0} easier with some.`
     : "No synchronicity responses yet.";
 
   let note: string | null = null;

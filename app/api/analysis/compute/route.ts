@@ -330,6 +330,17 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     share_verbatim: memberById.get(r.member_id)?.share_verbatim_with_team ?? false,
   }));
 
+  // ── Free-text passthrough (raw, consultant-only; no analytics) ──────────────
+  // own_role: how each member describes their own contribution. ps_importance:
+  // each member's take on whether PS matters for the team — the interpret step
+  // reads this to flag dismissive/skeptical answers in its welfare note.
+  const ownRoles = members
+    .filter((m) => m.own_role?.trim())
+    .map((m) => ({ private_code: m.private_code, text: m.own_role!.trim() }));
+  const psImportance = members
+    .filter((m) => m.ps_importance?.trim())
+    .map((m) => ({ private_code: m.private_code, text: m.ps_importance!.trim() }));
+
   // ── Assemble tier1_json ──────────────────────────────────────────────────────
   const result = {
     computed_at: new Date().toISOString(),
@@ -351,6 +362,8 @@ async function runCompute(teamId: string): Promise<NextResponse> {
       },
     },
     purpose,
+    own_roles: ownRoles,
+    ps_importance: psImportance,
   };
 
   const { error: upsertError } = await supabase

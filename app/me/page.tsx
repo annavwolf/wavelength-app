@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import type {
   PsStatement,
   PsResponse,
-  PsInterviewResponse,
   PurposeResponse,
   CoordinationRating,
 } from "@/types/database";
@@ -26,7 +25,6 @@ type MeResponse = {
   phase4_released: boolean;
   statements: PsStatement[];
   ps_responses: PsResponse[];
-  interview_responses: PsInterviewResponse[];
   purpose_response: PurposeResponse | null;
   coordination_ratings: CoordinationRating[];
 };
@@ -92,12 +90,11 @@ export default function MemberProfilePage() {
     );
   }
 
-  const { member, team, statements, ps_responses, interview_responses } = data;
+  const { member, team, statements, ps_responses } = data;
   const firstName = member.display_name.split(" ")[0];
 
   // statement_id → the member's response, for the diagnostic list.
   const responseByStatement = new Map(ps_responses.map((r) => [r.statement_id, r]));
-  const probedStatements = new Map(statements.map((s) => [s.statement_id, s]));
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
@@ -124,6 +121,29 @@ export default function MemberProfilePage() {
         interview. Your team&apos;s report and workshop will appear here when
         they&apos;re ready.
       </p>
+
+      {/* ── Assessment CTA (hidden once complete) ─────────────────────── */}
+      {member.status !== "complete" && (
+        <section className="card" style={{ padding: "20px 24px" }}>
+          <h2 className="text-lg mb-1" style={{ fontFamily: "Playfair Display, serif" }}>
+            {member.status === "in_progress"
+              ? "Your assessment is in progress"
+              : "Start your assessment"}
+          </h2>
+          <p className="text-sm text-[var(--color-grey)] mb-4 leading-relaxed">
+            {member.status === "in_progress"
+              ? "Pick up where you left off — your answers so far are saved."
+              : "Otis is ready for you. The assessment takes around 20–30 minutes and you can pause and return at any time."}
+          </p>
+          <a
+            href={`/interview/${member.member_id}`}
+            className="btn-primary inline-block text-center"
+            style={{ padding: "10px 20px", fontSize: "14px", textDecoration: "none" }}
+          >
+            {member.status === "in_progress" ? "Continue →" : "Begin →"}
+          </a>
+        </section>
+      )}
 
       {/* ── Your Phase 1 responses ─────────────────────────────────────── */}
       <section className="card space-y-5">
@@ -174,46 +194,6 @@ export default function MemberProfilePage() {
             </ul>
           )}
         </div>
-
-        {/* Interview stories */}
-        {interview_responses.length > 0 && (
-          <div className="space-y-4">
-            <p className="form-label" style={{ marginBottom: 2 }}>
-              What you shared
-            </p>
-            {interview_responses.map((iv) => {
-              const s = probedStatements.get(iv.statement_id);
-              return (
-                <div
-                  key={iv.id}
-                  className="rounded-xl p-4"
-                  style={{ background: "rgba(255,255,255,0.5)" }}
-                >
-                  {s && (
-                    <p className="text-sm font-medium mb-2">{s.statement_text}</p>
-                  )}
-                  <dl className="space-y-2 text-sm text-[var(--color-grey)]">
-                    {iv.situation_text && (
-                      <StoryRow label="The situation" value={iv.situation_text} />
-                    )}
-                    {iv.out_behavior_text && (
-                      <StoryRow label="What people did" value={iv.out_behavior_text} />
-                    )}
-                    {iv.outcome_text && (
-                      <StoryRow label="The effect" value={iv.outcome_text} />
-                    )}
-                    {iv.in_behavior_text && (
-                      <StoryRow
-                        label="What could be different"
-                        value={iv.in_behavior_text}
-                      />
-                    )}
-                  </dl>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         {/* Purpose */}
         {data.purpose_response?.purpose_text && (
@@ -297,15 +277,6 @@ export default function MemberProfilePage() {
           body="Appears here once your consultant releases your team's results, so you can always come back to it."
         />
       )}
-    </div>
-  );
-}
-
-function StoryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-wide">{label}</dt>
-      <dd className="text-[var(--color-ink)]">{value}</dd>
     </div>
   );
 }

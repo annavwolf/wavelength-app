@@ -1,9 +1,10 @@
 "use client";
 
 import Accordion from "./Accordion";
+import ZoneStatCard from "./ZoneStatCard";
 import {
-  BAND_COLOR, FAV_GREEN, NEU_YELLOW, UNFAV_RED, ZONE_NAME, ZONE_SHORT, ZONE_BADGE,
-  hasText, isSmallN, type PsStatementScore, type Tier1Result, type Tier2Result, type ZoneScore,
+  FAV_GREEN, NEU_YELLOW, UNFAV_RED, ZONE_NAME, ZONE_SHORT, ZONE_BADGE,
+  hasText, type PsStatementScore, type Tier1Result, type Tier2Result,
 } from "./types";
 
 // 5-point colour scale for the per-statement distribution (strongly disagree → strongly agree).
@@ -13,43 +14,6 @@ const POINT_COLOR: Record<number, string> = {
 const POINT_LABEL: Record<number, string> = {
   1: "Strongly disagree", 2: "Disagree", 3: "Neutral", 4: "Agree", 5: "Strongly agree",
 };
-
-function favWord(pct: number, total: number, count: number, small: boolean): string {
-  if (small) return `${count} of ${total} members favorable`;
-  return `${Math.round(pct)}% favorable (${count} of ${total} members)`;
-}
-
-// One zone summary card: % favorable (labelled), the fav/neutral/unfavorable
-// split as a bar + counts, and a plain agreement caption.
-function ZoneOverviewCard({ z }: { z: ZoneScore }) {
-  const { counts } = z;
-  const total = counts.total || 1;
-  const small = isSmallN(counts.total);
-  const seg = (n: number) => (n / total) * 100;
-  return (
-    <div className="card">
-      <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-1">Zone {z.zone}</p>
-      <h3 className="text-lg mb-3" style={{ fontFamily: "Playfair Display, serif" }}>{ZONE_NAME[z.zone]}</h3>
-      <div className="text-4xl font-bold mb-1" style={{ color: BAND_COLOR[z.band] }}>
-        {small ? `${counts.favorable}/${counts.total}` : `${Math.round(z.pct_favorable)}%`}
-      </div>
-      <p className="text-xs text-[var(--color-grey)] mb-3">
-        {favWord(z.pct_favorable, counts.total, counts.favorable, small)}
-      </p>
-      <div className="h-3 rounded-full overflow-hidden flex mb-2" style={{ backgroundColor: "#E5E7EB" }}>
-        <div style={{ width: `${seg(counts.favorable)}%`, backgroundColor: FAV_GREEN }} />
-        <div style={{ width: `${seg(counts.neutral)}%`, backgroundColor: NEU_YELLOW }} />
-        <div style={{ width: `${seg(counts.unfavorable)}%`, backgroundColor: UNFAV_RED }} />
-      </div>
-      <p className="text-xs text-[var(--color-grey)]">
-        Favorable {counts.favorable} · Neutral {counts.neutral} · Unfavorable {counts.unfavorable} · mean {z.mean_effective.toFixed(1)}/5
-      </p>
-      <p className="text-xs text-[var(--color-grey)] mt-1">
-        Agreement spread (SD): {z.agreement_sd.toFixed(2)} — lower means members answered more alike.
-      </p>
-    </div>
-  );
-}
 
 function StatementRow({ s }: { s: PsStatementScore }) {
   const { counts } = s;
@@ -96,7 +60,7 @@ export default function PsSafetyPanel({
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {zones.map((z) => <ZoneOverviewCard key={z.zone} z={z} />)}
+        {zones.map((z) => <ZoneStatCard key={z.zone} z={z} />)}
       </div>
 
       {/* Survey Item Breakdown */}

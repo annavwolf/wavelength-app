@@ -20,7 +20,7 @@ export default function RootLayout({
             <img
               src="/logo-wordmark.png"
               alt="Wavelength"
-              className="h-8 w-auto"
+              className="h-12 w-auto"
             />
           </header>
           <AuthGate>{children}</AuthGate>

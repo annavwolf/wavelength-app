@@ -323,9 +323,9 @@ export default function TeamMembersPage() {
         {members.length > 0 && (
           <button
             className="btn-primary mt-10"
-            onClick={() => router.push(`/teams/${teamId}/fish`)}
+            onClick={() => router.push(`/teams/${teamId}/invite`)}
           >
-            Next: choose patterns →
+            Next: invite members →
           </button>
         )}
       </div>

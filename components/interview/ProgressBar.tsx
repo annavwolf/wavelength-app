@@ -1,39 +1,116 @@
 import type { InterviewStep } from "./types";
 
-const STEP_ORDER: InterviewStep[] = [
-  "landing",
-  "foreshadow",
-  "faq",
-  "consent",
-  "profile",
-  "personal_context",
-  "purpose",
-  "roster",
-  "coordination",
-  "ps_intro_open",
-  "ps_descent",
-  "ps_intro_close",
-  "ps_frame",
-  "ps_diagnostic",
-  "review",
-  // "close" is the terminal step — fraction reaches 1 when we get there.
+const SECTIONS: { label: string; steps: InterviewStep[]; color: string }[] = [
+  {
+    label: "Introduction",
+    steps: ["landing"],
+    color: "#6B4EA8",   // purple — matches the app's primary accent
+  },
+  {
+    label: "Personal & team info",
+    steps: ["profile", "personal_context", "purpose", "team_name", "missing_member", "own_role", "coordination"],
+    color: "#A05A46",   // terracotta — matches rgba(160, 90, 70) section tint
+  },
+  {
+    label: "Psychological safety",
+    steps: ["ps_why", "consent", "faq", "ps_descent", "ps_diagnostic", "ps_importance"],
+    color: "#1A5A6E",   // ocean teal — matches rgba(26, 90, 110) section tint
+  },
+  {
+    label: "Finish",
+    steps: ["what_happens_next", "review", "close"],
+    color: "#9A5B06",   // warm gold — matches rgba(154, 91, 6) section tint
+  },
 ];
 
-export default function ProgressBar({ step }: { step: InterviewStep }) {
-  const index = STEP_ORDER.indexOf(step);
-  const fraction =
-    step === "close" || step === "already_complete"
-      ? 1
-      : index === -1
-        ? 0
-        : (index + 1) / STEP_ORDER.length;
+const ORDERED: InterviewStep[] = SECTIONS.flatMap((s) => s.steps);
+
+export default function ProgressBar({
+  step,
+  reachedStep,
+  onSectionClick,
+}: {
+  step: InterviewStep;
+  // Highest step the member has reached — enables forward navigation to
+  // sections already started, even after navigating backward.
+  reachedStep?: InterviewStep;
+  onSectionClick?: (firstStep: InterviewStep) => void;
+}) {
+  const isComplete = step === "already_complete";
+  const currentIdx = isComplete ? ORDERED.length : ORDERED.indexOf(step);
+  const reachedIdx = reachedStep ? ORDERED.indexOf(reachedStep) : currentIdx;
+  // maxIdx controls reachability only (can you click this section?).
+  // fill uses currentIdx so the bar reflects where you are right now.
+  const maxIdx = isComplete ? ORDERED.length : Math.max(currentIdx, reachedIdx);
 
   return (
-    <div className="w-full h-1.5 bg-black/10 rounded-full overflow-hidden mb-12">
-      <div
-        className="h-full bg-[var(--color-purple)] transition-all duration-500 ease-out"
-        style={{ width: `${fraction * 100}%` }}
-      />
+    <div className="w-full mb-12">
+      <div className="flex gap-1 h-3 mb-2">
+        {SECTIONS.map((section) => {
+          // Fill = fraction of this section's steps that are behind current position.
+          const fill = isComplete
+            ? 1
+            : currentIdx === -1
+              ? 0
+              : section.steps.filter((s) => ORDERED.indexOf(s) < currentIdx).length /
+                section.steps.length;
+
+          const sectionFirstIdx = ORDERED.indexOf(section.steps[0]);
+          const isCurrent = section.steps.includes(step as InterviewStep);
+
+          return (
+            <div
+              key={section.label}
+              className="relative h-full rounded-full overflow-hidden"
+              style={{
+                flex: section.steps.length,
+                backgroundColor: isCurrent ? `${section.color}25` : "rgba(0,0,0,0.08)",
+              }}
+            >
+              <div
+                className="absolute inset-y-0 left-0 transition-all duration-500 ease-out"
+                style={{
+                  width: `${fill * 100}%`,
+                  backgroundColor: section.color,
+                  // Active section's filled portion is fully opaque; past sections slightly muted.
+                  opacity: isCurrent ? 1 : currentIdx > sectionFirstIdx ? 0.7 : 1,
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-1">
+        {SECTIONS.map((section) => {
+          const sectionFirstIdx = ORDERED.indexOf(section.steps[0]);
+          const reachable = maxIdx >= sectionFirstIdx;
+          const isCurrent = section.steps.includes(step as InterviewStep);
+
+          return (
+            <button
+              key={section.label}
+              type="button"
+              disabled={!reachable || !onSectionClick}
+              onClick={() => reachable && onSectionClick?.(section.steps[0])}
+              className={`text-left leading-tight truncate transition-colors ${
+                isCurrent
+                  ? "text-[var(--color-ink)] font-semibold"
+                  : reachable
+                    ? "text-[var(--color-grey)] hover:text-[var(--color-ink)]"
+                    : "text-[var(--color-grey)]/40 cursor-default"
+              }`}
+              style={{
+                flex: section.steps.length,
+                fontSize: "13px",
+                color: isCurrent ? section.color : undefined,
+              }}
+            >
+              {section.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

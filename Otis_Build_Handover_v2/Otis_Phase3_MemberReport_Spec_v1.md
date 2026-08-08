@@ -193,7 +193,14 @@ After the reads and pulse checks, Otis introduces today's focus item explicitly,
 >
 > Doesn't need to be a big thing — small moments count too. Try to describe what was happening, who was there, and what happened."
 
-The story-eliciting prompt should reuse the discipline from the original Phase 1 interview scripts: encourage description of the situation, the behaviours, and the outcome. Otis should let the member describe things in their own way — no strict bucket prompts.
+**Build note — this is a fix, not a new design:** the currently-built `phase3_conversation.ts` explicitly tells Otis "do NOT ask for situation/behavior/outcome analysis," which is why the story portion has felt thin. That line should be REMOVED. Replace it with the following, reusing existing material rather than writing anything new:
+
+Reuse `ps_interview_revised.ts`'s **Turn 1 (Situation)** and **Turn 2 (Behavior)** probing logic verbatim for eliciting each story here:
+- Situation probing: don't accept a one-line story. If the setting or what-the-team-was-trying-to-do is missing, ask for it, the same way Turn 1 does.
+- Behavior probing + **adjective redirect**: if the member describes what happened only in trait words ("was dismissive," "wasn't listening"), reflect it back and ask what they actually saw or heard, exactly as the existing adjective-redirect rule already does.
+- The "good enough, don't chase perfection" principle still applies (§7 already carries this) — this is probing for a concrete story, not running the full 4-bucket/4-turn-cap structure.
+
+Do NOT reuse Turn 3 (Outcome) or Turn 4 (Reflection) — those are superseded by §4.4's behavior-generation activity, which now does that job. Only Situation + Behavior probing carries over.
 
 ### 4.3 Live context reflection + invitation to another story
 
@@ -205,6 +212,8 @@ The story-eliciting prompt should reuse the discipline from the original Phase 1
 > "Thanks for telling me that. Your story took place in **[context]**. Have there been other moments on your team, in a different setting — a different meeting, a chat, an email exchange, a project — where you noticed something around **[ACTION PHRASE]**?"
 
 The member may say "no, that was the main one" and that is fine. If they offer a second story, Otis may (optionally) invite a third, following the same pattern — name the new context back, invite a different one. Cap at 3 stories total to prevent fatigue.
+
+**Every story, not just the first, gets the same Situation + Behavior probing from §4.2's build note** — a second story that's just as thin as a first one gets the same reflect-and-ask treatment, not a free pass because it's a repeat.
 
 ### 4.4 Transition to the behaviours activity — educational
 
@@ -282,6 +291,8 @@ Keyed by statement_id, three ALWAYS and three NEVER per item, shown during §4.4
 ## 5. Consultant pre-release review (relocated from old §3.5)
 
 **Timing (changed by this pivot):** the consultant review now sits between "all members have finished Phase 3" and "the workshop is scheduled." It is a TEAM-LEVEL gate, not a per-member gate. The member's closing message ("we'll be in touch") goes out BEFORE review. The consultant can edit entries, but the member won't see their original changed — this is accepted.
+
+**Confirmed intentional, not a build default:** the consultant does NOT see stories, pulse-check responses, or behaviors trickling in live as members submit. Everything surfaces at once, only after all members finish. This protects anonymity — if submissions were visible one at a time as they arrived, a consultant could infer who said what from submission order/timing, especially on a small team.
 
 ### What the consultant sees
 

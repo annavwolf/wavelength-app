@@ -12,6 +12,7 @@ import {
 import SharedPurposePanel from "@/components/dashboard/SharedPurposePanel";
 import PsSafetyPanel from "@/components/dashboard/PsSafetyPanel";
 import TeamConnectivityPanel from "@/components/dashboard/TeamConnectivityPanel";
+import FreeTextPanel from "@/components/dashboard/FreeTextPanel";
 import OtisChatBubble from "@/components/dashboard/OtisChatBubble";
 import WorkshopPanel from "@/components/workshop/WorkshopPanel";
 import PreworkReview from "@/components/prework/PreworkReview";
@@ -171,6 +172,20 @@ export default function TeamDashboardPage() {
     setInterpreting(false);
   }
 
+  async function adoptTeamName(name: string) {
+    if (!team || !name.trim() || name.trim() === team.team_name) return;
+    const next = name.trim();
+    const { error } = await supabase
+      .from("teams")
+      .update({ team_name: next })
+      .eq("team_id", teamId);
+    if (error) {
+      console.error("[team] failed to adopt suggested name:", error.message);
+      return;
+    }
+    setTeam({ ...team, team_name: next });
+  }
+
   async function handleSendInvite(memberId: string) {
     setInviteSending((prev) => new Set(prev).add(memberId));
     setInviteError(null);
@@ -248,9 +263,37 @@ export default function TeamDashboardPage() {
                   Invite page
                 </Link>
               </div>
+              {(() => {
+                const suggestions = Array.from(
+                  new Set(
+                    members
+                      .map((m) => m.team_name_suggestion?.trim())
+                      .filter((s): s is string => !!s && s !== team.team_name)
+                  )
+                );
+                if (suggestions.length === 0) return null;
+                return (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-[var(--color-grey)]">
+                      Members suggested:
+                    </span>
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => adoptTeamName(s)}
+                        title="Use this as the team name"
+                        className="text-xs px-3 py-1 rounded-full border border-black/15 hover:border-[var(--color-purple)] hover:text-[var(--color-purple)] transition-colors"
+                      >
+                        {s} <span className="opacity-60">· use</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
             <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] whitespace-nowrap mt-2">
-              ← Back to dashboard
+              ← My Teams
             </Link>
           </div>
 
@@ -364,7 +407,7 @@ export default function TeamDashboardPage() {
       <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-black/10">
         <div className="max-w-6xl mx-auto px-6 py-3 flex flex-wrap items-center gap-4 justify-between">
           <div className="flex items-center gap-4 flex-wrap">
-            <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)]">← Dashboard</Link>
+            <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)]">← My Teams</Link>
             <h2 className="text-lg" style={{ fontFamily: "Playfair Display, serif" }}>{team.team_name}</h2>
             <span className="text-sm text-[var(--color-grey)]">{completeCount} of {totalCount} complete</span>
             <span className={`text-xs px-3 py-1 rounded-full font-medium ${CONF_CLS[tier1.participation.confidence]}`}>
@@ -394,7 +437,7 @@ export default function TeamDashboardPage() {
         {/* Tabs */}
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex gap-1">
-            {([["analytics", "Analytics & Insights"], ["report", "Phase 3"], ["agreement", "Team Agreement"], ["workshop", "Workshop"]] as const).map(([id, label]) => (
+            {([["analytics", "Analytics & Insights"], ["report", "Report & Activity Release"], ["agreement", "Team Agreement"], ["workshop", "Workshop"]] as const).map(([id, label]) => (
               <button key={id} type="button" onClick={() => setActiveTab(id)}
                 className={`px-4 py-2.5 text-sm border-b-2 transition-colors ${
                   activeTab === id
@@ -410,17 +453,13 @@ export default function TeamDashboardPage() {
 
       {activeTab === "report" ? (
         <div className="space-y-0">
-          {/* §1 — Write the member report + send emails to unlock /me/phase3 */}
+          {/* Write + preview the member report, set release toggles, then release. */}
           <ReportReview
             teamId={teamId}
             tier1={tier1}
             tier2={interpretation}
             existingReport={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
           />
-          {/* §2 — Review member pre-work submissions (appears after members complete the survey) */}
-          <div className="border-t border-black/10 mt-2 pt-2">
-            <PreworkReview teamId={teamId} tier1={tier1} tier2={interpretation} />
-          </div>
         </div>
       ) : activeTab === "analytics" ? (
         <div className="max-w-6xl mx-auto px-6 py-10 space-y-14">
@@ -488,14 +527,30 @@ export default function TeamDashboardPage() {
 
           <SharedPurposePanel tier1={tier1} tier2={interpretation} />
           <PsSafetyPanel tier1={tier1} tier2={interpretation} />
+          <FreeTextPanel
+            title="Is psychological safety important to this team?"
+            blurb="Members' own words, in response to whether PS matters for their team. Raw, unanalysed — for your read only. Dismissive or skeptical answers are also flagged in Otis's welfare note above."
+            entries={tier1.ps_importance ?? []}
+          />
           <TeamConnectivityPanel tier1={tier1} codes={completedCodes} />
+          <FreeTextPanel
+            title="Roles, in members' words"
+            blurb="How each member described their own role and contribution. Raw, unanalysed — for your read only."
+            entries={tier1.own_roles ?? []}
+          />
         </div>
       ) : activeTab === "agreement" ? (
-        <Phase4Panel
-          teamId={teamId}
-          initial={(analysis?.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null}
-          allComplete={members.length > 0 && members.every((m) => m.status === "complete")}
-        />
+        <div className="space-y-0">
+          <Phase4Panel
+            teamId={teamId}
+            initial={(analysis?.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null}
+            allComplete={members.length > 0 && members.every((m) => m.status === "complete")}
+          />
+          {/* Review member pre-work (stories + behaviours) that feed the agreement. */}
+          <div className="border-t border-black/10 mt-2 pt-2">
+            <PreworkReview teamId={teamId} tier1={tier1} tier2={interpretation} />
+          </div>
+        </div>
       ) : (
         <WorkshopPanel
           teamId={teamId}
