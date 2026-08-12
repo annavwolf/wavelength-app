@@ -23,6 +23,7 @@ import Phase3ProgressBar, { type Phase3Step, phase3SectionOverlay } from "@/comp
 import { ITEM_EXAMPLES } from "@/lib/itemExamples";
 import { ACTION_PHRASES, PLACE_PHRASES } from "@/prompts/phase3_conversation";
 import { SHARED_PURPOSE_INTRO } from "@/lib/phase3Copy";
+import MemberNav from "@/components/member/MemberNav";
 import { primeSpeech, speakText, cancelSpeech } from "@/lib/speech";
 
 type SessionMember = { member_id: string; display_name: string };
@@ -117,6 +118,9 @@ export default function MemberPhase3Page() {
   // True while a chat (story/impact) is loading or Otis is thinking — gates the
   // page's Continue button so members can't breeze past a pending reply.
   const [chatBusy, setChatBusy] = useState(false);
+  // True while the member has jumped back to a step from the review summary.
+  // Shows a "Return to summary" button so they don't have to step through everything.
+  const [editingFromReview, setEditingFromReview] = useState(false);
 
   // Release toggles drive which sections the member sees. Stories default ON
   // for older reports (undefined); shared purpose defaults OFF.
@@ -210,8 +214,18 @@ export default function MemberPhase3Page() {
   function goToStep(next: Phase3Step) {
     stopSpeech();
     setChatBusy(false);
+    setEditingFromReview(false);
     setPageState(next);
     setReachedStep((prev) => (stepOrder.indexOf(next) > stepOrder.indexOf(prev) ? next : prev));
+  }
+
+  // Called by Phase3ReviewStep's Edit buttons — jumps to a step but remembers
+  // to return to the review summary afterwards.
+  function goToStepFromReview(next: Phase3Step) {
+    stopSpeech();
+    setChatBusy(false);
+    setEditingFromReview(true);
+    setPageState(next);
   }
 
   // Advance to the next active step after `from` (robust to toggled-out steps).
@@ -247,12 +261,17 @@ export default function MemberPhase3Page() {
 
   if (pageState === "not_ready") {
     return (
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
-        <img src="/octopus-logo.png" alt="" className="h-16 w-auto mx-auto mb-6" />
-        <h1 className="text-2xl font-serif mb-3" style={{ fontFamily: "Playfair Display, serif" }}>Not quite ready yet</h1>
-        <p className="text-[var(--color-grey)] max-w-sm">
-          Your consultant is finishing the analysis. They&apos;ll be in touch when this activity is ready.
-        </p>
+      <main className="flex-1 px-6 py-10">
+        <div className="max-w-2xl mx-auto">
+          <MemberNav />
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <img src="/octopus-logo.png" alt="" className="h-16 w-auto mx-auto mb-6" />
+            <h1 className="text-2xl font-serif mb-3" style={{ fontFamily: "Playfair Display, serif" }}>Not quite ready yet</h1>
+            <p className="text-[var(--color-grey)] max-w-sm">
+              Your consultant is finishing the analysis. They&apos;ll be in touch when this activity is ready.
+            </p>
+          </div>
+        </div>
       </main>
     );
   }
@@ -661,12 +680,21 @@ export default function MemberPhase3Page() {
             memberId={memberId} teamId={teamId} memberName={firstName} supabase={supabase}
             storyVerbatim={storyVerbatim} behaviorVerbatim={behaviorVerbatim} readAloud={readAloud}
             includeStories={includeStories}
-            onEditStep={goToStep}
+            onEditStep={goToStepFromReview}
             onConsentChange={(f) => {
               if (typeof f.phase3_story_verbatim === "boolean") setStoryVerbatim(f.phase3_story_verbatim);
               if (typeof f.phase3_behavior_verbatim === "boolean") setBehaviorVerbatim(f.phase3_behavior_verbatim);
             }}
-            onSubmit={() => { stopSpeech(); setPageState("done"); }}
+            onSubmit={() => {
+              stopSpeech();
+              // Record Phase 3 completion (distinct from the Phase 1 status).
+              if (memberId) {
+                void supabase.from("members")
+                  .update({ phase3_completed_at: new Date().toISOString() })
+                  .eq("member_id", memberId);
+              }
+              setPageState("done");
+            }}
             onWithdrawn={() => { stopSpeech(); setPageState("withdrawn"); }}
           />
         ) : null;
@@ -676,10 +704,13 @@ export default function MemberPhase3Page() {
           <div className="w-full max-w-2xl mx-auto px-6 pb-16 text-center flex flex-col items-center py-12">
             <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
             <h1 className="text-3xl font-serif mb-3" style={{ fontFamily: "Playfair Display, serif" }}>Thank you, {firstName}.</h1>
-            <p className="text-[var(--color-grey)] max-w-sm leading-relaxed">
+            <p className="text-[var(--color-grey)] max-w-sm leading-relaxed mb-8">
               That&apos;s it for now. This is exactly what we&apos;ll build on together in the workshop. I&apos;ll let your
               facilitator know you&apos;re done, and we&apos;ll be in touch to get the group session on the calendar.
             </p>
+            <a href="/me" className="btn-primary inline-block text-center" style={{ textDecoration: "none" }}>
+              Back to my team
+            </a>
           </div>
         );
 
@@ -709,7 +740,14 @@ export default function MemberPhase3Page() {
       <div className="fixed inset-0 pointer-events-none transition-colors duration-700" style={{ background: phase3SectionOverlay(barStep) }} />
 
       <div className="w-full max-w-2xl px-6 pt-8 relative z-10">
-        <div className="flex items-center justify-end mb-2">
+        {/* Back to team hub — always available from within the survey */}
+        <div className="flex items-center justify-between mb-2">
+          <a
+            href="/me"
+            className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors"
+          >
+            ← Back to my team
+          </a>
           <ReadAloudToggle enabled={readAloud} onToggle={toggleReadAloud} />
         </div>
         <Phase3ProgressBar step={barStep} reachedStep={reachedStep} complete={isTerminal} onSectionClick={goToStep} activeSteps={stepOrder} />
@@ -717,11 +755,18 @@ export default function MemberPhase3Page() {
 
       <div className="w-full relative z-10">{renderContent()}</div>
 
-      {/* Only a back arrow — forward is always via the in-page Continue button
-          (or the progress-bar sections), so there's never a duplicate control. */}
-      {canBack && (
+      {/* Fixed bottom-left controls: back arrow, or "Return to summary" when editing from review */}
+      {editingFromReview ? (
+        <button
+          type="button"
+          onClick={() => goToStep("review")}
+          className="fixed bottom-6 left-6 z-20 px-4 py-2.5 rounded-full border border-[var(--color-purple)]/40 bg-white/90 backdrop-blur-sm text-sm font-medium text-[var(--color-purple)] hover:bg-[var(--color-purple)] hover:text-white transition-colors shadow-sm"
+        >
+          ← Return to summary
+        </button>
+      ) : canBack ? (
         <button type="button" onClick={goBack} aria-label="Go back" className="fixed bottom-6 left-6 z-20 p-3 rounded-full border border-black/15 bg-white/60 backdrop-blur-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors text-xl leading-none shadow-sm">←</button>
-      )}
+      ) : null}
     </main>
   );
 }

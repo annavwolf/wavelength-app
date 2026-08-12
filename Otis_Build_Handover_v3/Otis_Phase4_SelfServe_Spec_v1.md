@@ -51,21 +51,74 @@ If "It depends" or "I don't think so": *"Can you tell me more?"* (open text)
 
 ---
 
-## 2. Behaviour grouping (reuse existing infrastructure)
+## 2. Behaviour grouping — two-pass example-bucket classification
 
-**Reuse `lib/embeddings.ts` and `lib/clustering.ts`.** They already exist and work. This is a scaled-down single-stream version of what was built for the retired 5-stream pipeline.
+**This supersedes the earlier D-044/D-050 centroid method described in previous versions of this spec.** The old approach (embed → cluster by cosine → pick centroid-closest wording) had a known concern: with small teams, one member's exact phrasing could become the team's agreement text. This section replaces it with a two-pass LLM classification into a fixed set of pre-authored example behaviours (from Phase 3 spec §4.8), preserving Anna's expertise in the surfaced wording and eliminating "one member's words win" as a failure mode.
 
-**Method (per D-044/D-050, unchanged):**
-1. Embed each member-submitted behaviour
-2. Group by fixed cosine threshold (union-find, deterministic)
-3. Count **distinct members** per group (D-040 convergence counting — three members phrasing "don't interrupt" three ways = 3 members, not 3 behaviours)
-4. **The maths forms groups; the LLM only names them.** Counts must be reproducible run-to-run.
+**Deliberate tradeoff, worth being explicit about:** this approach replaces members' own wording with Anna's pre-authored bucket labels in the final agreement. This is a considered change from the earlier fidelity-to-member-voice design. Members still generate behaviours in their own words in Phase 3; the substitution happens at analysis time, and the exit-interview copy must frame this as translation-into-standard-form, not selection of one member's words over another's (see also §6 wording).
 
-**Differences from the old pipeline:** one stream, not five. No coding pass — members already typed clean, coached behaviours. Behaviours carry their bucket tag (never/sometimes/always).
+### 2.1 The bucket universe
 
-**Representative wording (locked):** within each group, surface the phrasing closest to the group centroid — the most typical way the team actually said it. **Do NOT synthesise new wording.** Picking preserves the team's voice; synthesising produces Otis-voice.
+The 36 ALWAYS example behaviours and 36 NEVER example behaviours from Phase 3 spec §4.8 (across all 12 PS items) form the fixed bucket set. **The item each example originally belonged to is preserved in metadata but is not used as a constraint** — a member behaviour submitted for item 5 may bucket into an example that was originally authored under item 1. Cross-item bucketing is the whole point: it reveals patterns that transcend the specific item the team is currently focused on.
 
-**Natural pairs:** the LLM may combine near-identical behaviours *within a single group* at the naming step ("never roll our eyes or scoff"). It may NOT merge across groups — that would change counts.
+The bucket set is separated by valence: ALWAYS submissions can only bucket into ALWAYS examples, NEVER into NEVER, SOMETIMES into either (see §2.5). No cross-valence bucketing.
+
+### 2.2 Pass 1 — Initial classification (independent, per-submission)
+
+For each member-submitted behaviour, an LLM call proposes exactly one bucket, or `unbucketed`. Rules:
+
+- **One bucket per submission, maximum.** No multi-labelling.
+- The prompt receives: the submitted behaviour, its valence (never / sometimes / always), and the full valence-appropriate bucket set with labels.
+- **Bias toward `unbucketed`.** The prompt explicitly instructs: *"if none of the buckets clearly fits, return `unbucketed`. Do not stretch a bucket to fit. Do not force-fit near-matches. A behaviour that doesn't cleanly belong in a bucket is more useful surfaced as unbucketed than mislabelled."*
+- Return structured output: `{ submission_id, proposed_bucket_id | null, confidence: "high" | "medium" | "low", one_line_reason }`.
+
+Independent calls per submission — no batch classification, so each behaviour is judged on its own merits without the model being biased by patterns it's already seen in this run.
+
+### 2.3 Pass 2 — Critical review (second independent brain)
+
+A separate LLM call reviews Pass 1's outputs. This is the "critical brain," and its job is explicitly framed as *skeptical*, not confirmatory.
+
+The Pass 2 prompt receives, for each submission:
+- The original submitted behaviour
+- Pass 1's proposed bucket (or `unbucketed`)
+- Pass 1's one-line reason
+- The full valence-appropriate bucket set
+
+Pass 2 does three jobs, in this order:
+
+1. **Challenge Pass 1's assignments.** For each bucketed submission, ask: "Is this really the best fit, or is there a better bucket? Or does it not fit any bucket well enough to be assigned?" Pass 2 may **move** a submission to a different bucket, or **demote** it to `unbucketed`.
+2. **Rescue Pass 1's `unbucketed` submissions.** For each submission Pass 1 left unbucketed, look again: is there actually a reasonable fit that Pass 1 missed? Pass 2 may **place** an unbucketed submission into a bucket, but with the same "don't force-fit" bias as Pass 1.
+3. **Never override a high-confidence Pass 1 assignment casually.** If Pass 1 was high-confidence and Pass 2 wants to move it, Pass 2's reason must be genuinely stronger than Pass 1's, not just an alternative preference.
+
+Output: `{ submission_id, final_bucket_id | null, pass2_action: "confirmed" | "moved" | "demoted" | "rescued", pass2_reason }`.
+
+**One bucket per submission, still.** No multi-labelling, and Pass 2 cannot split a submission across buckets.
+
+### 2.4 Counting and ranking
+
+After Pass 2, count **distinct members per bucket** (D-040's convergence rule — three members' submissions bucketing to the same example = 3 members' worth of support, not 3 counts). Rank buckets within each valence by that count. Ties broken by criticality per §3.
+
+### 2.5 SOMETIMES submissions
+
+SOMETIMES-tagged submissions run through the same two-pass process but against the union of ALWAYS and NEVER buckets. Whichever valence they bucket into is recorded, but they are excluded from the top-N selection in §3 (SOMETIMES is for team discussion, not the drafted agreement, per D-052-adjacent).
+
+### 2.6 Unbucketed submissions
+
+Anything that comes out of Pass 2 still unbucketed goes into a separate "Members said this, but it didn't fit standard patterns" panel in the consultant's pre-release review (§5). These are NOT force-fitted, not silently dropped, and not blended into other buckets. They are visible to the consultant as their own group, with a note that they may still be workshop-worthy — an unbucketed submission is often the most idiosyncratic and specific thing the team said, which can be exactly what the workshop needs to discuss.
+
+### 2.7 What the consultant sees for each bucket
+
+- The bucket label (from §4.8)
+- The count of distinct members whose submissions landed here
+- Each contributing submission verbatim, with member identifier and its Pass 1/Pass 2 trajectory (proposed → final, plus reasons)
+- Ability to move a submission between buckets or to `unbucketed` if the consultant disagrees with the classification
+
+### 2.8 What NOT to do
+
+- Do **not** synthesise new bucket wording. The bucket labels are fixed at Anna's authored phrasing from §4.8.
+- Do **not** use embeddings/clustering (`lib/embeddings.ts`/`lib/clustering.ts`) for this classification. Those were the previous approach and can be retired or repurposed for other tasks — this section replaces them.
+- Do **not** batch the LLM calls across submissions in a way that leaks context between them within a single pass. Each submission's Pass 1 judgment must be independent; Pass 2 sees all Pass 1 outputs together, which is intentional.
+- Do **not** allow Pass 2 to invent new buckets. Its options are: the fixed §4.8 set, or `unbucketed`.
 
 ---
 
@@ -149,6 +202,10 @@ Members see three things only. Everything else lives in downloadable artifacts. 
 
 ### 6.1 The team's agreement
 The final agreement, displayed clearly.
+
+**Framing note (add above the agreement):** because the bucketed classification approach in §2 replaces members' verbatim wording with standardised bucket labels, the agreement should be introduced with one honest line, not presented as "your team's own words." Suggested wording:
+
+> "Otis grouped what your team said into common behavioural patterns. Here's your team's agreement, in that standard form."
 
 ### 6.2 What to do next (verbatim script)
 

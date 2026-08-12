@@ -9,8 +9,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import { MODELS } from "@/lib/models";
-import { groupTeamBehaviours } from "@/lib/behaviourGrouping";
+import { classifyTeamBehaviours } from "@/lib/behaviourClassification";
 import { renderAgreementSentence } from "@/lib/agreementText";
+import { buildArtifacts } from "@/lib/phase4Artifacts";
 import { ACTION_PHRASES } from "@/prompts/phase3_conversation";
 import type { Networks } from "@/components/dashboard/types";
 import type {
@@ -236,7 +237,7 @@ function buildRoadmap(clarity: Phase4Clarity): string {
 
 // ── Orchestrator ─────────────────────────────────────────────────────────────
 
-export type GeneratedInsights = Omit<Phase4SelfServeJson, "artifacts" | "released_at" | "sent_member_ids">;
+export type GeneratedInsights = Omit<Phase4SelfServeJson, "released_at" | "sent_member_ids">;
 
 export async function generatePhase4Insights(
   teamId: string,
@@ -244,8 +245,8 @@ export async function generatePhase4Insights(
   focusStatementText: string,
   networks: Networks | null
 ): Promise<GeneratedInsights> {
-  const [{ groups, memberCount }, storiesRes, contextRes] = await Promise.all([
-    groupTeamBehaviours(teamId),
+  const [{ groups, unbucketed, memberCount }, storiesRes, contextRes] = await Promise.all([
+    classifyTeamBehaviours(teamId),
     supabase.from("member_stories").select("member_id, situation_tag").eq("team_id", teamId),
     supabase.from("phase3_context_responses").select("*").eq("team_id", teamId),
   ]);
@@ -281,6 +282,10 @@ export async function generatePhase4Insights(
   const { dist: commitmentDist, lowNote } = commitmentDistribution(contextRows);
   const { dist: touchpointDist, note: touchpointNote, asyncSkew } = touchpointDistribution(contextRows, networks);
 
+  // Build artifacts immediately so the consultant can preview the check-in
+  // protocol and meeting agenda before deciding to release.
+  const artifacts = buildArtifacts({ agreement, agreementText, clarity, asyncSkew });
+
   return {
     behaviour_board: groups,
     agreement,
@@ -299,5 +304,8 @@ export async function generatePhase4Insights(
       closing_note: CLOSING_NOTE,
     },
     async_skew: asyncSkew,
+    unbucketed_submissions: unbucketed,
+    roadmap_shown_to_members: false,
+    artifacts,
   };
 }

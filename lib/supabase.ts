@@ -16,6 +16,14 @@ const supabaseAnonKey = envAnonKey || "placeholder-anon-key";
 // Basic client for server-side / non-session-bound use.
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
+// Service-role client — bypasses RLS entirely. Only used in server API routes
+// that legitimately need access to restricted tables (member_identity, audit log).
+// Never expose this key to the browser.
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? supabaseAnonKey;
+export const supabaseAdmin = createClient<Database>(supabaseUrl, serviceRoleKey, {
+  auth: { persistSession: false },
+});
+
 // Session-aware client for use inside "use client" components — reads/writes
 // the Supabase auth session via cookies so requests carry the signed-in
 // consultant's identity (needed for auth.uid() checks like consultant_id).

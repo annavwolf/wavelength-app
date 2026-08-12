@@ -28,6 +28,26 @@ export type CoordinationFrequency =
   | "rarely";
 export type SeverityLabel = 1 | 2 | 3 | 4;
 
+// Identity table — email and display_name live here after migration 0020.
+// Only the service-role client can access this; RLS is enabled with no policies.
+export type MemberIdentity = {
+  member_id: string;
+  team_id: string;
+  email: string | null;
+  display_name: string;
+}
+
+export type MemberIdentityInsert = {
+  member_id: string;
+  team_id: string;
+  email?: string | null;
+  display_name: string;
+}
+
+// Combined shape returned by the /api/teams/[team_id]/members roster route —
+// merges Member (response data) with MemberIdentity (identity data).
+export type MemberWithIdentity = Member & { display_name: string; email: string | null };
+
 export type Team = {
   team_id: string;
   consultant_id: string;
@@ -95,6 +115,9 @@ export type Member = {
   team_name_suggestion: string | null;
   invited_at: string | null;
   completed_at: string | null;
+  // Set when the member submits the Phase 3 pre-workshop activity (migration
+  // 0018). NULL = not finished. Distinct from status/completed_at (Phase 1).
+  phase3_completed_at: string | null;
   created_at: string;
 }
 
@@ -102,7 +125,10 @@ export type MemberInsert = {
   member_id?: string;
   team_id: string;
   private_code: string;
-  display_name: string;
+  // display_name and email are omitted on insert post-migration 0020 —
+  // they are stored in member_identity instead. Optional here to allow both
+  // the old direct-insert path (expand window) and the new identity-split path.
+  display_name?: string | null;
   email?: string | null;
   role?: string | null;
   location?: string | null;
@@ -125,6 +151,7 @@ export type MemberInsert = {
   team_name_suggestion?: string | null;
   invited_at?: string | null;
   completed_at?: string | null;
+  phase3_completed_at?: string | null;
   created_at?: string;
 }
 
@@ -825,15 +852,32 @@ export type Phase3ConversationMessageInsert = {
 export type Phase4ClarityState = "clear" | "mixed" | "unclear";
 
 // One grouped behaviour on the board — member links removed, convergence count kept.
+// SubmissionClassification is the per-submission record produced by the two-pass
+// bucket classifier (lib/behaviourClassification.ts). Stored inside each
+// Phase4BehaviourGroup (contributing_submissions) and in the unbucketed panel.
+export type SubmissionClassification = {
+  submission_id: string;
+  text: string;
+  valence: BehaviorBucket;
+  member_id: string;
+  pass1_bucket_id: string | null;
+  pass1_confidence: "high" | "medium" | "low";
+  pass1_reason: string;
+  final_bucket_id: string | null;
+  pass2_action: "confirmed" | "moved" | "demoted" | "rescued";
+  pass2_reason: string;
+};
+
 export type Phase4BehaviourGroup = {
-  name: string;               // LLM canonical name (dashboard)
-  representative: string;     // centroid-closest member phrasing (team's own voice)
-  bucket: BehaviorBucket;     // dominant bucket
+  name: string;               // bucket label (§4.8 authored phrasing)
+  representative: string;     // same as name; kept for backward compat
+  bucket: BehaviorBucket;     // dominant bucket valence
   member_count: number;       // distinct members (convergence)
   never_members: number;
   sometimes_members: number;
   always_members: number;
-  bucket_split: boolean;      // members placed it in different buckets
+  bucket_split: boolean;      // members placed submissions in different valences
+  contributing_submissions?: SubmissionClassification[]; // consultant-only
 };
 
 export type Phase4Distribution = {
@@ -882,6 +926,10 @@ export type Phase4SelfServeJson = {
   };
   // Async tailoring flag (§7.1) derived from synchronicity answers.
   async_skew: boolean;
+  // Two-pass classification outputs (§2.6 / §2.7).
+  unbucketed_submissions?: SubmissionClassification[]; // submissions that didn't fit any bucket
+  // Roadmap visibility toggle (consultant controls whether members see the roadmap text).
+  roadmap_shown_to_members?: boolean;
   artifacts: Phase4Artifact[];           // filled at release time
   released_at: string | null;
   sent_member_ids: string[];
@@ -1038,6 +1086,18 @@ export type InterviewLabelUpdate = Partial<InterviewLabelInsert>;
 export type Database = {
   public: {
     Tables: {
+      member_identity: {
+        Row: MemberIdentity;
+        Insert: MemberIdentityInsert;
+        Update: Partial<MemberIdentityInsert>;
+        Relationships: [];
+      };
+      identity_lookup_log: {
+        Row: { id: string; member_id: string; looked_up_by: string; purpose: string | null; created_at: string };
+        Insert: { id?: string; member_id: string; looked_up_by: string; purpose?: string | null; created_at?: string };
+        Update: never;
+        Relationships: [];
+      };
       consultants: {
         Row: Consultant;
         Insert: ConsultantInsert;

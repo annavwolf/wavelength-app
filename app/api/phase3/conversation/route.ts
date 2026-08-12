@@ -39,16 +39,15 @@ function emptyState(): ConvState {
 
 const STORY_TOOL: Anthropic.Tool = {
   name: "record_turn",
-  description: "Record what you say this turn, the accumulated story, and your completion flags. Call every turn.",
+  description: "Record what you say this turn, the accumulated story, and your completion flag. Call every turn.",
   input_schema: {
     type: "object",
     properties: {
       say: { type: "string", description: "Exactly what you say to the member this turn." },
       story_text: { type: "string", description: "Accumulated story text so far (concise, factual). Empty until the member has shared something." },
-      story_complete: { type: "boolean", description: "True when you have received a meaningful story (even brief)." },
-      bridge_complete: { type: "boolean", description: "True only after you have delivered the full bridge message." },
+      story_complete: { type: "boolean", description: "True when you have received at least one meaningful story (or the member has declined). Once true, wrap up briefly and stop — do NOT introduce any new activity." },
     },
-    required: ["say", "story_text", "story_complete", "bridge_complete"],
+    required: ["say", "story_text", "story_complete"],
   },
 };
 
@@ -238,7 +237,7 @@ export async function POST(req: NextRequest) {
   const nextState: ConvState = {
     ...state,
     story_complete: state.story_complete || !!toolInput.story_complete,
-    bridge_complete: state.bridge_complete || !!toolInput.bridge_complete,
+    bridge_complete: state.story_complete || !!toolInput.story_complete, // kept for backwards compat
     story_text: (typeof toolInput.story_text === "string" ? toolInput.story_text.trim() : "") || state.story_text,
   };
   await persistTranscript(memberId, teamId, kind, nextMessages, nextState);
@@ -265,6 +264,6 @@ export async function POST(req: NextRequest) {
     say,
     state: nextState,
     story_complete: nextState.story_complete,
-    bridge_complete: nextState.bridge_complete,
+    bridge_complete: nextState.story_complete, // kept for backwards compat
   });
 }

@@ -55,10 +55,16 @@ export async function POST(req: NextRequest) {
       update.impact_text = body.impact_text.trim() || null;
     }
   } else {
-    update.commitment = (body.commitment as Phase3ContextResponseInsert["commitment"]) ?? null;
-    update.commitment_result =
-      typeof body.commitment_result === "string" ? body.commitment_result.trim() || null : null;
-    update.synchronicity = (body.synchronicity as Phase3ContextResponseInsert["synchronicity"]) ?? null;
+    // Only include each field when the body explicitly provides it.
+    // If a field is absent from the request, leave it untouched in the DB.
+    // (Without this guard, CommitAsk wipes synchronicity and SyncStep wipes commitment.)
+    if (body.commitment !== undefined)
+      update.commitment = (body.commitment as Phase3ContextResponseInsert["commitment"]) ?? null;
+    if (body.commitment_result !== undefined)
+      update.commitment_result =
+        typeof body.commitment_result === "string" ? body.commitment_result.trim() || null : null;
+    if (body.synchronicity !== undefined)
+      update.synchronicity = (body.synchronicity as Phase3ContextResponseInsert["synchronicity"]) ?? null;
   }
 
   const { error } = await supabase

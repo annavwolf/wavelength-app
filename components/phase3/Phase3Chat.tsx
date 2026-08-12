@@ -122,7 +122,7 @@ export default function Phase3Chat({
       setMessages([...convo, { role: "assistant", content: data.say }]);
       setState(data.state as ConvState);
 
-      if (kind === "impact" ? data.impact_complete : data.bridge_complete) {
+      if (kind === "impact" ? data.impact_complete : data.story_complete) {
         onComplete();
       }
     } catch {
@@ -140,7 +140,7 @@ export default function Phase3Chat({
     await callConversation(convo);
   }
 
-  const isDone = kind === "impact" ? state.impact_complete : state.bridge_complete;
+  const isDone = kind === "impact" ? state.impact_complete : state.story_complete;
 
   return (
     <div className="flex flex-col gap-3">

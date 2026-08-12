@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { generateLoginToken, hashLoginToken } from "@/lib/memberTokens";
+import { logIdentityLookup } from "@/lib/auditLog";
 
 // POST /api/member/auth/request  { email }
 // Sends a passwordless magic-link to a member's email. Always responds with the
@@ -22,23 +23,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
   }
 
-  // 1) Is this email on any member? (case-insensitive). Works the same for 1 or
-  //    many matches — the token is keyed to the email, and the multi-team case
-  //    is resolved later, in /verify, by the team chooser.
-  const { data: members, error: lookupError } = await supabase
-    .from("members")
+  // 1) Is this email on any member? Query member_identity (identity table).
+  //    Works the same for 1 or many matches — token is keyed to the email.
+  const { data: identities, error: lookupError } = await supabaseAdmin
+    .from("member_identity")
     .select("member_id, display_name")
     .ilike("email", email);
 
   if (lookupError) {
-    console.error("[member/auth/request] member lookup failed:", lookupError);
+    console.error("[member/auth/request] identity lookup failed:", lookupError);
     return genericOk;
   }
-  // Count only (no PII) — helps confirm the multi-match path was reached.
-  console.info(`[member/auth/request] email matched ${members?.length ?? 0} member(s)`);
-  if (!members || members.length === 0) {
+  // Count only (no PII) — confirms the multi-match path was reached.
+  console.info(`[member/auth/request] email matched ${identities?.length ?? 0} member(s)`);
+  if (!identities || identities.length === 0) {
     return genericOk; // unknown email — say nothing
   }
+  const members = identities;
+  void logIdentityLookup(members[0].member_id, "auth_request", "magic-link email lookup");
 
   // 2) Mint + store a single-use token (only its hash). Done BEFORE the email
   //    step so a missing/misconfigured email provider can never prevent token

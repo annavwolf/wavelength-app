@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { effectiveValue } from "@/lib/psSelection";
 import { embedTexts, cosineSim } from "@/lib/embeddings";
 import type {
@@ -90,8 +90,19 @@ async function runCompute(teamId: string): Promise<NextResponse> {
   }
 
   const memberIds = members.map((m) => m.member_id);
+
+  // Fetch display_names from member_identity for coordination-rating name resolution.
+  const { data: identityRows } = await supabaseAdmin
+    .from("member_identity")
+    .select("member_id, display_name")
+    .in("member_id", memberIds);
+  const displayNameById = new Map((identityRows ?? []).map((i) => [i.member_id, i.display_name]));
+
   const memberById = new Map(members.map((m) => [m.member_id, m]));
-  const memberByName = new Map(members.map((m) => [m.display_name.toLowerCase(), m]));
+  // memberByName is keyed on display_name (from identity) → used for coordination lookup.
+  const memberByName = new Map(
+    members.map((m) => [(displayNameById.get(m.member_id) ?? "").toLowerCase(), m])
+  );
   const codeOf = (id: string) => memberById.get(id)?.private_code ?? "unknown";
 
   // Participation confidence (unchanged).
@@ -125,27 +136,39 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     const zoneStatementIds = new Set(
       statements.filter((s) => s.zone === zone).map((s) => s.statement_id)
     );
+    // Collect every response in the zone (for mean/SD) and group them per member
+    // so the headline favorability is MEMBER-based (x of N members), not
+    // response-based (x of members×items). Each member's stance in the zone is
+    // the mean of their answers across the zone's items.
     const effs: number[] = [];
-    let favorable = 0,
-      neutral = 0,
-      unfavorable = 0;
+    const byMember = new Map<string, number[]>();
     for (const r of psResponses) {
       if (!zoneStatementIds.has(r.statement_id)) continue;
       const stmt = statementById.get(r.statement_id);
       if (!stmt) continue;
       const eff = effectiveValue(stmt, r.response_value);
       effs.push(eff);
-      if (eff >= 4) favorable++;
-      else if (eff === 3) neutral++;
-      else unfavorable++;
+      const arr = byMember.get(r.member_id) ?? [];
+      arr.push(eff);
+      byMember.set(r.member_id, arr);
     }
-    const total = effs.length;
-    const mean = total ? effs.reduce((s, v) => s + v, 0) / total : 0;
+    let favorable = 0,
+      neutral = 0,
+      unfavorable = 0;
+    for (const vals of Array.from(byMember.values())) {
+      const m = vals.reduce((s, v) => s + v, 0) / vals.length;
+      if (m >= 3.5) favorable++;
+      else if (m < 2.5) unfavorable++;
+      else neutral++;
+    }
+    const memberTotal = byMember.size; // members who answered ≥1 item in this zone
+    const respTotal = effs.length;
+    const mean = respTotal ? effs.reduce((s, v) => s + v, 0) / respTotal : 0;
     return {
       zone,
       zone_name: statements.find((s) => s.zone === zone)?.zone_name ?? `Zone ${zone}`,
-      pct_favorable: total ? round((favorable / total) * 100, 1) : 0,
-      counts: { favorable, neutral, unfavorable, total },
+      pct_favorable: memberTotal ? round((favorable / memberTotal) * 100, 1) : 0,
+      counts: { favorable, neutral, unfavorable, total: memberTotal },
       mean_effective: round(mean),
       agreement_sd: round(stdev(effs)),
       band: bandFromMean(mean),
@@ -336,10 +359,10 @@ async function runCompute(teamId: string): Promise<NextResponse> {
   // reads this to flag dismissive/skeptical answers in its welfare note.
   const ownRoles = members
     .filter((m) => m.own_role?.trim())
-    .map((m) => ({ private_code: m.private_code, text: m.own_role!.trim() }));
+    .map((m) => ({ private_code: m.private_code, text: m.own_role!.trim(), share_verbatim: m.share_verbatim_with_team }));
   const psImportance = members
     .filter((m) => m.ps_importance?.trim())
-    .map((m) => ({ private_code: m.private_code, text: m.ps_importance!.trim() }));
+    .map((m) => ({ private_code: m.private_code, text: m.ps_importance!.trim(), share_verbatim: m.share_verbatim_with_team }));
 
   // ── Assemble tier1_json ──────────────────────────────────────────────────────
   const result = {

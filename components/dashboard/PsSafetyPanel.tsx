@@ -54,14 +54,23 @@ export default function PsSafetyPanel({
     <section>
       <h2 className="text-3xl mb-2">Psychological safety</h2>
       <p className="text-sm text-[var(--color-grey)] mb-5 max-w-3xl">
-        The three zones are levels of safety, shallowest first. <span className="font-medium">Favorable</span> means a member
-        answered Agree or Strongly Agree; <span className="font-medium">neutral</span> is the midpoint; <span className="font-medium">unfavorable</span> means
-        Disagree or Strongly Disagree. Percentages are the share of responses that were favorable.
+        The three zones are levels of safety, shallowest first. Each zone score is <span className="font-medium">member-based</span> —
+        it counts how many of the team lean <span className="font-medium">favorable</span> (their answers across that zone average to
+        Agree/Strongly Agree), <span className="font-medium">neutral</span>, or <span className="font-medium">unfavorable</span>
+        (Disagree/Strongly Disagree). The survey-item breakdown below shows the individual responses behind each zone.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
         {zones.map((z) => <ZoneStatCard key={z.zone} z={z} />)}
       </div>
+
+      {/* Participation / confidence note — sits right under the zone numbers so the
+          reader weighs them in context (moved here from the top of the tab). */}
+      {hasText(tier2?.data_quality_note) && (
+        <p className="text-sm text-[var(--color-grey)] bg-black/[0.02] border border-black/10 rounded-xl px-5 py-3 mb-8 max-w-3xl leading-relaxed">
+          {tier2!.data_quality_note}
+        </p>
+      )}
 
       {/* Survey Item Breakdown */}
       <div className="mb-8">

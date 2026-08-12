@@ -9,6 +9,7 @@ import type {
   CoordinationRating,
 } from "@/types/database";
 import { psColorGroup, PS_LABEL_WORD, type PsColor } from "@/lib/psLabels";
+import MemberNav from "@/components/member/MemberNav";
 
 type MeResponse = {
   member: {
@@ -22,6 +23,7 @@ type MeResponse = {
   };
   team: { team_id: string; team_name: string } | null;
   phase3_released: boolean;
+  phase3_complete: boolean;
   phase4_released: boolean;
   statements: PsStatement[];
   ps_responses: PsResponse[];
@@ -98,6 +100,8 @@ export default function MemberProfilePage() {
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
+      {/* Team hub — the team name is the H1 below, so only surface "My Teams" here. */}
+      <MemberNav showTeamLink={false} />
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -225,8 +229,18 @@ export default function MemberProfilePage() {
         )}
       </section>
 
-      {/* ── Phase 3 / workshop (unlocks when consultant releases) ──────── */}
-      {data.phase3_released ? (
+      {/* ── Phase 3 / workshop (unlocks when consultant releases, locks after completion) ── */}
+      {data.phase3_complete ? (
+        <section className="card" style={{ padding: "20px 24px" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <span aria-hidden className="text-green-600">✓</span>
+            <h2 className="text-lg" style={{ fontFamily: "Playfair Display, serif" }}>Pre-workshop activity</h2>
+          </div>
+          <p className="text-sm text-[var(--color-grey)] leading-relaxed">
+            You&apos;ve completed this activity. Your consultant will be in touch with the next steps.
+          </p>
+        </section>
+      ) : data.phase3_released ? (
         <section className="card" style={{ padding: "20px 24px" }}>
           <h2 className="text-lg mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
             Pre-workshop activity

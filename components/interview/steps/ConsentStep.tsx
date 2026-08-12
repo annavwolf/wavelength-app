@@ -134,18 +134,18 @@ export default function ConsentStep({
 
       <div className="space-y-3 mt-6 mb-6">
         <RadioCard
-          selected={choice === "private"}
-          onSelect={() => setChoice("private")}
-        >
-          Keep my responses fully private — describe patterns, don&apos;t
-          quote me, don&apos;t attach my name.
-        </RadioCard>
-        <RadioCard
           selected={choice === "open"}
           onSelect={() => setChoice("open")}
         >
           I&apos;m comfortable sharing my exact words with my team — shown under
           a random ID, not my name — as a step toward open conversation.
+        </RadioCard>
+        <RadioCard
+          selected={choice === "private"}
+          onSelect={() => setChoice("private")}
+        >
+          Keep my responses fully private — describe patterns, don&apos;t
+          quote me, don&apos;t attach my name.
         </RadioCard>
       </div>
 

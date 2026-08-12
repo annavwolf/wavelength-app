@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { logIdentityLookup } from "@/lib/auditLog";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
@@ -17,28 +18,30 @@ export async function POST(req: NextRequest) {
   const resend = new Resend(apiKey);
   const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
-  const [{ data: member, error: memberError }, { data: team, error: teamError }] =
+  const [{ data: identity, error: identityError }, { data: team, error: teamError }] =
     await Promise.all([
-      supabase.from("members").select("*").eq("member_id", member_id).single(),
+      supabaseAdmin.from("member_identity").select("email, display_name").eq("member_id", member_id).single(),
       supabase.from("teams").select("team_name").eq("team_id", team_id).single(),
     ]);
 
-  if (memberError || !member) {
+  if (identityError || !identity) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
   if (teamError || !team) {
     return NextResponse.json({ error: "Team not found" }, { status: 404 });
   }
-  if (!member.email) {
+  if (!identity.email) {
     return NextResponse.json({ error: "Member has no email address" }, { status: 400 });
   }
 
+  void logIdentityLookup(member_id, "invite_send", "sending assessment invite");
+
   const interviewUrl = `${APP_URL}/interview/${member_id}`;
-  const firstName = member.display_name.split(" ")[0];
+  const firstName = identity.display_name.split(" ")[0];
 
   const { error: sendError } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>",
-    to: member.email,
+    to: identity.email!,
     subject: `Your Wavelength assessment — ${team.team_name}`,
     text: `Hi ${firstName},\n\nYour consultant has set up a Wavelength psychological safety assessment for ${team.team_name}.\n\nThis is a private, confidential interview — your individual responses are never shared with your team. It takes around 15-20 minutes and you can pause and resume at any time.\n\nStart your assessment here:\n${interviewUrl}\n\nThis link is personal to you — please don't share it. If you have questions, contact your consultant directly.`,
     html: `

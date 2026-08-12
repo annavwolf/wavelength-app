@@ -69,7 +69,7 @@ export type Networks = {
 };
 
 export type PurposeEntry = { private_code: string; purpose_text: string; share_verbatim: boolean };
-export type FreeTextEntry = { private_code: string; text: string };
+export type FreeTextEntry = { private_code: string; text: string; share_verbatim?: boolean };
 
 export type Tier1Result = {
   computed_at: string;
@@ -99,6 +99,7 @@ export type Tier2Result = {
   // Ranked focus picks (top 2-3), best first. focus_hypothesis mirrors the top one.
   focus_candidates?: { statement_id?: number; statement_text?: string; zone?: number; why?: string }[];
   member_facing_summary?: string;
+  team_composition_summary?: string;
   data_quality_note?: string;
   messy_or_insufficient_flag?: boolean;
   welfare_or_sensitive_note?: string;

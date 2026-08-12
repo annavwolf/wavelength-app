@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import CoordinationMap from "./CoordinationMap";
-import { FAV_GREEN, NEU_YELLOW, type Tier1Result } from "./types";
+import CoordinationMap, { FREQ_COLOR, FREQ_WIDTH } from "./CoordinationMap";
+import GeographicMap from "./GeographicMap";
+import { NEU_YELLOW, type Tier1Result } from "./types";
 
 // §4.3 — two user-toggleable networks. Minimal plain-English facts only; no
 // density interpretation in v1 (spec §2.6).
@@ -48,23 +49,21 @@ export default function TeamConnectivityPanel({
                 peripheralCodes={coord.peripheral_member_codes}
                 asymmetricPairs={coord.asymmetric_pairs}
               />
-              <div className="flex flex-wrap gap-5 mt-4 text-xs text-[var(--color-grey)] justify-center">
-                {[
-                  { color: FAV_GREEN, label: "Daily" },
-                  { color: "#3B82F6", label: "Weekly" },
-                  { color: "#9CA3AF", label: "Occasionally" },
-                  { color: "#D1D5DB", label: "Rarely" },
-                ].map(({ color, label }) => (
-                  <span key={label} className="flex items-center gap-1.5">
-                    <span className="inline-block w-6 h-0.5 rounded" style={{ backgroundColor: color }} />
-                    {label}
+              <div className="flex flex-wrap gap-x-5 gap-y-2 mt-4 text-xs text-[var(--color-grey)] justify-center items-center">
+                {(["daily", "weekly", "occasionally", "rarely"] as const).map((freq) => (
+                  <span key={freq} className="flex items-center gap-1.5 capitalize">
+                    <span className="inline-block w-7 rounded" style={{ backgroundColor: FREQ_COLOR[freq], height: `${FREQ_WIDTH[freq]}px` }} />
+                    {freq}
                   </span>
                 ))}
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-3.5 h-3.5 rounded-full border border-dashed border-[#9CA3AF]" />
                   Peripheral
                 </span>
-                <span className="flex items-center gap-1.5"><span style={{ color: NEU_YELLOW }}>⚠</span> Asymmetric</span>
+                <span className="flex items-center gap-1.5">
+                  <svg width="26" height="8" aria-hidden><line x1="0" y1="4" x2="26" y2="4" stroke="#999999" strokeWidth="1.75" strokeDasharray="5 4" /></svg>
+                  <span style={{ color: NEU_YELLOW }}>⚠</span> Asymmetric
+                </span>
               </div>
               <div className="mt-6 max-w-2xl mx-auto space-y-1.5 text-sm text-[var(--color-grey)]">
                 {coord.peripheral_member_codes.length > 0 && (
@@ -89,36 +88,25 @@ export default function TeamConnectivityPanel({
       ) : (
         <div>
           <p className="text-sm text-[var(--color-grey)] mb-6">
-            Where members are based. Members without a location are shown to the side.
+            Where members are based. Members in the same location are clustered and linked; clusters placed next to each
+            other share a time zone. Proximity is approximate. Members without a location are shown below.
           </p>
           {!geo ? (
             <p className="text-sm text-[var(--color-grey)]">No location data yet.</p>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {geo.location_groups.map((g) => (
-                  <div key={g.location} className="card" style={{ padding: "16px 20px" }}>
-                    <p className="text-sm font-medium mb-2">{g.location}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {g.private_codes.map((c) => (
-                        <span key={c} className="bg-[var(--color-navy)] text-white text-xs px-2.5 py-0.5 rounded-full">{c}</span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {geo.location_groups.length === 0 && (
-                  <p className="text-sm text-[var(--color-grey)]">No members have shared a location.</p>
-                )}
-              </div>
+              {geo.location_groups.length === 0 ? (
+                <p className="text-sm text-[var(--color-grey)]">No members have shared a location.</p>
+              ) : (
+                <GeographicMap geo={geo} />
+              )}
 
               {geo.unplaced_codes.length > 0 && (
                 <div className="mt-4 rounded-xl border border-dashed border-black/20 bg-black/[0.015] p-4">
-                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">No location on file</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {geo.unplaced_codes.map((c) => (
-                      <span key={c} className="border border-dashed border-[#9CA3AF] text-[var(--color-grey)] text-xs px-2.5 py-0.5 rounded-full">{c}</span>
-                    ))}
-                  </div>
+                  <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-1">No location on file</p>
+                  <p className="text-sm text-[var(--color-grey)]">
+                    {geo.unplaced_codes.length} member{geo.unplaced_codes.length !== 1 ? "s have" : " has"} no location on file.
+                  </p>
                 </div>
               )}
 

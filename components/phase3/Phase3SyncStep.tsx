@@ -25,6 +25,7 @@ type Props = {
 
 export default function Phase3SyncStep({ memberId, teamId, rosterNames, readAloud = false, onComplete }: Props) {
   const [synchronicity, setSynchronicity] = useState<ContextSynchronicity | null>(null);
+  const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +38,18 @@ export default function Phase3SyncStep({ memberId, teamId, rosterNames, readAlou
       } catch { /* non-blocking */ }
     })();
   }, [memberId, teamId]);
+
+  async function saveChoice(s: ContextSynchronicity) {
+    setSaving(true);
+    try {
+      await fetch("/api/phase3/context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, team_id: teamId, phase: "commitment", synchronicity: s }),
+      });
+    } catch { /* non-blocking */ }
+    setSaving(false);
+  }
 
   async function submit() {
     if (!synchronicity) return;
@@ -83,8 +96,8 @@ export default function Phase3SyncStep({ memberId, teamId, rosterNames, readAlou
             <button
               key={s}
               type="button"
-              onClick={() => setSynchronicity(s)}
-              disabled={busy}
+              onClick={() => { setSynchronicity(s); void saveChoice(s); }}
+              disabled={busy || saving}
               className={`select-option w-full text-left px-4 py-3.5 text-base ${selected ? "is-selected font-medium" : ""}`}
             >
               {s}

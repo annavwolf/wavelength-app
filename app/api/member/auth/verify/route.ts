@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { logIdentityLookups } from "@/lib/auditLog";
 import { hashLoginToken } from "@/lib/memberTokens";
 import {
   signSession,
@@ -51,17 +52,38 @@ export async function GET(req: NextRequest) {
     return fail("server");
   }
 
-  // Resolve the member(s) for this email.
-  const { data: members, error: memberError } = await supabase
-    .from("members")
-    .select("member_id, team_id, display_name, private_code, role")
+  // Resolve the member(s) for this email via member_identity.
+  const { data: identities, error: identityError } = await supabaseAdmin
+    .from("member_identity")
+    .select("member_id, team_id, display_name")
     .ilike("email", row.email);
 
-  if (memberError) {
-    console.error("[member/auth/verify] member lookup failed:", memberError);
+  if (identityError) {
+    console.error("[member/auth/verify] identity lookup failed:", identityError);
     return fail("server");
   }
-  if (!members || members.length === 0) return fail("nomember");
+  if (!identities || identities.length === 0) return fail("nomember");
+
+  // Fetch remaining fields (private_code, role) from members.
+  const memberIds = identities.map((i) => i.member_id);
+  const { data: memberRows, error: memberError } = await supabase
+    .from("members")
+    .select("member_id, team_id, private_code, role")
+    .in("member_id", memberIds);
+
+  if (memberError) {
+    console.error("[member/auth/verify] member fetch failed:", memberError);
+    return fail("server");
+  }
+  const memberRowById = new Map((memberRows ?? []).map((m) => [m.member_id, m]));
+  const members = identities.map((i) => ({
+    ...memberRowById.get(i.member_id),
+    member_id: i.member_id,
+    team_id: i.team_id,
+    display_name: i.display_name,
+  }));
+
+  void logIdentityLookups(memberIds, "auth_verify", "magic-link sign-in");
 
   // Exactly one member → sign in.
   if (members.length === 1) {

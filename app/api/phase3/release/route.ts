@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { logIdentityLookups } from "@/lib/auditLog";
 import type { Phase3ReportJson } from "@/types/database";
 
 // POST /api/phase3/release
@@ -37,13 +38,14 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.RESEND_API_KEY;
     const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
-    const [membersRes, teamRes] = await Promise.all([
-      supabase.from("members").select("member_id, display_name, email").eq("team_id", team_id),
+    const [identityRes, teamRes] = await Promise.all([
+      supabaseAdmin.from("member_identity").select("member_id, display_name, email").eq("team_id", team_id),
       supabase.from("teams").select("team_name").eq("team_id", team_id).single(),
     ]);
 
     const teamName = teamRes.data?.team_name ?? "your team";
-    const allMembers = membersRes.data ?? [];
+    const allMembers = identityRes.data ?? [];
+    void logIdentityLookups(allMembers.map((m) => m.member_id), "phase3_release", "sending Phase 3 report");
     const noEmail = allMembers.filter((m) => !m.email).length;
     skippedAlreadySent = resend_all ? 0 :
       allMembers.filter((m) => m.email && alreadySentIds.includes(m.member_id)).length;

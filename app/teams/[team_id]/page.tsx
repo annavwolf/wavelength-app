@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
-import type { Analysis, Member, Team } from "@/types/database";
+import type { Analysis, MemberWithIdentity, Team } from "@/types/database";
 import {
   hasText, ZONE_BADGE, ZONE_SHORT,
   type Tier1Result, type Tier2Result,
@@ -13,31 +13,45 @@ import SharedPurposePanel from "@/components/dashboard/SharedPurposePanel";
 import PsSafetyPanel from "@/components/dashboard/PsSafetyPanel";
 import TeamConnectivityPanel from "@/components/dashboard/TeamConnectivityPanel";
 import FreeTextPanel from "@/components/dashboard/FreeTextPanel";
+import Accordion from "@/components/dashboard/Accordion";
 import OtisChatBubble from "@/components/dashboard/OtisChatBubble";
 import WorkshopPanel from "@/components/workshop/WorkshopPanel";
-import PreworkReview from "@/components/prework/PreworkReview";
 import ReportReview from "@/components/phase3/ReportReview";
 import Phase4Panel from "@/components/phase4/Phase4Panel";
 import type { Phase3ReportJson, Phase4SelfServeJson } from "@/types/database";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function computeConfidence(n: number, rosterSize: number | null): "high" | "moderate" | "provisional" {
-  if (rosterSize !== null && n >= rosterSize * 0.7 && n >= 3) return n >= 6 ? "high" : "moderate";
-  return "provisional";
+// Participation note: replaces "confidence" framing entirely.
+// A fully-responding team is complete data and gets no hedging.
+// A partial team gets a plain note about missing voices.
+function participationNote(completed: number, rosterSize: number | null): string {
+  if (rosterSize === null) {
+    return `${completed} team member${completed === 1 ? "" : "s"} responded.`;
+  }
+  if (completed >= rosterSize) {
+    return `All ${completed} team member${completed === 1 ? "" : "s"} responded.`;
+  }
+  const missing = rosterSize - completed;
+  return `${completed} of ${rosterSize} team members responded — ${missing} haven't responded yet, so this reflects part of the team, not all of it.`;
 }
 
-const CONF_LABEL: Record<string, string> = {
-  high: "High confidence",
-  moderate: "Moderate confidence",
-  provisional: "Provisional",
-};
-const CONF_CLS: Record<string, string> = {
-  high: "bg-green-100 text-green-800",
-  moderate: "bg-blue-100 text-blue-700",
-  provisional: "bg-amber-100 text-amber-800",
-};
+function participationBadgeCls(completed: number, rosterSize: number | null): string {
+  if (rosterSize === null || completed >= rosterSize) return "bg-green-100 text-green-800";
+  if (completed >= Math.ceil(rosterSize * 0.6)) return "bg-blue-100 text-blue-700";
+  return "bg-amber-100 text-amber-800";
+}
+
+function participationBadgeLabel(completed: number, rosterSize: number | null): string {
+  if (rosterSize === null || completed >= rosterSize) return "Full participation";
+  return `${completed} of ${rosterSize} responded`;
+}
 const PS_GREEN = "#2D7A4F";
+// Workshop accent (#11b) — shared by the "Suggested focus for Team Agreement
+// Activity" card and the Workshop tab so the focus reads as workshop-bound.
+const WORKSHOP_ACCENT = "#8A6D1F";
+const WORKSHOP_BG = "rgba(138,109,31,0.07)";
+const WORKSHOP_BORDER = "rgba(138,109,31,0.35)";
 
 function memberStatusCls(m: Member) {
   if (m.status === "complete") return "bg-green-100 text-green-700";
@@ -74,8 +88,10 @@ export default function TeamDashboardPage() {
   const [supabase] = useState(() => createBrowserClient());
 
   const [team, setTeam] = useState<Team | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<MemberWithIdentity[]>([]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [missingFlags, setMissingFlags] = useState<{ missing_name: string; missing_role: string | null }[]>([]);
+  const [phase3DoneIds, setPhase3DoneIds] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
   const [runningAnalysis, setRunningAnalysis] = useState(false);
@@ -97,12 +113,21 @@ export default function TeamDashboardPage() {
     if (teamErr || !teamData) { setLoading(false); return; }
     setTeam(teamData);
 
-    const [membersRes, analysisRes] = await Promise.all([
-      supabase.from("members").select("*").eq("team_id", teamId).order("created_at", { ascending: true }),
+    const membersApiRes = await fetch(`/api/teams/${teamId}/members`);
+    const membersJson: MemberWithIdentity[] = membersApiRes.ok ? await membersApiRes.json() : [];
+
+    const [analysisRes, missingRes, phase3DoneRes] = await Promise.all([
       supabase.from("analysis").select("*").eq("team_id", teamId).maybeSingle(),
+      supabase.from("missing_member_flags").select("missing_name, missing_role").eq("team_id", teamId),
+      // Phase 3 completion: members who submitted at least one behavior (the core Phase 3 deliverable).
+      // More robust than checking synchronicity/context responses, which may be absent for older completions.
+      supabase.from("member_behaviors").select("member_id").eq("team_id", teamId),
     ]);
 
-    setMembers(membersRes.data ?? []);
+    setMembers(membersJson);
+    setMissingFlags(missingRes.data ?? []);
+    // Distinct member_ids who have submitted behaviors (deduped).
+    setPhase3DoneIds(new Set((phase3DoneRes.data ?? []).map((r) => r.member_id)));
 
     const aRow = analysisRes.data ?? null;
     setAnalysis(aRow);
@@ -114,8 +139,8 @@ export default function TeamDashboardPage() {
   }
 
   async function fetchMembers() {
-    const { data } = await supabase.from("members").select("*").eq("team_id", teamId).order("created_at");
-    if (data) setMembers(data);
+    const res = await fetch(`/api/teams/${teamId}/members`);
+    if (res.ok) setMembers(await res.json());
   }
 
   async function handleRunAnalysis() {
@@ -240,7 +265,7 @@ export default function TeamDashboardPage() {
   const totalCount = members.length;
   const rosterSize = team.roster_size ?? totalCount;
   const pctComplete = rosterSize > 0 ? Math.round((completeCount / rosterSize) * 100) : 0;
-  const conf = computeConfidence(completeCount, team.roster_size);
+  // conf retained for the stored tier1.participation.confidence (used by Otis reads and data quality note).
   const tier1 = analysis?.tier1_json as unknown as Tier1Result | null;
   const subtitle = [team.industry, formatVirtuality(team.virtuality_level)].filter(Boolean).join(" · ");
 
@@ -343,7 +368,7 @@ export default function TeamDashboardPage() {
 
               <div className="mt-4 flex items-center gap-4">
                 <p className="text-sm text-[var(--color-grey)]">
-                  {completeCount} of {totalCount} complete
+                  {completeCount}/{totalCount} completed the assessment
                 </p>
                 {members.some((m) => m.email && (m.status === "pending" || m.status === "invited") && !m.invited_at) && (
                   <button type="button" onClick={handleSendAllPending} disabled={sendingAll}
@@ -372,9 +397,7 @@ export default function TeamDashboardPage() {
               </div>
 
               <p className="text-sm text-[var(--color-grey)] mt-3 mb-6">
-                {conf === "high" ? "High confidence"
-                  : conf === "moderate" ? "Moderate confidence"
-                    : "Provisional (3+ members needed)"}
+                {participationNote(completeCount, rosterSize)}
               </p>
 
               {completeCount < 3 ? (
@@ -401,6 +424,29 @@ export default function TeamDashboardPage() {
   const completedCodes = members.filter((m) => m.status === "complete").map((m) => m.private_code);
   const focus = interpretation?.focus_hypothesis;
 
+  // Members flagged as possibly missing from the roster (#11a). Aggregated by
+  // name so the same person flagged twice shows once; the reporter is never shown.
+  const missingAgg = (() => {
+    const map = new Map<string, { name: string; roles: Set<string>; count: number }>();
+    for (const f of missingFlags) {
+      const key = f.missing_name?.trim().toLowerCase();
+      if (!key) continue;
+      const e = map.get(key) ?? { name: f.missing_name.trim(), roles: new Set<string>(), count: 0 };
+      e.count++;
+      if (f.missing_role?.trim()) e.roles.add(f.missing_role.trim());
+      map.set(key, e);
+    }
+    return Array.from(map.values());
+  })();
+
+  // Phase 3 completion — keyed off phase3_context_responses.synchronicity (the
+  // reliable signal; doesn't depend on the members-table write of phase3_completed_at).
+  const phase3Participants = members.filter((m) => m.status === "complete");
+  const phase3CompletedCount = phase3Participants.filter((m) => phase3DoneIds.has(m.member_id)).length;
+  const phase3TotalCount = phase3Participants.length;
+  const phase3AllComplete = phase3TotalCount > 0 && phase3CompletedCount === phase3TotalCount;
+  const phase3Outstanding = phase3Participants.filter((m) => !phase3DoneIds.has(m.member_id)).map((m) => m.display_name);
+
   return (
     <main className="flex-1">
       {/* Sticky header */}
@@ -409,27 +455,18 @@ export default function TeamDashboardPage() {
           <div className="flex items-center gap-4 flex-wrap">
             <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)]">← My Teams</Link>
             <h2 className="text-lg" style={{ fontFamily: "Playfair Display, serif" }}>{team.team_name}</h2>
-            <span className="text-sm text-[var(--color-grey)]">{completeCount} of {totalCount} complete</span>
-            <span className={`text-xs px-3 py-1 rounded-full font-medium ${CONF_CLS[tier1.participation.confidence]}`}>
-              {CONF_LABEL[tier1.participation.confidence]}
+            <span className="text-sm text-[var(--color-grey)]">{completeCount}/{totalCount} completed the assessment</span>
+            <span
+              title={participationNote(completeCount, rosterSize)}
+              className={`text-xs px-3 py-1 rounded-full font-medium cursor-help ${participationBadgeCls(completeCount, rosterSize)}`}>
+              {participationBadgeLabel(completeCount, rosterSize)}
             </span>
             <Link href={`/teams/${teamId}/members`} className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
               Edit members
             </Link>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-[var(--color-grey)]">Last analysed {formatDate(tier1.computed_at)}</span>
-            {interpretation && (
-              <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
-                className="btn-secondary" style={{ padding: "8px 16px", fontSize: "13px" }}>
-                {interpreting ? "Thinking..." : "Re-run read"}
-              </button>
-            )}
-            <button type="button" onClick={handleRunAnalysis} disabled={runningAnalysis}
-              className="btn-secondary" style={{ padding: "8px 18px", fontSize: "13px" }}>
-              {runningAnalysis ? "Running..." : "Re-run analysis"}
-            </button>
-          </div>
+          {/* Analysis controls live in the Analytics & Insights section (they drive that tab). */}
+          <span className="text-xs text-[var(--color-grey)]">Last analysed {formatDate(tier1.computed_at)}</span>
         </div>
         {runError && (
           <div className="max-w-6xl mx-auto px-6 pb-2"><p className="text-sm text-red-600">{runError}</p></div>
@@ -468,14 +505,32 @@ export default function TeamDashboardPage() {
           <section className="relative rounded-2xl overflow-hidden">
             <img src="/ps-ocean.png" alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-            <div className="absolute inset-0 bg-gradient-to-r from-[var(--color-navy)]/85 to-[var(--color-navy)]/55" />
-            <div className="relative px-8 py-10">
-              <h1 className="text-3xl sm:text-4xl text-white" style={{ fontFamily: "Playfair Display, serif" }}>
-                Analytics &amp; Insights
-              </h1>
-              <p className="text-sm text-white/80 mt-2">
-                {team.team_name}{subtitle ? ` · ${subtitle}` : ""}
-              </p>
+            <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(20,32,60,0.9) 0%, rgba(20,32,60,0.7) 60%, rgba(20,32,60,0.5) 100%)" }} />
+            <div className="relative px-8 py-12 sm:py-14 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+              <div>
+                <h1 className="text-4xl sm:text-5xl text-white" style={{ fontFamily: "Playfair Display, serif", textShadow: "0 2px 14px rgba(0,0,0,0.45)" }}>
+                  Analytics &amp; Insights
+                </h1>
+                <p className="text-base text-white/85 mt-2" style={{ textShadow: "0 1px 8px rgba(0,0,0,0.5)" }}>
+                  {team.team_name}{subtitle ? ` · ${subtitle}` : ""}
+                </p>
+                <p className="text-sm text-white/80 mt-3 max-w-xl" style={{ textShadow: "0 1px 8px rgba(0,0,0,0.5)" }}>
+                  {participationNote(completeCount, rosterSize)}
+                </p>
+              </div>
+              {/* #8a — analysis controls belong to this section */}
+              <div className="flex items-center gap-3 flex-shrink-0">
+                {interpretation && (
+                  <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
+                    className="rounded-full border border-white/60 text-white px-4 py-2 text-sm font-medium hover:bg-white/15 transition-colors disabled:opacity-60">
+                    {interpreting ? "Thinking…" : "Re-run read"}
+                  </button>
+                )}
+                <button type="button" onClick={handleRunAnalysis} disabled={runningAnalysis}
+                  className="rounded-full bg-white text-[var(--color-navy)] px-4 py-2 text-sm font-semibold hover:bg-white/90 transition-colors disabled:opacity-60">
+                  {runningAnalysis ? "Running…" : "Re-run analysis"}
+                </button>
+              </div>
             </div>
           </section>
 
@@ -494,70 +549,103 @@ export default function TeamDashboardPage() {
           )}
           {interpretation && interpretError && <p className="text-sm text-red-600">{interpretError}</p>}
 
-          {/* Consultant-only read context (read-only; Phase 3 owns edit/approve) */}
-          {interpretation && (
-            <div className="space-y-4">
-              {interpretation.messy_or_insufficient_flag && (
-                <p className="text-sm italic text-[var(--color-amber)]">
-                  Otis flagged this as a messy or thin read — treat the focus as a starting point and lean on the feedback round.
-                </p>
-              )}
-              {focus && hasText(focus.hypothesis) && (
-                <div className="rounded-2xl border border-[var(--color-purple)]/30 bg-[var(--color-purple)]/5 p-6">
-                  <div className="flex items-center gap-2 mb-2">
-                    <p className="text-xs uppercase tracking-widest text-[var(--color-grey)]">This round&apos;s focus — a seed for the workshop</p>
-                    {focus.zone ? <span className={ZONE_BADGE[focus.zone] ?? ""}>{ZONE_SHORT[focus.zone] ?? `Zone ${focus.zone}`}</span> : null}
-                  </div>
-                  <p className="text-base leading-relaxed">{focus.hypothesis}</p>
-                </div>
-              )}
-              {hasText(interpretation.welfare_or_sensitive_note) && (
-                <div className="rounded-xl border border-[var(--color-navy)]/30 bg-[var(--color-navy)]/5 px-5 py-4">
-                  <p className="text-xs uppercase tracking-widest text-[var(--color-navy)] mb-1.5 font-medium">
-                    For you only — described, never quoted
-                  </p>
-                  <p className="text-sm leading-relaxed">{interpretation.welfare_or_sensitive_note}</p>
-                </div>
-              )}
-              {hasText(interpretation.data_quality_note) && (
-                <p className="text-xs text-[var(--color-grey)]">{interpretation.data_quality_note}</p>
-              )}
-            </div>
+          {interpretation?.messy_or_insufficient_flag && (
+            <p className="text-sm italic text-[var(--color-amber)]">
+              Otis flagged this as a messy or thin read — treat the focus as a starting point and lean on the feedback round.
+            </p>
           )}
 
+          {/* Pre-workshop activity completion — visible here so the consultant
+              always knows who's in before opening the Team Agreement tab. */}
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-black/10 px-5 py-3" style={{ background: "rgba(20,32,60,0.04)" }}>
+            <div>
+              <span className="text-sm font-medium">Pre-workshop activity: {phase3CompletedCount}/{phase3TotalCount} members finished</span>
+              {phase3TotalCount > 0 && phase3CompletedCount < phase3TotalCount && (
+                <p className="text-xs text-[var(--color-grey)] mt-0.5">Waiting on: {phase3Outstanding.join(", ")}</p>
+              )}
+            </div>
+            <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap flex-shrink-0 ${phase3AllComplete ? "bg-green-100 text-green-800" : phase3CompletedCount > 0 ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-600"}`}>
+              {phase3AllComplete ? "All finished" : phase3CompletedCount > 0 ? "In progress" : "Not started"}
+            </span>
+          </div>
+
+          {/* ── a. SHARED PURPOSE — with the team's roles in their own words ── */}
           <SharedPurposePanel tier1={tier1} tier2={interpretation} />
-          <PsSafetyPanel tier1={tier1} tier2={interpretation} />
-          <FreeTextPanel
-            title="Is psychological safety important to this team?"
-            blurb="Members' own words, in response to whether PS matters for their team. Raw, unanalysed — for your read only. Dismissive or skeptical answers are also flagged in Otis's welfare note above."
-            entries={tier1.ps_importance ?? []}
-          />
-          <TeamConnectivityPanel tier1={tier1} codes={completedCodes} />
           <FreeTextPanel
             title="Roles, in members' words"
             blurb="How each member described their own role and contribution. Raw, unanalysed — for your read only."
             entries={tier1.own_roles ?? []}
           />
+          {missingAgg.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+              <p className="text-xs uppercase tracking-widest text-amber-800 mb-1.5 font-medium">Possibly missing from the roster</p>
+              <p className="text-xs text-[var(--color-grey)] mb-3">Members flagged these people during the assessment — check whether anyone should be added to the team.</p>
+              <ul className="space-y-1.5">
+                {missingAgg.map((m, i) => (
+                  <li key={i} className="text-sm">
+                    <span className="font-medium">{m.name}</span>
+                    {m.roles.size > 0 && <span className="text-[var(--color-grey)]"> — {Array.from(m.roles).join(", ")}</span>}
+                    {m.count > 1 && <span className="text-xs text-amber-700"> · flagged by {m.count}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* ── b. PSYCHOLOGICAL SAFETY ── */}
+          <PsSafetyPanel tier1={tier1} tier2={interpretation} />
+          <FreeTextPanel
+            title="Is psychological safety important to this team?"
+            blurb="Members' own words, in response to whether PS matters for their team. Raw, unanalysed — for your read only. Dismissive or skeptical answers are also surfaced under Flagged concerns below."
+            entries={tier1.ps_importance ?? []}
+          />
+          {focus && hasText(focus.hypothesis) && (
+            <div className="rounded-2xl p-6" style={{ background: WORKSHOP_BG, border: `1px solid ${WORKSHOP_BORDER}`, borderLeft: `4px solid ${WORKSHOP_ACCENT}` }}>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: WORKSHOP_ACCENT }}>◆ For the workshop</span>
+                {focus.zone ? <span className={ZONE_BADGE[focus.zone] ?? ""}>{ZONE_SHORT[focus.zone] ?? `Zone ${focus.zone}`}</span> : null}
+              </div>
+              <h3 className="text-xl mb-1.5" style={{ fontFamily: "Playfair Display, serif" }}>Suggested focus for Team Agreement Activity</h3>
+              <p className="text-base leading-relaxed">{focus.hypothesis}</p>
+            </div>
+          )}
+
+          {/* ── c. FLAGGED CONCERNS (was "For you only — described, never quoted") ── */}
+          {interpretation && hasText(interpretation.welfare_or_sensitive_note) && (
+            <Accordion title={<span className="text-[var(--color-navy)] font-medium">Flagged concerns — described, never quoted</span>}>
+              <p className="text-sm leading-relaxed">{interpretation.welfare_or_sensitive_note}</p>
+            </Accordion>
+          )}
+
+          {/* ── d. HOW THE TEAM CONNECTS ── */}
+          <TeamConnectivityPanel tier1={tier1} codes={completedCodes} />
         </div>
       ) : activeTab === "agreement" ? (
         <div className="space-y-0">
           <Phase4Panel
             teamId={teamId}
             initial={(analysis?.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null}
-            allComplete={members.length > 0 && members.every((m) => m.status === "complete")}
+            allComplete={phase3AllComplete}
+            completedCount={phase3CompletedCount}
+            totalCount={phase3TotalCount}
+            outstanding={phase3Outstanding}
+            tier1={tier1}
+            tier2={interpretation}
+            members={members}
+            report={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
           />
-          {/* Review member pre-work (stories + behaviours) that feed the agreement. */}
-          <div className="border-t border-black/10 mt-2 pt-2">
-            <PreworkReview teamId={teamId} tier1={tier1} tier2={interpretation} />
-          </div>
         </div>
       ) : (
-        <WorkshopPanel
-          teamId={teamId}
-          teamName={team.team_name}
-          members={members}
-          focus={interpretation?.focus_hypothesis}
-        />
+        // #11b — the Workshop screen carries the same accent as the "Suggested
+        // focus for Team Agreement Activity" card, so the focus reads as its seed.
+        <div className="min-h-[60vh]" style={{ background: WORKSHOP_BG }}>
+          <WorkshopPanel
+            teamId={teamId}
+            teamName={team.team_name}
+            members={members}
+            focus={interpretation?.focus_hypothesis}
+          />
+        </div>
       )}
 
       {/* Persistent Otis chat, available in both tabs */}

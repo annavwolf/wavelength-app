@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Phase4SelfServeJson } from "@/types/database";
 import RoadmapInfographic from "@/components/phase4/RoadmapInfographic";
+import MemberNav from "@/components/member/MemberNav";
 
 type MeData = {
   member: { display_name: string };
@@ -74,7 +75,8 @@ export default function MemberResultsPage() {
 
   return (
     <main className="flex-1">
-      <div className="w-full max-w-2xl mx-auto px-6 pt-12 pb-20 space-y-10">
+      <div className="w-full max-w-2xl mx-auto px-6 pt-8 pb-20 space-y-10">
+        <MemberNav teamName={data.team?.team_name} />
         <div>
           <img src="/octopus-logo.png" alt="" className="h-10 w-auto mb-5" />
           <h1 className="text-3xl font-serif" style={{ fontFamily: "Playfair Display, serif" }}>
@@ -89,6 +91,9 @@ export default function MemberResultsPage() {
         {/* §6.1 — The agreement */}
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-[var(--color-grey)]">Your team&apos;s agreement</h2>
+          <p className="text-sm text-[var(--color-grey)] leading-relaxed">
+            Otis grouped what your team said into common behavioural patterns. Here&rsquo;s your team&rsquo;s agreement, in that standard form.
+          </p>
           <div className="rounded-2xl border border-[var(--color-navy)]/20 bg-[var(--color-navy)]/4 px-6 py-5 space-y-4">
             <p className="text-base leading-relaxed">
               In order to make this team a place where <strong>{a.ps_item}</strong>
@@ -125,11 +130,19 @@ export default function MemberResultsPage() {
           </div>
         </section>
 
-        {/* §6.3 — Roadmap infographic */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-[var(--color-grey)]">Your 30-day roadmap</h2>
-          <RoadmapInfographic />
-        </section>
+        {/* §6.3 — Roadmap (optional, consultant-toggled; gates both infographic and narrative) */}
+        {p4.roadmap_shown_to_members !== false && (
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-[var(--color-grey)]">Your 30-day roadmap</h2>
+            <RoadmapInfographic />
+            {p4.roadmap && (
+              <div className="rounded-2xl border border-black/10 bg-black/[0.025] px-5 py-4">
+                <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Otis recommends</p>
+                <p className="text-sm leading-relaxed">{p4.roadmap}</p>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* §6.4 — Downloads */}
         <section className="space-y-3">

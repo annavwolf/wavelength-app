@@ -21,6 +21,7 @@ type Props = {
 export default function Phase3CommitAskStep({ memberId, teamId, readAloud = false, onComplete }: Props) {
   const [commitment, setCommitment] = useState<ContextCommitment | null>(null);
   const [result, setResult] = useState("");
+  const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,6 +35,18 @@ export default function Phase3CommitAskStep({ memberId, teamId, readAloud = fals
       } catch { /* non-blocking */ }
     })();
   }, [memberId, teamId]);
+
+  async function saveChoice(c: ContextCommitment) {
+    setSaving(true);
+    try {
+      await fetch("/api/phase3/context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, team_id: teamId, phase: "commitment", commitment: c }),
+      });
+    } catch { /* non-blocking */ }
+    setSaving(false);
+  }
 
   async function submit() {
     if (!commitment) return;
@@ -70,8 +83,8 @@ export default function Phase3CommitAskStep({ memberId, teamId, readAloud = fals
             <button
               key={c}
               type="button"
-              onClick={() => setCommitment(c)}
-              disabled={busy}
+              onClick={() => { setCommitment(c); void saveChoice(c); }}
+              disabled={busy || saving}
               className={`select-option w-full text-left px-4 py-3.5 text-base ${selected ? "is-selected font-medium" : ""}`}
             >
               {c}

@@ -25,6 +25,10 @@ export default function SharedPurposePanel({
   const classification = tier2?.shared_purpose_read?.classification ?? tier1.shared_purpose?.classification;
   const purpose = tier1.purpose ?? [];
 
+  const MIN_N = 5;
+  const canShowVerbatim =
+    purpose.length >= MIN_N && purpose.every((e) => e.share_verbatim === true);
+
   return (
     <section>
       <h2 className="text-3xl mb-4">Shared purpose</h2>
@@ -44,31 +48,37 @@ export default function SharedPurposePanel({
         )}
       </div>
 
+      {hasText(tier2?.team_composition_summary) && (
+        <div className="card mt-4" style={{ padding: "20px 24px" }}>
+          <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-2">Who&apos;s on this team</p>
+          <p className="text-sm leading-relaxed">{tier2!.team_composition_summary}</p>
+        </div>
+      )}
+
       <div className="mt-4">
         <Accordion title={`Raw responses (${purpose.length})`}>
           {purpose.length === 0 ? (
             <p className="text-sm text-[var(--color-grey)]">No purpose responses recorded.</p>
+          ) : !canShowVerbatim ? (
+            <p className="text-sm text-[var(--color-grey)] italic">
+              {purpose.length < MIN_N
+                ? "Individual responses are not shown for groups fewer than 5 to protect anonymity."
+                : "Individual responses are not shown — not all members opted in to sharing their exact words."}
+            </p>
           ) : (
             <div className="space-y-2">
               {purpose.map((entry, i) => (
                 <div key={i} className="flex items-start gap-3">
-                  <span className="bg-[var(--color-navy)] text-white text-xs px-3 py-1 rounded-full flex-shrink-0 mt-0.5">
-                    {entry.private_code}
-                  </span>
-                  {entry.share_verbatim ? (
-                    <p className="text-sm leading-relaxed">{entry.purpose_text}</p>
-                  ) : (
-                    <p className="text-sm text-[var(--color-grey)] italic">
-                      This member preferred to keep their words private.
-                    </p>
-                  )}
+                  <p className="text-sm leading-relaxed">{entry.purpose_text}</p>
                 </div>
               ))}
             </div>
           )}
-          <p className="mt-4 text-xs text-[var(--color-grey)]">
-            Members who kept their words private still inform the alignment read — their responses are never quoted.
-          </p>
+          {canShowVerbatim && (
+            <p className="mt-4 text-xs text-[var(--color-grey)]">
+              All members in this section consented to sharing their exact words.
+            </p>
+          )}
         </Accordion>
       </div>
     </section>

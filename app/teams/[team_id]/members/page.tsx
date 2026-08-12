@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 import LocationAutocomplete from "@/components/LocationAutocomplete";
-import type { Member, Team } from "@/types/database";
+import type { MemberWithIdentity, Team } from "@/types/database";
 
 function statusBadgeClasses(status: string) {
   switch (status) {
@@ -43,7 +43,7 @@ export default function TeamMembersPage() {
   const [supabase] = useState(() => createBrowserClient());
 
   const [team, setTeam] = useState<Team | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<MemberWithIdentity[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [name, setName] = useState("");
@@ -55,38 +55,20 @@ export default function TeamMembersPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function fetchMembers() {
-    const { data, error } = await supabase
-      .from("members")
-      .select("*")
-      .eq("team_id", teamId)
-      .order("created_at", { ascending: true });
-    if (error) console.error("[members] failed to load members:", error);
-    if (data) setMembers(data);
+    const res = await fetch(`/api/teams/${teamId}/members`);
+    if (res.ok) setMembers(await res.json());
   }
 
   useEffect(() => {
     async function load() {
-      const [
-        { data: teamData, error: teamError },
-        { data: memberData, error: memberError },
-      ] = await Promise.all([
+      const [teamRes, membersRes] = await Promise.all([
         supabase.from("teams").select("*").eq("team_id", teamId).single(),
-        supabase
-          .from("members")
-          .select("*")
-          .eq("team_id", teamId)
-          .order("created_at", { ascending: true }),
+        fetch(`/api/teams/${teamId}/members`),
       ]);
 
-      if (teamError) {
-        console.error("[members] failed to load team:", teamError);
-      }
-      if (memberError) {
-        console.error("[members] failed to load members:", memberError);
-      }
-
-      setTeam(teamData ?? null);
-      setMembers(memberData ?? []);
+      if (teamRes.error) console.error("[members] failed to load team:", teamRes.error);
+      setTeam(teamRes.data ?? null);
+      if (membersRes.ok) setMembers(await membersRes.json());
       setLoading(false);
     }
 
@@ -98,50 +80,45 @@ export default function TeamMembersPage() {
     const interval = setInterval(fetchMembers, 30000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, supabase]);
+  }, [teamId]);
 
   async function handleAddMember(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     setErrorMessage(null);
 
-    const { count, error: countError } = await supabase
+    // private_code is derived server-side from the current member count.
+    const { count } = await supabase
       .from("members")
       .select("*", { count: "exact", head: true })
       .eq("team_id", teamId);
 
-    if (countError) {
-      console.error("[members] failed to count existing members:", countError);
-    }
-
     const privateCode = `P${101 + (count ?? 0)}`;
 
-    const insertPayload = {
-      team_id: teamId,
-      display_name: name,
-      email,
-      role: role || null,
-      location: location || null,
-      timezone: timezone || null,
-      private_code: privateCode,
-      status: "pending",
-    };
-    console.log("[members] insert payload:", insertPayload);
+    const res = await fetch(`/api/teams/${teamId}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        display_name: name,
+        email: email || null,
+        role: role || null,
+        location: location || null,
+        timezone: timezone || null,
+        private_code: privateCode,
+        status: "pending",
+      }),
+    });
 
-    const { data, error } = await supabase
-      .from("members")
-      .insert(insertPayload)
-      .select("*")
-      .single();
-
-    if (error || !data) {
-      console.error("[members] insert into members failed:", error);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error("[members] create member failed:", err);
       setErrorMessage("Something went wrong. Please try again.");
       setSubmitting(false);
       return;
     }
 
-    setMembers((prev) => [...prev, data]);
+    const newMember: MemberWithIdentity = await res.json();
+    setMembers((prev) => [...prev, newMember]);
     setName("");
     setEmail("");
     setRole("");
@@ -151,13 +128,12 @@ export default function TeamMembersPage() {
   }
 
   async function handleDeleteMember(memberId: string) {
-    const { error } = await supabase
-      .from("members")
-      .delete()
-      .eq("member_id", memberId);
+    const res = await fetch(`/api/teams/${teamId}/members?member_id=${memberId}`, {
+      method: "DELETE",
+    });
 
-    if (error) {
-      console.error("[members] delete member failed:", error);
+    if (!res.ok) {
+      console.error("[members] delete member failed");
       return;
     }
 
