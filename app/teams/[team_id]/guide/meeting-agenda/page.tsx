@@ -6,29 +6,24 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { createBrowserClient } from "@/lib/supabase";
 import type { Phase4SelfServeJson } from "@/types/database";
 import Markdown from "@/components/phase4/Markdown";
 
 export default function ConsultantMeetingAgendaPage() {
   const { team_id: teamId } = useParams<{ team_id: string }>();
-  const [supabase] = useState(() => createBrowserClient());
   const [content, setContent] = useState<string | null>(null);
   const [state, setState] = useState<"loading" | "not_ready" | "ready">("loading");
 
   useEffect(() => {
     void (async () => {
-      const { data: row } = await supabase
-        .from("analysis")
-        .select("phase4_selfserve_json")
-        .eq("team_id", teamId)
-        .maybeSingle();
-      const p4 = row?.phase4_selfserve_json as Phase4SelfServeJson | null;
+      const response = await fetch(`/api/teams/${teamId}/dashboard`);
+      const data = await response.json().catch(() => ({}));
+      const p4 = (data.analysis?.phase4_selfserve_json ?? null) as Phase4SelfServeJson | null;
       const art = p4?.artifacts?.find((x) => x.slug === "meeting_agenda");
       if (art?.content) { setContent(art.content); setState("ready"); }
       else setState("not_ready");
     })();
-  }, [teamId, supabase]);
+  }, [teamId]);
 
   if (state === "loading") {
     return <main className="flex-1 flex items-center justify-center py-24 text-[var(--color-grey)]">Loading…</main>;

@@ -1,3 +1,5 @@
+import { redactTextForExternalProcessing } from "@/lib/privacy";
+
 // Voyage AI embeddings wrapper (Anthropic has no native embeddings endpoint).
 // Used by the Phase 2 clustering step. Deterministic: same text + model → same
 // vector, so clustering is reproducible. REST call (Voyage has no first-class
@@ -17,14 +19,14 @@ type VoyageResponse = {
 };
 
 // Embed a list of texts → one vector each, order-aligned with the input.
-export async function embedTexts(texts: string[]): Promise<number[][]> {
+export async function embedTexts(texts: string[], knownNames: string[] = []): Promise<number[][]> {
   if (texts.length === 0) return [];
   const key = process.env.VOYAGE_API_KEY;
   if (!key) throw new Error("VOYAGE_API_KEY not configured");
 
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += MAX_BATCH) {
-    const batch = texts.slice(i, i + MAX_BATCH);
+    const batch = texts.slice(i, i + MAX_BATCH).map((text) => redactTextForExternalProcessing(text, knownNames));
     const data = await postBatch(batch, key);
     // Re-order by index defensively before appending.
     const sorted = [...data.data].sort((a, b) => a.index - b.index);

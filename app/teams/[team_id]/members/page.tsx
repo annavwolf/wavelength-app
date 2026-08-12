@@ -3,9 +3,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { createBrowserClient } from "@/lib/supabase";
-import LocationAutocomplete from "@/components/LocationAutocomplete";
 import type { MemberWithIdentity, Team } from "@/types/database";
+import LocationAutocomplete from "@/components/LocationAutocomplete";
 
 function statusBadgeClasses(status: string) {
   switch (status) {
@@ -40,7 +39,6 @@ function statusLabel(status: string) {
 export default function TeamMembersPage() {
   const { team_id: teamId } = useParams<{ team_id: string }>();
   const router = useRouter();
-  const [supabase] = useState(() => createBrowserClient());
 
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<MemberWithIdentity[]>([]);
@@ -50,7 +48,6 @@ export default function TeamMembersPage() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [location, setLocation] = useState("");
-  const [timezone, setTimezone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -62,18 +59,18 @@ export default function TeamMembersPage() {
   useEffect(() => {
     async function load() {
       const [teamRes, membersRes] = await Promise.all([
-        supabase.from("teams").select("*").eq("team_id", teamId).single(),
+        fetch(`/api/teams/${teamId}`),
         fetch(`/api/teams/${teamId}/members`),
       ]);
 
-      if (teamRes.error) console.error("[members] failed to load team:", teamRes.error);
-      setTeam(teamRes.data ?? null);
+      if (teamRes.ok) setTeam(await teamRes.json());
+      else console.error("[members] failed to load team");
       if (membersRes.ok) setMembers(await membersRes.json());
       setLoading(false);
     }
 
     load();
-  }, [teamId, supabase]);
+  }, [teamId]);
 
   // Poll for status updates every 30 seconds.
   useEffect(() => {
@@ -87,14 +84,6 @@ export default function TeamMembersPage() {
     setSubmitting(true);
     setErrorMessage(null);
 
-    // private_code is derived server-side from the current member count.
-    const { count } = await supabase
-      .from("members")
-      .select("*", { count: "exact", head: true })
-      .eq("team_id", teamId);
-
-    const privateCode = `P${101 + (count ?? 0)}`;
-
     const res = await fetch(`/api/teams/${teamId}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -103,9 +92,6 @@ export default function TeamMembersPage() {
         email: email || null,
         role: role || null,
         location: location || null,
-        timezone: timezone || null,
-        private_code: privateCode,
-        status: "pending",
       }),
     });
 
@@ -123,7 +109,6 @@ export default function TeamMembersPage() {
     setEmail("");
     setRole("");
     setLocation("");
-    setTimezone("");
     setSubmitting(false);
   }
 
@@ -168,24 +153,24 @@ export default function TeamMembersPage() {
         </h1>
 
         <p className="accent text-xl mt-6">
-          Now let&apos;s add the people. I&apos;ll reach out to each one
-          privately.
+          Add each person&apos;s email. If you do not know a name or other detail,
+          leave it blank—Otis will ask that person privately.
         </p>
 
         <form onSubmit={handleAddMember} className="mt-12 space-y-6">
           <div>
-            <label className="form-label">Name</label>
+            <label className="form-label">Name or preferred name (optional)</label>
             <input
               type="text"
-              required
               value={name}
               onChange={(e) => setName(e.target.value)}
+              placeholder="Leave blank if you only have their email"
               className="form-input"
             />
           </div>
 
           <div>
-            <label className="form-label">Email</label>
+            <label className="form-label">Email address</label>
             <input
               type="email"
               required
@@ -206,23 +191,13 @@ export default function TeamMembersPage() {
           </div>
 
           <div>
-            <label className="form-label">Location</label>
+            <label className="form-label">City and country (optional)</label>
             <LocationAutocomplete
               value={location}
               onChange={setLocation}
-              onTimezoneSelect={setTimezone}
+              onSelect={() => undefined}
             />
-          </div>
-
-          <div>
-            <label className="form-label">Time zone</label>
-            <input
-              type="text"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              placeholder="Auto-filled from location, or enter manually"
-              className="form-input"
-            />
+            <p className="mt-1 text-xs text-[var(--color-grey)]">Suggestions can set the person&apos;s time zone automatically. A broad location is fine too; do not enter an address.</p>
           </div>
 
           {errorMessage && (
@@ -256,13 +231,10 @@ export default function TeamMembersPage() {
                 className="card flex items-center justify-between gap-4 py-4"
               >
                 <div className="flex items-center gap-4">
-                  <span className="bg-[var(--color-navy)] text-white text-xs px-3 py-1 rounded-full">
-                    {member.private_code}
-                  </span>
                   <div>
                     <p className="font-medium">{member.display_name}</p>
                     <p className="text-sm text-[var(--color-grey)]">
-                      {[member.role, member.location]
+                      {[member.email, member.role, member.location, member.timezone ? `Time zone: ${member.timezone}` : null]
                         .filter(Boolean)
                         .join(" · ")}
                     </p>
@@ -275,6 +247,24 @@ export default function TeamMembersPage() {
                     )}`}
                   >
                     {statusLabel(member.status)}
+                  </span>
+                  <span
+                    className={`text-xs px-3 py-1 rounded-full ${
+                      member.privacy_acknowledged_currently
+                        ? "bg-purple-100 text-purple-800"
+                        : member.privacy_acknowledged_at
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-gray-100 text-gray-600"
+                    }`}
+                    title={member.privacy_acknowledged_at
+                      ? `Acknowledged ${new Date(member.privacy_acknowledged_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+                      : undefined}
+                  >
+                    {member.privacy_acknowledged_currently
+                      ? "Privacy acknowledged"
+                      : member.privacy_acknowledged_at
+                        ? "Updated notice pending"
+                        : "Privacy pending"}
                   </span>
                   <button
                     type="button"
@@ -295,6 +285,10 @@ export default function TeamMembersPage() {
               : `${members.length} members added`}
           </p>
         </section>
+
+        <p className="mt-4 text-sm text-[var(--color-grey)]">
+          You can see whether each participant has acknowledged the current privacy notice. Their exact-word and voice-input choices remain private.
+        </p>
 
         {members.length > 0 && (
           <button

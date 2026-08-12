@@ -9,19 +9,19 @@ const ZONES = [
   {
     key: "zone1",
     eyebrow: "Zone 1 · Safe to Belong",
-    top: "4%",
+    top: "3%",
     text: "Near the surface, it's about belonging. On a psychologically safe team, people feel welcome, respected, and comfortable just being themselves. You can show up as you are.",
   },
   {
     key: "zone2",
     eyebrow: "Zone 2 · Safe to Speak Freely",
-    top: "33%",
+    top: "37%",
     text: "As a team grows safer, you can go deeper. Here, it becomes possible to speak freely — to be candid and honest, to raise hard things, to disagree, to ask the obvious question. The things that often go unsaid can finally be said.",
   },
   {
     key: "zone3",
     eyebrow: "Zone 3 · Safe to Innovate",
-    top: "65%",
+    top: "73%",
     text: "And at the deepest level, members feel secure enough to truly innovate — to challenge how things are done, take real risks, and try things that might not work. This is where teams do their most extraordinary work. But you can only go this deep if it feels safe enough to get here.",
   },
 ];
@@ -83,14 +83,14 @@ export default function PsDescentStep({
           <div
             key={zone.key}
             className="absolute"
-            style={{ top: zone.top, left: "5%", width: "46%" }}
+            style={{ top: zone.top, left: "5%", width: "48%" }}
           >
-            <div className="rounded-xl bg-white/[0.14] backdrop-blur-md border border-white/20 px-4 py-3.5">
-              <p className="text-sm uppercase tracking-widest text-white/70 mb-1.5">
+            <div className="rounded-xl bg-white/[0.16] backdrop-blur-md border border-white/25 px-5 py-4">
+              <p className="text-sm sm:text-base uppercase tracking-wide text-white/80 mb-2">
                 {zone.eyebrow}
               </p>
               <p
-                className="text-white text-sm sm:text-base leading-relaxed"
+                className="text-white text-base sm:text-lg leading-relaxed"
                 style={{ textShadow: "0 1px 6px rgba(0,0,0,0.4)" }}
               >
                 {zone.text}

@@ -12,7 +12,6 @@
 // (a later increment); this panel displays what was submitted.
 
 import { useEffect, useState } from "react";
-import { createBrowserClient } from "@/lib/supabase";
 import type {
   Member, WorkshopSession, PairSubmission, BehaviourItem, FocusFrame,
   CaptureSheet, WorkshopPhase, Zone,
@@ -35,7 +34,6 @@ type Props = {
 const CAP = 3; // hard cap: 3 ALWAYS and 3 NEVER (spec §5.2)
 
 export default function WorkshopPanel({ teamId, teamName, members, focus }: Props) {
-  const [supabase] = useState(() => createBrowserClient());
   const [session, setSession] = useState<WorkshopSession | null>(null);
   const [pairSubs, setPairSubs] = useState<PairSubmission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,13 +49,12 @@ export default function WorkshopPanel({ teamId, teamName, members, focus }: Prop
 
   async function load() {
     setLoading(true);
-    const { data: s } = await supabase
-      .from("workshop_sessions").select("*").eq("team_id", teamId).maybeSingle();
-    setSession((s as WorkshopSession) ?? null);
-    if (s) {
-      const { data: subs } = await supabase
-        .from("pair_submissions").select("*").eq("session_id", s.id).order("pair_index");
-      setPairSubs((subs as PairSubmission[]) ?? []);
+    const response = await fetch(`/api/teams/${teamId}/workshop`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) setErr(data.error ?? "Unable to load workshop.");
+    else {
+      setSession((data.session as WorkshopSession | null | undefined) ?? null);
+      setPairSubs((data.pair_submissions as PairSubmission[] | undefined) ?? []);
     }
     setLoading(false);
   }
@@ -65,12 +62,14 @@ export default function WorkshopPanel({ teamId, teamName, members, focus }: Prop
   async function patch(update: Partial<WorkshopSession>) {
     if (!session) return;
     setBusy(true); setErr(null);
-    const { data, error } = await supabase
-      .from("workshop_sessions")
-      .update({ ...update, updated_at: new Date().toISOString() })
-      .eq("id", session.id).select().single();
-    if (error) setErr(error.message);
-    else setSession(data as WorkshopSession);
+    const response = await fetch(`/api/teams/${teamId}/workshop`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: session.id, update }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) setErr(data.error ?? "Unable to save workshop changes.");
+    else setSession(data.session as WorkshopSession);
     setBusy(false);
   }
 
@@ -83,12 +82,14 @@ export default function WorkshopPanel({ teamId, teamName, members, focus }: Prop
       why: focus?.hypothesis ?? "",
       zone: (focus?.zone as Zone | undefined) ?? null,
     };
-    const { data, error } = await supabase
-      .from("workshop_sessions")
-      .insert({ team_id: teamId, phase: "orient", focus_frame: frame, started_at: new Date().toISOString() })
-      .select().single();
-    if (error) setErr(error.message);
-    else setSession(data as WorkshopSession);
+    const response = await fetch(`/api/teams/${teamId}/workshop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ focus_frame: frame }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) setErr(data.error ?? "Unable to start workshop.");
+    else setSession(data.session as WorkshopSession);
     setBusy(false);
   }
 
@@ -337,7 +338,7 @@ function PairsMovement({ session, participants, nameById, pairSubs, patch }: {
       </div>
       {pairs.length === 0 ? (
         <p className="text-sm text-[var(--color-grey)]">
-          Generate the pairing, then create matching breakout rooms (remote) or ask people to turn to their partner (in person).
+          Generate the pairing, then set people up with their partner in the way that works for your session.
         </p>
       ) : (
         <ol className="space-y-2">

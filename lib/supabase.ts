@@ -1,5 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
-import { createBrowserClient as createSSRBrowserClient } from "@supabase/ssr";
+import {
+  createBrowserClient as createSSRBrowserClient,
+  createServerClient as createSSRServerClient,
+} from "@supabase/ssr";
 import type { Database } from "@/types/database";
 
 const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -19,7 +22,9 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 // Service-role client — bypasses RLS entirely. Only used in server API routes
 // that legitimately need access to restricted tables (member_identity, audit log).
 // Never expose this key to the browser.
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? supabaseAnonKey;
+// Never fall back to the browser key here. After the beta RLS migration, a
+// missing service key must fail closed instead of silently using a broad client.
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "missing-service-role-key";
 export const supabaseAdmin = createClient<Database>(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
 });
@@ -31,4 +36,21 @@ export const supabaseAdmin = createClient<Database>(supabaseUrl, serviceRoleKey,
 // key format, which @supabase/auth-helpers-nextjs doesn't support.
 export function createBrowserClient() {
   return createSSRBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
+}
+
+// Session-aware server client for route handlers. Route handlers deliberately
+// pass request cookies in and do not mutate them here: these short-lived API
+// calls only need to verify the current consultant identity. Keeping this
+// helper here avoids accidental service-role use for an authentication check.
+export function createServerAuthClient(
+  getAll: () => { name: string; value: string }[]
+) {
+  return createSSRServerClient<Database>(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll,
+      setAll() {
+        // Auth refreshes are handled by the normal browser session flow.
+      },
+    },
+  });
 }

@@ -31,7 +31,10 @@ export default function ChatBubble({
   hideAvatar?: boolean;
   centered?: boolean;
 }) {
-  const hasSpokenRef = useRef(false);
+  // A Bubble can stay mounted while its conversational text changes (for
+  // example, from a question to "Nice to meet you"). Track the text rather
+  // than just a boolean so each distinct line is read once.
+  const lastSpokenTextRef = useRef<string | null>(null);
   const extracted = extractText(children).trim();
   const text = speakTextProp ?? (extracted || null);
 
@@ -41,12 +44,12 @@ export default function ChatBubble({
   // slide, which appears only after the read-aloud question) auto-play.
   useEffect(() => {
     if (!readAloud || !text) {
-      hasSpokenRef.current = false;
+      lastSpokenTextRef.current = null;
       return;
     }
-    if (hasSpokenRef.current) return;
-    hasSpokenRef.current = true;
-    speakText(text);
+    if (lastSpokenTextRef.current === text) return;
+    lastSpokenTextRef.current = text;
+    void speakText(text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readAloud, text]);
 

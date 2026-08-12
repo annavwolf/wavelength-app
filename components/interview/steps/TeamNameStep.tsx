@@ -6,9 +6,12 @@ import MemberBubble from "@/components/interview/MemberBubble";
 import VoiceTextarea from "@/components/interview/VoiceTextarea";
 import type { Member } from "@/types/database";
 
+type Stage = "choose" | "suggest" | "confirmed";
+
 export default function TeamNameStep({
   member,
   allMembers,
+  teamName,
   readAloud,
   teamNameText,
   onTeamNameTextChange,
@@ -16,68 +19,70 @@ export default function TeamNameStep({
 }: {
   member: Member;
   allMembers: Member[];
+  teamName: string;
   readAloud: boolean;
   teamNameText: string;
   onTeamNameTextChange: (value: string) => void;
   onAdvance: () => void;
 }) {
-  const [submitted, setSubmitted] = useState(!!teamNameText);
+  const isSavedAlternative = Boolean(teamNameText.trim() && teamNameText.trim() !== teamName);
+  const [stage, setStage] = useState<Stage>(isSavedAlternative ? "confirmed" : "choose");
 
-  function handleSubmit() {
-    setSubmitted(true);
+  function useNameOnFile() {
+    onTeamNameTextChange(teamName);
+    setStage("confirmed");
+  }
+
+  function confirmAlternative() {
+    if (!teamNameText.trim()) return;
+    setStage("confirmed");
   }
 
   return (
     <div>
-      {/* Roster pinned at top */}
       <div className="space-y-2 mb-6">
-        {allMembers.map((m) => (
-          <div key={m.member_id} className="card flex items-center py-3">
+        {allMembers.map((participant) => (
+          <div key={participant.member_id} className="card flex items-center py-3">
             <p className="font-medium">
-              {m.display_name}
-              {m.member_id === member.member_id && (
-                <span className="text-sm text-[var(--color-grey)]"> (you)</span>
-              )}
+              {participant.display_name}
+              {participant.member_id === member.member_id && <span className="text-sm text-[var(--color-grey)]"> (you)</span>}
             </p>
           </div>
         ))}
       </div>
 
       <ChatBubble readAloud={readAloud}>
-        Does your team use a &ldquo;team name&rdquo; to refer to yourselves? If
-        not, what would you name your team?
+        Otis has <strong>{teamName}</strong> on file as your team&apos;s name. Does that fit how you refer to yourselves, or is there another name that suits the team better?
       </ChatBubble>
 
-      {!submitted ? (
-        <>
-          <div className="mt-6 mb-6">
-            <VoiceTextarea
-              value={teamNameText}
-              onChange={onTeamNameTextChange}
-              rows={2}
-              placeholder="e.g. The Revenue Team, Falcon Squad..."
-            />
+      {stage === "choose" && (
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button type="button" onClick={useNameOnFile} className="btn-primary">Use “{teamName}”</button>
+          <button type="button" onClick={() => setStage("suggest")} className="btn-secondary">Suggest a different name</button>
+        </div>
+      )}
+
+      {stage === "suggest" && (
+        <div className="mt-6 space-y-4">
+          <div>
+            <label className="form-label">A name that fits your team better</label>
+            <VoiceTextarea value={teamNameText === teamName ? "" : teamNameText} onChange={onTeamNameTextChange} rows={2} placeholder="For example, Falcon Squad" />
           </div>
           <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!teamNameText.trim()}
-              className="btn-primary"
-            >
-              Share this
-            </button>
-            <button type="button" onClick={onAdvance} className="btn-secondary">
-              Skip
-            </button>
+            <button type="button" onClick={confirmAlternative} disabled={!teamNameText.trim() || teamNameText.trim() === teamName} className="btn-primary">Use this name</button>
+            <button type="button" onClick={useNameOnFile} className="btn-secondary">Keep “{teamName}”</button>
           </div>
-        </>
-      ) : (
+        </div>
+      )}
+
+      {stage === "confirmed" && (
         <>
-          {teamNameText && <MemberBubble>{teamNameText}</MemberBubble>}
-          <button type="button" onClick={onAdvance} className="btn-primary mt-4">
-            Continue
-          </button>
+          <MemberBubble>{teamNameText.trim() || teamName}</MemberBubble>
+          <p className="mt-4 text-base leading-relaxed text-[var(--color-grey)]">Otis will use this name for the rest of your assessment.</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button type="button" onClick={onAdvance} className="btn-primary">Continue</button>
+            <button type="button" onClick={() => setStage("choose")} className="btn-secondary">Change this</button>
+          </div>
         </>
       )}
     </div>

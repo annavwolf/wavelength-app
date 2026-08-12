@@ -7,7 +7,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { createBrowserClient } from "@/lib/supabase";
 import type { Phase4SelfServeJson } from "@/types/database";
 
 type Loaded = {
@@ -26,25 +25,20 @@ function fmt(d: Date): string {
 
 export default function ConsultantGamePlanPage() {
   const { team_id: teamId } = useParams<{ team_id: string }>();
-  const [supabase] = useState(() => createBrowserClient());
   const [data, setData] = useState<Loaded | null>(null);
   const [state, setState] = useState<"loading" | "not_ready" | "ready">("loading");
 
   useEffect(() => {
     void (async () => {
-      const { data: row } = await supabase
-        .from("analysis")
-        .select("phase4_selfserve_json")
-        .eq("team_id", teamId)
-        .maybeSingle();
-      const p4 = row?.phase4_selfserve_json as Phase4SelfServeJson | null;
+      const response = await fetch(`/api/teams/${teamId}/dashboard`);
+      const responseData = await response.json().catch(() => ({}));
+      const p4 = (responseData.analysis?.phase4_selfserve_json ?? null) as Phase4SelfServeJson | null;
       if (!p4?.agreement) { setState("not_ready"); return; }
       const released = p4.released_at ? new Date(p4.released_at) : new Date();
       const review = new Date(released);
       review.setDate(review.getDate() + 30);
-      const { data: team } = await supabase.from("teams").select("team_name").eq("team_id", teamId).maybeSingle();
       setData({
-        teamName: team?.team_name ?? "",
+        teamName: responseData.team?.team_name ?? "",
         agreedDate: fmt(released),
         reviewDate: fmt(review),
         psItem: p4.agreement.ps_item,
@@ -54,7 +48,7 @@ export default function ConsultantGamePlanPage() {
       });
       setState("ready");
     })();
-  }, [teamId, supabase]);
+  }, [teamId]);
 
   if (state === "loading") {
     return <main className="flex-1 flex items-center justify-center py-24 text-[var(--color-grey)]">Loading…</main>;

@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
 import MemberBubble from "@/components/interview/MemberBubble";
 import VoiceTextarea from "@/components/interview/VoiceTextarea";
-import type { AppSupabaseClient } from "@/components/interview/types";
-import type { Member, Team } from "@/types/database";
+import type { Member } from "@/types/database";
 
 function isThin(text: string): boolean {
   const t = text.trim().toLowerCase();
@@ -19,26 +18,22 @@ type Phase = "input" | "nudge" | "done";
 
 export default function PurposeStep({
   member,
-  team,
   allMembers,
-  supabase,
   readAloud,
   text,
+  editing = false,
   onTextChange,
   onAdvance,
 }: {
   member: Member;
-  team: Team;
   allMembers: Member[];
-  supabase: AppSupabaseClient;
   readAloud: boolean;
   text: string;
+  editing?: boolean;
   onTextChange: (value: string) => void;
   onAdvance: () => void;
 }) {
-  const [phase, setPhase] = useState<Phase>(() =>
-    text ? "done" : "input"
-  );
+  const [phase, setPhase] = useState<Phase>(() => editing ? "input" : text ? "done" : "input");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addingMore, setAddingMore] = useState(false);
@@ -47,13 +42,10 @@ export default function PurposeStep({
   // Pre-populate from DB on mount if draft is empty (resumed session).
   useEffect(() => {
     if (text) return;
-    supabase
-      .from("purpose_responses")
-      .select("purpose_text")
-      .eq("member_id", member.member_id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.purpose_text) {
+    void fetch(`/api/interview/responses?member_id=${encodeURIComponent(member.member_id)}&kind=purpose`)
+      .then(async (response) => ({ response, data: await response.json().catch(() => ({})) }))
+      .then(({ response, data }) => {
+        if (response.ok && data.purpose_text) {
           onTextChange(data.purpose_text);
           setPhase("done");
         }
@@ -65,27 +57,12 @@ export default function PurposeStep({
     setSaving(true);
     setError(null);
 
-    const { data: existing } = await supabase
-      .from("purpose_responses")
-      .select("id")
-      .eq("member_id", member.member_id)
-      .maybeSingle();
-
-    const saveError = existing
-      ? (
-          await supabase
-            .from("purpose_responses")
-            .update({ purpose_text: finalText })
-            .eq("member_id", member.member_id)
-        ).error
-      : (
-          await supabase
-            .from("purpose_responses")
-            .insert({ member_id: member.member_id, team_id: team.team_id, purpose_text: finalText })
-        ).error;
-
-    if (saveError) {
-      console.error("[interview/purpose] save failed:", saveError.message);
+    const response = await fetch("/api/interview/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ member_id: member.member_id, kind: "purpose", purpose_text: finalText }),
+    });
+    if (!response.ok) {
       setError("Something went wrong saving your answer. Please try again.");
       setSaving(false);
       return false;
@@ -157,7 +134,7 @@ export default function PurposeStep({
             disabled={saving || !text.trim()}
             className="btn-primary"
           >
-            {saving ? "Saving..." : "Share this"}
+            {saving ? "Saving..." : editing ? "Save changes" : "Share this"}
           </button>
         </>
       )}

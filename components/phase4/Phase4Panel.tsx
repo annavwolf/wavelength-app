@@ -5,12 +5,11 @@
 // · Otis's Team Agreement (with Clarity) · Roadmap
 
 import { useState, useEffect, useRef } from "react";
-import { createBrowserClient } from "@/lib/supabase";
 import { renderAgreementSentence } from "@/lib/agreementText";
 import RoadmapInfographic from "@/components/phase4/RoadmapInfographic";
 import type {
   Phase4Agreement, Phase4SelfServeJson, Phase4BehaviourGroup,
-  SubmissionClassification, Phase3ContextResponse, Member, Phase3ReportJson,
+  SubmissionClassification, Phase3ReportJson,
 } from "@/types/database";
 import type { Tier1Result, Tier2Result } from "@/components/dashboard/types";
 
@@ -44,13 +43,17 @@ const SITUATION_LABEL: Record<string, string> = {
   other: "day-to-day work",
 };
 
-const FREQUENCY_LABEL: Record<string, string> = {};
-
 type PulseCheckRow = {
-  member_id: string;
   read_key: string;
   accuracy_rating: string;
   comment: string | null;
+  verbatim_allowed: boolean;
+};
+
+type PrivacySafeContextRow = {
+  frequency: string | null;
+  impact_text: string | null;
+  verbatim_allowed: boolean;
 };
 
 type Props = {
@@ -62,7 +65,6 @@ type Props = {
   outstanding: string[];
   tier1: Tier1Result | null;
   tier2: Tier2Result | null;
-  members: Member[];
   report: Phase3ReportJson | null;
 };
 
@@ -148,13 +150,12 @@ function DetailAccordion({ title, children }: { title: string; children: React.R
 
 // ── Interactive behavior picker (Section 4) ───────────────────────────────────
 function BehaviorPicker({
-  valence, groups, selected, onSelect, verbatimMemberIds,
+  valence, groups, selected, onSelect,
 }: {
   valence: "always" | "never";
   groups: Phase4BehaviourGroup[];
   selected: string[];
   onSelect: (behaviors: string[]) => void;
-  verbatimMemberIds: Set<string>;
 }) {
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [openSupport, setOpenSupport] = useState<number | null>(null);
@@ -183,7 +184,7 @@ function BehaviorPicker({
       {slots.map((behavior, idx) => {
         const group = options.find((g) => g.representative === behavior);
         const subs = group?.contributing_submissions ?? [];
-        const verbatimSubs = subs.filter((s) => verbatimMemberIds.has(s.member_id));
+        const verbatimSubs = subs.filter((s) => s.verbatim_allowed === true);
         const anonCount = subs.length - verbatimSubs.length;
 
         return (
@@ -272,14 +273,6 @@ function BehaviorPicker({
 }
 
 // ── Agreement editor helpers ──────────────────────────────────────────────────
-function LabeledInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-xs uppercase tracking-wide text-[var(--color-grey)]">{label}</p>
-      <input value={value} onChange={(e) => onChange(e.target.value)} className="form-input text-sm w-full" />
-    </div>
-  );
-}
 function ListEditor({ label, items, max, onChange }: { label: string; items: string[]; max: number; onChange: (items: string[]) => void }) {
   return (
     <div className="space-y-1">
@@ -296,16 +289,6 @@ function ListEditor({ label, items, max, onChange }: { label: string; items: str
     </div>
   );
 }
-function EditableBlock({ label, value, original, onChange, rows }: { label: string; value: string; original: string | null; onChange: (v: string) => void; rows: number }) {
-  return (
-    <div className="space-y-1">
-      <label className="form-label">{label}</label>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={rows} className="form-input text-sm w-full resize-y" />
-      {original && <p className="text-xs text-[var(--color-grey)] border-l-2 border-black/10 pl-3 whitespace-pre-wrap">Otis: {original}</p>}
-    </div>
-  );
-}
-
 // ── Click-to-edit (mirrors Phase3ReleasePreview's EditableBubble) ─────────────
 function ClickToEdit({
   value, onChange, rows, placeholder, original, showOriginal,
@@ -396,7 +379,7 @@ function FormattedAgreement({ a }: { a: Phase4Agreement }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Phase4Panel({
   teamId, initial, allComplete, completedCount, totalCount, outstanding,
-  tier1, tier2, members, report,
+  tier1, tier2, report,
 }: Props) {
   const [json, setJson] = useState<Phase4SelfServeJson | null>(initial);
   const [generating, setGenerating] = useState(false);
@@ -412,33 +395,29 @@ export default function Phase4Panel({
   const [lowParticipationWarning, setLowParticipationWarning] = useState<string | null>(null);
 
   // Data for sections
-  const [contextRows, setContextRows] = useState<Phase3ContextResponse[]>([]);
+  const [contextRows, setContextRows] = useState<PrivacySafeContextRow[]>([]);
   const [pulseChecks, setPulseChecks] = useState<PulseCheckRow[]>([]);
-  const [rawBehaviors, setRawBehaviors] = useState<Array<{ id: string; member_id: string; text: string; bucket: string }>>([]);
+  const [rawBehaviors, setRawBehaviors] = useState<Array<{ id: string; text: string; bucket: string }>>([]);
   const [storyTags, setStoryTags] = useState<Record<string, number>>({});
   const [storyCount, setStoryCount] = useState(0);
 
-  const [supabase] = useState(() => createBrowserClient());
-
   // Verbatim flags — use behavior verbatim for the agreement section
-  const verbatimBehaviorIds = new Set(members.filter((m) => m.phase3_behavior_verbatim).map((m) => m.member_id));
-
   useEffect(() => {
     if (!initial) return;
     void fetchData();
   }, [teamId, initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchData() {
-    const [ctxRes, pcRes, bhRes, stRes] = await Promise.all([
-      supabase.from("phase3_context_responses").select("*").eq("team_id", teamId),
-      supabase.from("phase3_pulse_checks").select("member_id, read_key, accuracy_rating, comment").eq("team_id", teamId),
-      supabase.from("member_behaviors").select("id, member_id, text, bucket").eq("team_id", teamId).order("created_at", { ascending: true }),
-      supabase.from("member_stories").select("situation_tag").eq("team_id", teamId),
-    ]);
-    setContextRows((ctxRes.data as Phase3ContextResponse[]) ?? []);
-    setPulseChecks((pcRes.data as PulseCheckRow[]) ?? []);
-    setRawBehaviors(bhRes.data ?? []);
-    const stories = stRes.data ?? [];
+    const response = await fetch(`/api/teams/${teamId}/phase4-data`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setErr(data.error ?? "Unable to load supporting Phase 4 data.");
+      return;
+    }
+    setContextRows((data.context as PrivacySafeContextRow[] | undefined) ?? []);
+    setPulseChecks((data.pulse_checks as PulseCheckRow[] | undefined) ?? []);
+    setRawBehaviors((data.behaviors as Array<{ id: string; text: string; bucket: string }> | undefined) ?? []);
+    const stories = (data.story_tags as Array<{ situation_tag: string | null }> | undefined) ?? [];
     setStoryCount(stories.length);
     const counts: Record<string, number> = {};
     for (const s of stories) {
@@ -451,7 +430,6 @@ export default function Phase4Panel({
   const includesPurpose = !!report?.shared_purpose_read?.trim();
 
   const checksFor = (key: string) => pulseChecks.filter((c) => c.read_key === key);
-  const memberById = new Map(members.map((m) => [m.member_id, m]));
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
@@ -466,7 +444,7 @@ export default function Phase4Panel({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setErr(
-          data.error === "members_incomplete" ? "No members have finished the pre-workshop activity yet."
+          data.error === "members_incomplete" ? "No members have finished the Results & Team Agreement Activity yet."
             : data.error === "no_focus_item" ? "No focus item yet — set one on the Report & Activity Release tab first."
               : `Generation failed: ${[data.error, data.detail].filter(Boolean).join(" — ") || "unknown"}`
         );
@@ -541,11 +519,11 @@ export default function Phase4Panel({
         <div className="card border border-dashed border-black/20 text-center" style={{ padding: "36px 28px" }}>
           <h1 className="text-2xl mb-2" style={{ fontFamily: "Playfair Display, serif" }}>Team Agreement</h1>
           <p className="text-sm text-[var(--color-grey)] max-w-md mx-auto mb-5">
-            Once members have finished the pre-workshop activity, Otis classifies their behaviours into standard patterns, drafts a Team Behaviour Agreement, assesses how much the team converged, and builds a 30-day roadmap.
+            Once members have finished the Results &amp; Team Agreement Activity, Otis classifies their behaviours into standard patterns, drafts a Team Behaviour Agreement, assesses how much the team converged, and builds a 30-day roadmap.
           </p>
           <div className="max-w-sm mx-auto mb-6">
             <div className="flex items-center justify-between text-sm mb-1.5">
-              <span className="text-[var(--color-grey)]">Finished the pre-workshop activity</span>
+              <span className="text-[var(--color-grey)]">Finished the Results &amp; Team Agreement Activity</span>
               <span className="font-medium">{completedCount}/{totalCount}</span>
             </div>
             <div className="h-2.5 rounded-full bg-black/10 overflow-hidden">
@@ -586,7 +564,7 @@ export default function Phase4Panel({
         <h1 className="text-4xl sm:text-5xl mb-3" style={{ fontFamily: "Playfair Display, serif" }}>Team Agreement</h1>
         <div className="flex flex-wrap items-center gap-3">
           <span className={`text-xs px-3 py-1.5 rounded-full font-medium ${allComplete ? "bg-green-100 text-green-800" : completedCount > 0 ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-600"}`}>
-            {completedCount}/{totalCount} finished the pre-workshop activity
+            {completedCount}/{totalCount} finished the Results &amp; Team Agreement Activity
           </span>
           {releasedAt && (
             <span className="text-xs px-3 py-1.5 rounded-full bg-blue-100 text-blue-700">
@@ -624,7 +602,7 @@ export default function Phase4Panel({
           const checks = checksFor("purpose");
           const canShowComments =
             checks.length >= MIN_N &&
-            checks.every((c) => memberById.get(c.member_id)?.phase3_story_verbatim === true);
+            checks.every((c) => c.verbatim_allowed);
           const verbatimComments = canShowComments ? checks.filter((c) => c.comment?.trim()) : [];
           return (
             <Card style={{ borderLeft: "4px solid #6B4EA8" }}>
@@ -649,7 +627,7 @@ export default function Phase4Panel({
           const checks = checksFor(`zone${n}`);
           const canShowComments =
             checks.length >= MIN_N &&
-            checks.every((c) => memberById.get(c.member_id)?.phase3_story_verbatim === true);
+            checks.every((c) => c.verbatim_allowed);
           const verbatimComments = canShowComments ? checks.filter((c) => c.comment?.trim()) : [];
           const zone = tier1?.ps_zones.find((z) => z.zone === n);
           const accent = zone ? (zone.band === "green" ? ALWAYS_COLOR : zone.band === "yellow" ? SOMETIMES_COLOR : NEVER_COLOR) : "#1A5A6E";
@@ -721,11 +699,11 @@ export default function Phase4Panel({
         if (impactRows.length === 0) return null;
         const canShowImpact =
           impactRows.length >= MIN_N &&
-          impactRows.every((r) => memberById.get(r.member_id)?.phase3_story_verbatim === true);
+          impactRows.every((r) => r.verbatim_allowed);
         return (
           <div className="mt-4">
             <DetailAccordion title={`Impact on the team's work (${impactRows.length} responses)`}>
-              <p className="text-xs text-[var(--color-grey)] mb-3">Members&apos; answers about the impact on work quality — raw, for your eyes only.</p>
+              <p className="text-xs text-[var(--color-grey)] mb-3">Exact answers are shown without names only when every contributor allowed short excerpts to be used.</p>
               {!canShowImpact ? (
                 <p className="text-sm text-[var(--color-grey)] italic">
                   {impactRows.length < MIN_N
@@ -877,7 +855,6 @@ export default function Phase4Panel({
                 groups={json.behaviour_board}
                 selected={a.always.slice(0, 2)}
                 onSelect={(behaviors) => editAgreement({ ...a, always: behaviors })}
-                verbatimMemberIds={verbatimBehaviorIds}
               />
             </div>
             <div>
@@ -887,7 +864,6 @@ export default function Phase4Panel({
                 groups={json.behaviour_board}
                 selected={a.never.slice(0, 2)}
                 onSelect={(behaviors) => editAgreement({ ...a, never: behaviors })}
-                verbatimMemberIds={verbatimBehaviorIds}
               />
             </div>
           </div>

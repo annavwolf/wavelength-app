@@ -4,7 +4,7 @@ import AuthGate from "@/components/AuthGate";
 
 export const metadata: Metadata = {
   title: "Wavelength",
-  description: "An AI organisational psychologist for virtual teams.",
+  description: "An AI organisational psychologist for teamwork and psychological safety.",
 };
 
 export default function RootLayout({

@@ -47,7 +47,7 @@ const SEGMENTS: Segment[] = [
     key: "closing",
     backgroundPositionY: 100,
     text:
-      "Psychological safety is felt at the group level — it's about what's possible when the whole team is together. Research shows it's the strongest predictor of how well a team performs, and in virtual teams it's harder to build and easier to lose. So here's what I want to understand:",
+      "Psychological safety is felt at the group level — it's about what's possible when the whole team is together. Research shows it is strongly linked to how well teams work together. So here's what I want to understand:",
     question: "How deep into this ocean does your team feel safe going right now?",
   },
 ];

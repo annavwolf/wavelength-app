@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MicIcon } from "@/components/interview/icons";
+import { useVoiceInputAllowed } from "@/components/interview/VoiceInputContext";
 
 // Minimal shape of the bits of the (non-standard, vendor-prefixed) Web
 // Speech API we actually use — there's no official lib.dom typing for it.
@@ -39,6 +40,7 @@ export default function MicButton({
 }: {
   onResult: (transcript: string) => void;
 }) {
+  const voiceInputAllowed = useVoiceInputAllowed();
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -85,7 +87,7 @@ export default function MicButton({
     setListening(true);
   }
 
-  if (!supported) return null;
+  if (!voiceInputAllowed || !supported) return null;
 
   return (
     <span className="inline-flex items-center gap-2">

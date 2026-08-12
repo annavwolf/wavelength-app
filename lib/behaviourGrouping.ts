@@ -19,7 +19,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { embedTexts, cosineSim, norm } from "@/lib/embeddings";
 import { clusterIndices } from "@/lib/clustering";
 import { MODELS } from "@/lib/models";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import type { BehaviorBucket, MemberBehavior, Phase4BehaviourGroup } from "@/types/database";
 
 const DEFAULT_THRESHOLD = Number(process.env.OTIS_CLUSTER_THRESHOLD ?? 0.55);
@@ -75,7 +75,7 @@ export async function groupTeamBehaviours(
   teamId: string,
   threshold = DEFAULT_THRESHOLD
 ): Promise<GroupedBehaviours> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("member_behaviors")
     .select("*")
     .eq("team_id", teamId)

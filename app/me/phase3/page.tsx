@@ -5,7 +5,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createBrowserClient } from "@/lib/supabase";
 import type { PsStatement, Phase3ReportJson } from "@/types/database";
 import type { Tier1Result, ZoneScore } from "@/components/dashboard/types";
 import ChatBubble from "@/components/interview/ChatBubble";
@@ -25,6 +24,7 @@ import { ACTION_PHRASES, PLACE_PHRASES } from "@/prompts/phase3_conversation";
 import { SHARED_PURPOSE_INTRO } from "@/lib/phase3Copy";
 import MemberNav from "@/components/member/MemberNav";
 import { primeSpeech, speakText, cancelSpeech } from "@/lib/speech";
+import { VoiceInputProvider } from "@/components/interview/VoiceInputContext";
 
 type SessionMember = { member_id: string; display_name: string };
 type PageState = "loading" | "not_ready" | "done" | "withdrawn" | Phase3Step;
@@ -98,7 +98,6 @@ const OCEAN_ZONES = [
 
 export default function MemberPhase3Page() {
   const router = useRouter();
-  const [supabase] = useState(() => createBrowserClient());
 
   const [member, setMember] = useState<SessionMember | null>(null);
   const [teamId, setTeamId] = useState<string | null>(null);
@@ -112,9 +111,10 @@ export default function MemberPhase3Page() {
   const [spClassification, setSpClassification] = useState<string | undefined>(undefined);
   const [readAloud, setReadAloud] = useState(false);
   const [introChunk, setIntroChunk] = useState(0);
-  // Phase 3 confidentiality flags (default opt-in).
-  const [storyVerbatim, setStoryVerbatim] = useState(true);
-  const [behaviorVerbatim, setBehaviorVerbatim] = useState(true);
+  // Phase 3 uses the participant's global, explicit exact-word choice.
+  const [storyVerbatim, setStoryVerbatim] = useState(false);
+  const [behaviorVerbatim, setBehaviorVerbatim] = useState(false);
+  const [voiceInputAllowed, setVoiceInputAllowed] = useState(false);
   // True while a chat (story/impact) is loading or Otis is thinking — gates the
   // page's Continue button so members can't breeze past a pending reply.
   const [chatBusy, setChatBusy] = useState(false);
@@ -131,79 +131,60 @@ export default function MemberPhase3Page() {
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load() {
-    const res = await fetch("/api/member/me");
-    if (res.status === 401) { router.push("/member-login"); return; }
-    if (!res.ok) { setPageState("not_ready"); return; }
-    const data = await res.json();
-    const me: SessionMember = { member_id: data.member.member_id, display_name: data.member.display_name };
-    const tid: string = data.team?.team_id ?? "";
-    setMember(me);
-    setTeamId(tid);
-    if (!tid) { setPageState("not_ready"); return; }
+    try {
+      // `/api/member/me` is deliberately small and gives legacy participants a
+      // route back to the mandatory privacy screen if their acknowledgement is
+      // missing. The Phase 3 payload itself comes from the scoped bootstrap API.
+      const meResponse = await fetch("/api/member/me");
+      if (meResponse.status === 401) { router.push("/member-login"); return; }
+      if (!meResponse.ok) { setPageState("not_ready"); return; }
+      const meData = await meResponse.json();
+      if (!meData.privacy_acknowledgement?.acknowledged_at) {
+        router.replace(`/interview/${meData.member.member_id}`);
+        return;
+      }
 
-    // Consent flags from the members row.
-    const { data: memberRow } = await supabase
-      .from("members")
-      .select("phase3_story_verbatim, phase3_behavior_verbatim")
-      .eq("member_id", me.member_id)
-      .maybeSingle();
-    if (memberRow) {
-      setStoryVerbatim(memberRow.phase3_story_verbatim ?? true);
-      setBehaviorVerbatim(memberRow.phase3_behavior_verbatim ?? true);
+      const res = await fetch("/api/member/phase3/bootstrap");
+      if (!res.ok) { setPageState("not_ready"); return; }
+      const data = await res.json();
+      const me: SessionMember = data.member;
+      const tid: string = meData.team?.team_id ?? data.member?.team_id ?? "";
+      setMember(me);
+      setTeamId(tid);
+      if (!tid) { setPageState("not_ready"); return; }
+
+      const verbatimAllowed = data.privacy_acknowledgement?.verbatim_preference === "verbatim";
+      setStoryVerbatim(verbatimAllowed);
+      setBehaviorVerbatim(verbatimAllowed);
+      setVoiceInputAllowed(data.privacy_acknowledgement?.voice_input_opt_in === true);
+
+      const report = (data.report ?? null) as Phase3ReportJson | null;
+      setReportJson(report);
+      setTier1((data.tier1 ?? null) as Tier1Result | null);
+      setSpClassification(data.shared_purpose_classification);
+      setFocusStatement((data.focus_statement ?? null) as PsStatement | null);
+
+      if (!data.focus_statement) { setPageState("not_ready"); return; }
+
+      setRosterNames(Array.isArray(data.roster_names) ? data.roster_names : []);
+
+      // Resume: pick the furthest sensible step from server-scoped own data.
+      const storyCount = Number(data.story_count ?? 0);
+      const behaviorCount = Number(data.behavior_count ?? 0);
+      const ctx = data.context as { frequency?: string | null; impact_text?: string | null; commitment?: string | null; synchronicity?: string | null } | null;
+
+      const localIncludeStories = report?.include_stories !== false;
+      let target: Phase3Step = "intro";
+      if (behaviorCount > 0 || ctx?.commitment || ctx?.synchronicity) target = "board";
+      else if (localIncludeStories && ctx?.frequency) target = "story_consent";
+      else if (localIncludeStories && ctx?.impact_text) target = "frequency";
+      else if (localIncludeStories && storyCount > 0) target = "impact";
+
+      setPageState(target);
+      setReachedStep(target);
+    } catch {
+      setPageState("not_ready");
     }
-
-    // Resolve the report data + zone statistics + focus item.
-    const { data: analysisData } = await supabase
-      .from("analysis")
-      .select("tier1_json, tier2_json, phase3_report_json")
-      .eq("team_id", tid)
-      .maybeSingle();
-
-    const report = (analysisData?.phase3_report_json ?? null) as Phase3ReportJson | null;
-    setReportJson(report);
-    setTier1((analysisData?.tier1_json ?? null) as Tier1Result | null);
-    setSpClassification(
-      ((analysisData?.tier2_json as Record<string, unknown> | null)?.shared_purpose_read as
-        | { classification?: string } | undefined)?.classification
-    );
-
-    const statementId: number | undefined =
-      (report?.focus_statement_id ?? undefined) ??
-      ((analysisData?.tier2_json as Record<string, unknown> | null)?.focus_hypothesis as
-        | { statement_id?: number } | undefined)?.statement_id;
-
-    if (!statementId) { setPageState("not_ready"); return; }
-
-    const { data: statementData } = await supabase
-      .from("ps_statements")
-      .select("*")
-      .eq("statement_id", statementId)
-      .single();
-    setFocusStatement(statementData ?? null);
-
-    const { data: roster } = await supabase
-      .from("members")
-      .select("display_name")
-      .eq("team_id", tid)
-      .order("created_at", { ascending: true });
-    setRosterNames((roster ?? []).map((r) => r.display_name).filter(Boolean));
-
-    // Resume: pick the furthest sensible step from what's been saved.
-    const [{ count: storyCount }, { count: behaviorCount }, { data: ctx }] = await Promise.all([
-      supabase.from("member_stories").select("*", { count: "exact", head: true }).eq("member_id", me.member_id).eq("team_id", tid),
-      supabase.from("member_behaviors").select("*", { count: "exact", head: true }).eq("member_id", me.member_id).eq("team_id", tid),
-      supabase.from("phase3_context_responses").select("frequency, impact_text, commitment, synchronicity").eq("member_id", me.member_id).eq("team_id", tid).maybeSingle(),
-    ]);
-
-    const localIncludeStories = report?.include_stories !== false;
-    let target: Phase3Step = "intro";
-    if ((behaviorCount ?? 0) > 0 || ctx?.commitment || ctx?.synchronicity) target = "board";
-    else if (localIncludeStories && ctx?.frequency) target = "story_consent";
-    else if (localIncludeStories && ctx?.impact_text) target = "frequency";
-    else if (localIncludeStories && (storyCount ?? 0) > 0) target = "impact";
-
-    setPageState(target);
-    setReachedStep(target);
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -252,8 +233,15 @@ export default function MemberPhase3Page() {
   // ── Loading / not-ready (no chrome) ───────────────────────────────────────
   if (pageState === "loading") {
     return (
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
+      <main className="relative flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
+        <a
+          href="/me"
+          className="absolute left-6 top-6 text-sm font-medium text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors"
+        >
+          Exit to my profile
+        </a>
         <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
+        <p className="text-sm font-medium text-[var(--color-grey)] mb-2">Results &amp; Team Agreement Activity</p>
         <p className="text-[var(--color-grey)]">Loading your session…</p>
       </main>
     );
@@ -263,12 +251,17 @@ export default function MemberPhase3Page() {
     return (
       <main className="flex-1 px-6 py-10">
         <div className="max-w-2xl mx-auto">
+          <div className="flex justify-end mb-4">
+            <a href="/me" className="text-sm font-medium text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors">
+              Exit to my profile
+            </a>
+          </div>
           <MemberNav />
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <img src="/octopus-logo.png" alt="" className="h-16 w-auto mx-auto mb-6" />
             <h1 className="text-2xl font-serif mb-3" style={{ fontFamily: "Playfair Display, serif" }}>Not quite ready yet</h1>
             <p className="text-[var(--color-grey)] max-w-sm">
-              Your consultant is finishing the analysis. They&apos;ll be in touch when this activity is ready.
+              Your consultant is finishing the analysis. They&apos;ll be in touch when the Results &amp; Team Agreement Activity is ready.
             </p>
           </div>
         </div>
@@ -521,8 +514,7 @@ export default function MemberPhase3Page() {
       case "story_consent":
         return (
           <Phase3ConsentStep
-            memberId={memberId} supabase={supabase} variant="story" memberName={firstName}
-            current={storyVerbatim} readAloud={readAloud}
+            variant="story" memberName={firstName} readAloud={readAloud}
             onSaved={(v) => setStoryVerbatim(v)} onComplete={() => goToStep("agreement_intro")}
           />
         );
@@ -659,8 +651,7 @@ export default function MemberPhase3Page() {
       case "behavior_consent":
         return (
           <Phase3ConsentStep
-            memberId={memberId} supabase={supabase} variant="behavior" memberName={firstName}
-            current={behaviorVerbatim} readAloud={readAloud}
+            variant="behavior" memberName={firstName} readAloud={readAloud}
             onSaved={(v) => setBehaviorVerbatim(v)} onComplete={() => goToStep("finish_review")}
           />
         );
@@ -677,7 +668,7 @@ export default function MemberPhase3Page() {
       case "review":
         return teamId ? (
           <Phase3ReviewStep
-            memberId={memberId} teamId={teamId} memberName={firstName} supabase={supabase}
+            memberId={memberId} teamId={teamId} memberName={firstName}
             storyVerbatim={storyVerbatim} behaviorVerbatim={behaviorVerbatim} readAloud={readAloud}
             includeStories={includeStories}
             onEditStep={goToStepFromReview}
@@ -685,15 +676,15 @@ export default function MemberPhase3Page() {
               if (typeof f.phase3_story_verbatim === "boolean") setStoryVerbatim(f.phase3_story_verbatim);
               if (typeof f.phase3_behavior_verbatim === "boolean") setBehaviorVerbatim(f.phase3_behavior_verbatim);
             }}
-            onSubmit={() => {
+            onSubmit={async () => {
+              // Record Phase 3 completion through the signed member session
+              // before showing the terminal state. A failed save must remain
+              // retryable rather than looking like a finished submission.
+              const response = await fetch("/api/member/phase3/complete", { method: "POST" });
+              if (!response.ok) return false;
               stopSpeech();
-              // Record Phase 3 completion (distinct from the Phase 1 status).
-              if (memberId) {
-                void supabase.from("members")
-                  .update({ phase3_completed_at: new Date().toISOString() })
-                  .eq("member_id", memberId);
-              }
               setPageState("done");
+              return true;
             }}
             onWithdrawn={() => { stopSpeech(); setPageState("withdrawn"); }}
           />
@@ -720,8 +711,8 @@ export default function MemberPhase3Page() {
             <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
             <h1 className="text-3xl font-serif mb-3" style={{ fontFamily: "Playfair Display, serif" }}>You&apos;ve been removed.</h1>
             <p className="text-[var(--color-grey)] max-w-sm leading-relaxed">
-              All your responses from this activity have been deleted. You won&apos;t appear in the team results. If you
-              change your mind, reach out to your consultant.
+              Your live contribution to this activity has been deleted. If a team report was already generated, it may
+              still contain earlier material; contact Wavelength support for help with that report.
             </p>
           </div>
         );
@@ -735,19 +726,23 @@ export default function MemberPhase3Page() {
 
   // ── Shared shell ───────────────────────────────────────────────────────────
   return (
+    <VoiceInputProvider allowed={voiceInputAllowed}>
     <main className="flex-1 flex flex-col items-center relative">
       {/* Section tint overlay — matches the progress bar colour for the section */}
       <div className="fixed inset-0 pointer-events-none transition-colors duration-700" style={{ background: phase3SectionOverlay(barStep) }} />
 
       <div className="w-full max-w-2xl px-6 pt-8 relative z-10">
-        {/* Back to team hub — always available from within the survey */}
+        {/* A safe, non-destructive exit is always available from within the activity. */}
         <div className="flex items-center justify-between mb-2">
-          <a
-            href="/me"
-            className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors"
-          >
-            ← Back to my team
-          </a>
+          <div className="flex flex-col items-start gap-1">
+            <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-grey)]">Results &amp; Team Agreement Activity</p>
+            <a
+              href="/me"
+              className="text-sm font-medium text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors"
+            >
+              Exit to my profile
+            </a>
+          </div>
           <ReadAloudToggle enabled={readAloud} onToggle={toggleReadAloud} />
         </div>
         <Phase3ProgressBar step={barStep} reachedStep={reachedStep} complete={isTerminal} onSectionClick={goToStep} activeSteps={stepOrder} />
@@ -768,6 +763,7 @@ export default function MemberPhase3Page() {
         <button type="button" onClick={goBack} aria-label="Go back" className="fixed bottom-6 left-6 z-20 p-3 rounded-full border border-black/15 bg-white/60 backdrop-blur-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors text-xl leading-none shadow-sm">←</button>
       ) : null}
     </main>
+    </VoiceInputProvider>
   );
 }
 

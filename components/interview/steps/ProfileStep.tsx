@@ -1,185 +1,167 @@
 "use client";
 
 import { useState } from "react";
+import LocationAutocomplete from "@/components/LocationAutocomplete";
 import ChatBubble from "@/components/interview/ChatBubble";
 import VoiceTextInput from "@/components/interview/VoiceTextInput";
-import type { AppSupabaseClient } from "@/components/interview/types";
 import type { Member } from "@/types/database";
-import { propagateDisplayNameChange } from "@/lib/memberRename";
 
-type Stage = "confirm" | "greeting" | "correction_form" | "correction_done";
+export type MissingProfileFields = {
+  name: boolean;
+  location: boolean;
+};
+
+type Stage = "summary" | "name" | "greeting" | "edit";
 
 export default function ProfileStep({
   member,
-  supabase,
+  missing,
   readAloud,
+  editMode = false,
   onSaved,
   onAdvance,
 }: {
   member: Member;
-  supabase: AppSupabaseClient;
+  missing: MissingProfileFields;
   readAloud: boolean;
+  editMode?: boolean;
   onSaved: (fields: Partial<Member>) => void;
   onAdvance: () => void;
 }) {
-  const [stage, setStage] = useState<Stage>("confirm");
-  const [displayName, setDisplayName] = useState(member.display_name);
-  const [role, setRole] = useState(member.role ?? "");
+  const [stage, setStage] = useState<Stage>(() => editMode ? "edit" : missing.name ? "name" : "summary");
+  const [displayName, setDisplayName] = useState(missing.name ? "" : member.display_name);
   const [location, setLocation] = useState(member.location ?? "");
-  const [timezone, setTimezone] = useState(member.timezone ?? "");
+  const [locationChanged, setLocationChanged] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSaveCorrection() {
+  const firstName = displayName.trim().split(" ")[0] || "there";
+
+  async function save(fields: Record<string, string | null>) {
     setSaving(true);
     setError(null);
-
-    const previousName = member.display_name;
-    const fields = {
-      display_name: displayName || member.display_name,
-      role: role || null,
-      location: location || null,
-      timezone: timezone || null,
-    };
-
-    const { error: updateError } = await supabase
-      .from("members")
-      .update(fields)
-      .eq("member_id", member.member_id);
-
-    if (updateError) {
-      console.error("[interview/profile] failed to save correction:", {
-        message: updateError.message,
-        code: updateError.code,
+    try {
+      const response = await fetch("/api/interview/session", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: member.member_id, fields }),
       });
-      setError("Something went wrong saving your details. Please try again.");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(data.error ?? "We could not save that. Please try again.");
+        return false;
+      }
+      onSaved(data.fields ?? fields);
+      return true;
+    } catch {
+      setError("We could not save that. Please check your connection and try again.");
+      return false;
+    } finally {
       setSaving(false);
-      return;
     }
-
-    // Repoint any ratings other members already gave this member under the old name.
-    await propagateDisplayNameChange(
-      supabase,
-      member.team_id,
-      previousName,
-      fields.display_name
-    );
-
-    console.info(
-      `[interview/profile] profile corrected: "${member.display_name}" → "${fields.display_name}"`
-    );
-    onSaved(fields);
-    setSaving(false);
-    setStage("correction_done");
   }
 
-  const currentFirstName = (displayName || member.display_name).split(" ")[0];
+  async function saveName() {
+    if (!displayName.trim()) return;
+    const saved = await save({ display_name: displayName.trim() });
+    if (saved) setStage("greeting");
+  }
+
+  async function saveEdits() {
+    const fields: Record<string, string | null> = {};
+    if (displayName.trim() && displayName.trim() !== member.display_name) {
+      fields.display_name = displayName.trim();
+    }
+    if (locationChanged) {
+      fields.location = location.trim() || null;
+    }
+    if (!Object.keys(fields).length) {
+      onAdvance();
+      return;
+    }
+    const saved = await save(fields);
+    if (saved) onAdvance();
+  }
+
+  if (stage === "name") {
+    return (
+      <div>
+        <ChatBubble readAloud={readAloud}>
+          I&apos;ll tell you what I know about your team, but I don&apos;t have your name. Who am I speaking with?
+        </ChatBubble>
+        <div className="mt-6 mb-4">
+          <label className="form-label">First name or preferred name</label>
+          <VoiceTextInput value={displayName} onChange={setDisplayName} placeholder="For example, Sam" />
+          <p className="mt-2 text-sm leading-relaxed text-[var(--color-grey)]">A first name or preferred name is enough—please do not enter a surname.</p>
+        </div>
+        {error && <p className="mb-4 text-sm text-red-600" role="alert">{error}</p>}
+        <button type="button" onClick={saveName} disabled={saving || !displayName.trim()} className="btn-primary">
+          {saving ? "Saving..." : "Continue"}
+        </button>
+      </div>
+    );
+  }
+
+  if (stage === "greeting") {
+    return (
+      <div>
+        <ChatBubble readAloud={readAloud}>Nice to meet you, {firstName}.</ChatBubble>
+        <button type="button" onClick={onAdvance} className="btn-primary mt-6">Continue</button>
+      </div>
+    );
+  }
+
+  if (stage === "edit") {
+    return (
+      <div>
+        <ChatBubble readAloud={readAloud}>
+          What would you like to update? You can change your preferred name or where you usually work from here.
+        </ChatBubble>
+        <div className="card mt-6 space-y-5">
+          <div>
+            <label className="form-label">First name or preferred name</label>
+            <VoiceTextInput value={displayName} onChange={setDisplayName} placeholder="For example, Sam" />
+          </div>
+          <div>
+            <label className="form-label">City and country (optional)</label>
+            <LocationAutocomplete
+              value={location}
+              onChange={(value) => {
+                setLocation(value);
+                setLocationChanged(true);
+              }}
+              onSelect={() => {
+                setLocationChanged(true);
+              }}
+            />
+            <p className="mt-2 text-sm leading-relaxed text-[var(--color-grey)]">A city and country lets Otis set your time zone automatically when it recognises them. A broad location is fine too—please do not enter an address.</p>
+          </div>
+        </div>
+        {error && <p className="mt-4 text-sm text-red-600" role="alert">{error}</p>}
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button type="button" onClick={saveEdits} disabled={saving || !displayName.trim()} className="btn-primary">
+            {saving ? "Saving..." : "Save changes"}
+          </button>
+          {!editMode && <button type="button" onClick={() => setStage("summary")} disabled={saving} className="btn-secondary">Cancel</button>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      {stage === "confirm" && (
-        <>
-          <ChatBubble readAloud={readAloud}>
-            Now that you know a bit about me, I&apos;d like to know more about
-            you. Here&apos;s what I think I know already.
-          </ChatBubble>
-
-          {/* Profile card — values rendered with real <strong>, no markdown syntax */}
-          <div className="card mt-2 mb-6 space-y-1">
-            <p className="font-medium text-lg">{member.display_name}</p>
-            <p className="text-sm text-[var(--color-grey)]">
-              {[member.role, member.location, member.timezone]
-                .filter(Boolean)
-                .join(" · ") || "No further details on file."}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => setStage("greeting")}
-              className="btn-primary"
-            >
-              Yes, that&apos;s me
-            </button>
-            <button
-              type="button"
-              onClick={() => setStage("correction_form")}
-              className="btn-secondary"
-            >
-              That&apos;s not quite right.
-            </button>
-          </div>
-        </>
-      )}
-
-      {stage === "greeting" && (
-        <>
-          <ChatBubble readAloud={readAloud}>
-            {`It's nice to meet you, ${member.display_name.split(" ")[0]}.`}
-          </ChatBubble>
-          <button type="button" onClick={onAdvance} className="btn-primary mt-8">
-            Continue
-          </button>
-        </>
-      )}
-
-      {stage === "correction_form" && (
-        <>
-          <ChatBubble readAloud={readAloud}>
-            Sorry about that. What did I get wrong?
-          </ChatBubble>
-          <div className="card space-y-4 mt-6">
-            <div>
-              <label className="form-label">Name</label>
-              <VoiceTextInput value={displayName} onChange={setDisplayName} />
-            </div>
-            <div>
-              <label className="form-label">Role</label>
-              <VoiceTextInput value={role} onChange={setRole} />
-            </div>
-            <div>
-              <label className="form-label">Location</label>
-              <VoiceTextInput value={location} onChange={setLocation} />
-            </div>
-            <div>
-              <label className="form-label">Time zone</label>
-              <VoiceTextInput value={timezone} onChange={setTimezone} />
-            </div>
-
-            {error && <p className="text-[var(--color-grey)]">{error}</p>}
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={handleSaveCorrection}
-                disabled={saving || !displayName.trim()}
-                className="btn-primary"
-              >
-                {saving ? "Saving..." : "Save"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setStage("confirm")}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {stage === "correction_done" && (
-        <>
-          <ChatBubble readAloud={readAloud}>
-            {`It's nice to meet you, ${currentFirstName}.`}
-          </ChatBubble>
-          <button type="button" onClick={onAdvance} className="btn-primary mt-8">
-            Continue
-          </button>
-        </>
-      )}
+      <ChatBubble readAloud={readAloud}>
+        Here&apos;s what I have on file about you.
+      </ChatBubble>
+      <section className="card mt-6 mb-6 space-y-2" aria-label="What Otis knows about you">
+        <p><strong>Name:</strong> {member.display_name}</p>
+        {member.role && <p><strong>Team role on file:</strong> {member.role}</p>}
+        {member.location && <p><strong>Usually working from:</strong> {member.location}</p>}
+      </section>
+      <div className="flex flex-wrap gap-3">
+        <button type="button" onClick={() => setStage("greeting")} className="btn-primary">That&apos;s right</button>
+        <button type="button" onClick={() => setStage("edit")} className="btn-secondary">Update my name or location</button>
+      </div>
     </div>
   );
 }

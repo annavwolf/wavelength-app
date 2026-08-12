@@ -8,9 +8,10 @@ const BUBBLES = [
   "Today, I'd like to do that by discussing psychological safety, which has many benefits for team performance and well-being.",
   "By the way, in case you're wondering why I'm an octopus: did you know octopuses have 9 brains? One central brain, and eight semi-autonomous mini-brains, one in each arm.",
   "Ideal team sizes happen to be around 8 people. And like octopus arms, each person thinks, feels, and acts independently, yet is interconnected in shaping the collective mind of the team.",
+  "Now that you know a little more about me, I'd like to get to know you and your team. Here's what I think I know already.",
 ];
 
-const LAST_CHUNK = 4;
+const LAST_CHUNK = BUBBLES.length;
 
 export default function LandingStep({
   readAloud,
@@ -25,7 +26,9 @@ export default function LandingStep({
 
   function next() {
     if (chunk < LAST_CHUNK) {
-      cancelSpeech();
+      // The initial “Yes” click primes speech in the browser. Do not cancel
+      // that tiny warm-up utterance before the first Otis message mounts.
+      if (chunk > 0) cancelSpeech();
       setChunk((c) => c + 1);
     }
   }
@@ -85,7 +88,7 @@ export default function LandingStep({
 
         {/* key={chunk} forces a fresh ChatBubble mount on every chunk change so
             the read-aloud effect fires and auto-reads the new text. */}
-        {chunk >= 1 && chunk <= 4 && (
+        {chunk >= 1 && chunk <= LAST_CHUNK && (
           <ChatBubble key={chunk} readAloud={readAloud} hideAvatar centered>
             {BUBBLES[chunk - 1]}
           </ChatBubble>

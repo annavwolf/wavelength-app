@@ -5,19 +5,6 @@ import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 import type { Team } from "@/types/database";
 
-function formatVirtuality(level: Team["virtuality_level"]) {
-  switch (level) {
-    case "fully_remote":
-      return "Fully remote";
-    case "hybrid":
-      return "Hybrid";
-    case "mostly_in_person":
-      return "Mostly in-person";
-    default:
-      return null;
-  }
-}
-
 function statusPillClasses(status: string) {
   switch (status) {
     case "setup":
@@ -39,38 +26,23 @@ export default function Home() {
 
   useEffect(() => {
     async function loadTeams() {
-      const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession();
-
-      if (sessionError) {
-        console.error("[dashboard] getSession error:", sessionError);
-      }
-
-      const consultantId = sessionData.session?.user.id;
-      if (!consultantId) {
-        // AuthGate should have already redirected to /login in this case,
-        // but bail out defensively rather than fetching every team.
-        console.error("[dashboard] no logged-in user — skipping team fetch");
-        setLoading(false);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("teams")
-        .select("*")
-        .eq("consultant_id", consultantId)
-        .order("created_at", { ascending: false });
-
-      if (error) {
+      try {
+        const response = await fetch("/api/teams", { cache: "no-store" });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          console.error("[dashboard] failed to load teams:", payload?.error);
+        } else {
+          setTeams((payload?.teams ?? []) as Team[]);
+        }
+      } catch (error) {
         console.error("[dashboard] failed to load teams:", error);
-      } else if (data) {
-        setTeams(data);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
 
-    loadTeams();
-  }, [supabase]);
+    void loadTeams();
+  }, []);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -126,11 +98,9 @@ export default function Home() {
               >
                 <div>
                   <h3 className="text-lg font-semibold">{team.team_name}</h3>
-                  <p className="text-sm text-[var(--color-grey)] mt-1">
-                    {[team.industry, formatVirtuality(team.virtuality_level)]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
+                  {team.industry && (
+                    <p className="text-sm text-[var(--color-grey)] mt-1">{team.industry}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-4">
                   <span className={statusPillClasses(team.status)}>

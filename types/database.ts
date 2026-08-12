@@ -46,7 +46,18 @@ export type MemberIdentityInsert = {
 
 // Combined shape returned by the /api/teams/[team_id]/members roster route —
 // merges Member (response data) with MemberIdentity (identity data).
-export type MemberWithIdentity = Member & { display_name: string; email: string | null };
+export type MemberWithIdentity = Member & {
+  display_name: string;
+  email: string | null;
+  privacy_acknowledged_at?: string | null;
+  privacy_notice_version?: string | null;
+  // This is true only when the record matches the currently active notice.
+  // Consultants can use it to follow up without seeing a participant's
+  // exact-word or voice-input choices.
+  privacy_acknowledged_currently?: boolean;
+  verbatim_preference?: "summary_only" | "verbatim" | null;
+  identity_name_missing?: boolean;
+};
 
 export type Team = {
   team_id: string;
@@ -59,6 +70,7 @@ export type Team = {
   known_sensitivities: string | null;
   selected_fish_ids: string[];
   status: string;
+  beta_participation_ended_at: string | null;
   created_at: string;
 }
 
@@ -73,6 +85,7 @@ export type TeamInsert = {
   known_sensitivities?: string | null;
   selected_fish_ids?: string[];
   status?: string;
+  beta_participation_ended_at?: string | null;
   created_at?: string;
 }
 
@@ -113,9 +126,13 @@ export type Member = {
   own_role: string | null;
   ps_importance: string | null;
   team_name_suggestion: string | null;
+  // The next Phase 1 screen to restore after an interruption. This is stored
+  // separately from completion and the privacy acknowledgement.
+  phase1_resume_step: string | null;
+  phase1_return_to_review: boolean;
   invited_at: string | null;
   completed_at: string | null;
-  // Set when the member submits the Phase 3 pre-workshop activity (migration
+  // Set when the member submits the Results & Team Agreement Activity (migration
   // 0018). NULL = not finished. Distinct from status/completed_at (Phase 1).
   phase3_completed_at: string | null;
   created_at: string;
@@ -149,6 +166,8 @@ export type MemberInsert = {
   own_role?: string | null;
   ps_importance?: string | null;
   team_name_suggestion?: string | null;
+  phase1_resume_step?: string | null;
+  phase1_return_to_review?: boolean;
   invited_at?: string | null;
   completed_at?: string | null;
   phase3_completed_at?: string | null;
@@ -156,6 +175,46 @@ export type MemberInsert = {
 }
 
 export type MemberUpdate = Partial<MemberInsert>;
+
+export type MemberPrivacyAcknowledgement = {
+  member_id: string;
+  team_id: string;
+  privacy_notice_version: string;
+  acknowledged_at: string;
+  verbatim_preference: "summary_only" | "verbatim";
+  preference_updated_at: string;
+  voice_input_opt_in: boolean;
+  voice_input_opted_in_at: string | null;
+}
+
+export type MemberPrivacyAcknowledgementInsert = {
+  member_id: string;
+  team_id: string;
+  privacy_notice_version: string;
+  acknowledged_at?: string;
+  verbatim_preference: "summary_only" | "verbatim";
+  preference_updated_at?: string;
+  voice_input_opt_in?: boolean;
+  voice_input_opted_in_at?: string | null;
+}
+
+export type MemberWithdrawal = {
+  id: string;
+  member_id: string;
+  team_id: string;
+  scope: string;
+  requested_at: string;
+  report_was_generated: boolean;
+}
+
+export type MemberWithdrawalInsert = {
+  id?: string;
+  member_id: string;
+  team_id: string;
+  scope: string;
+  requested_at?: string;
+  report_was_generated?: boolean;
+}
 
 export type Fish = {
   fish_id: string;
@@ -277,13 +336,13 @@ export type PurposeResponseInsert = {
 
 export type PurposeResponseUpdate = Partial<PurposeResponseInsert>;
 
-// Note: there is no target_member_id column on the live table — only the
-// target's name is stored. Code that needs to track *which* member a rating
-// belongs to (e.g. to avoid duplicate inserts) must do so client-side only.
+// `target_member_id` was added in migration 0024. `target_member_name` remains
+// for legacy rows and transitional reporting, but new writes should use the id.
 export type CoordinationRating = {
   id: string;
   member_id: string;
   team_id: string;
+  target_member_id: string | null;
   target_member_name: string;
   frequency: CoordinationFrequency;
   created_at: string;
@@ -293,6 +352,7 @@ export type CoordinationRatingInsert = {
   id?: string;
   member_id: string;
   team_id: string;
+  target_member_id?: string | null;
   target_member_name: string;
   frequency: CoordinationFrequency;
   created_at?: string;
@@ -859,6 +919,9 @@ export type SubmissionClassification = {
   submission_id: string;
   text: string;
   valence: BehaviorBucket;
+  // The consultant-facing JSON never contains a roster-linked member id. This
+  // flag is enough for the UI to decide whether an exact excerpt may be shown.
+  verbatim_allowed?: boolean;
   member_id: string;
   pass1_bucket_id: string | null;
   pass1_confidence: "high" | "medium" | "low";
@@ -1114,6 +1177,18 @@ export type Database = {
         Row: Member;
         Insert: MemberInsert;
         Update: MemberUpdate;
+        Relationships: [];
+      };
+      member_privacy_acknowledgements: {
+        Row: MemberPrivacyAcknowledgement;
+        Insert: MemberPrivacyAcknowledgementInsert;
+        Update: Partial<MemberPrivacyAcknowledgementInsert>;
+        Relationships: [];
+      };
+      member_withdrawals: {
+        Row: MemberWithdrawal;
+        Insert: MemberWithdrawalInsert;
+        Update: Partial<MemberWithdrawalInsert>;
         Relationships: [];
       };
       member_login_tokens: {

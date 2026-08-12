@@ -13,9 +13,10 @@
 // phrasing, eliminating the "one member's words win" failure mode.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { ITEM_EXAMPLES } from "@/lib/itemExamples";
 import { MODELS } from "@/lib/models";
+import { redactTextForExternalProcessing } from "@/lib/privacy";
 import type { BehaviorBucket, MemberBehavior, Phase4BehaviourGroup } from "@/types/database";
 
 // ── Bucket registry (built once from ITEM_EXAMPLES) ──────────────────────────
@@ -41,6 +42,7 @@ export type SubmissionClassification = {
   submission_id: string;
   text: string;
   valence: BehaviorBucket;
+  verbatim_allowed?: boolean;
   member_id: string;
   pass1_bucket_id: string | null;
   pass1_confidence: "high" | "medium" | "low";
@@ -100,8 +102,8 @@ RULES:
 - Cross-item bucketing is intentional — a behaviour submitted for any topic may match any bucket.
 - Return your classification using the classify_behavior tool.`;
 
-  const user = `SUBMITTED BEHAVIOUR (valence: ${behavior.bucket}):
-"${behavior.text}"
+const user = `SUBMITTED BEHAVIOUR (valence: ${behavior.bucket}):
+"${redactTextForExternalProcessing(behavior.text)}"
 
 AVAILABLE BUCKETS:
 ${bucketListForPrompt(buckets)}`;
@@ -192,7 +194,7 @@ Return exactly one result per submission_id using the review_classifications too
   const submissionsText = pass1Results.map((r) => {
     const bucketLabel = r.pass1_bucket_id ? allBuckets.find((b) => b.id === r.pass1_bucket_id)?.label : null;
     return `submission_id: ${r.submission_id}
-text: "${r.text}" (valence: ${r.valence})
+    text: "${redactTextForExternalProcessing(r.text)}" (valence: ${r.valence})
 pass1: ${r.pass1_bucket_id ? `→ "${bucketLabel}" (${r.pass1_bucket_id})` : "unbucketed"} [${r.pass1_confidence}]
 reason: ${r.pass1_reason}`;
   }).join("\n\n");
@@ -240,7 +242,7 @@ reason: ${r.pass1_reason}`;
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 
 export async function classifyTeamBehaviours(teamId: string): Promise<ClassificationResult> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("member_behaviors")
     .select("*")
     .eq("team_id", teamId)
@@ -250,6 +252,30 @@ export async function classifyTeamBehaviours(teamId: string): Promise<Classifica
   const behaviours = (data ?? []) as MemberBehavior[];
   const memberCount = new Set(behaviours.map((b) => b.member_id)).size;
   if (behaviours.length === 0) return { groups: [], unbucketed: [], trajectories: [], memberCount };
+
+  const { data: privacyRows, error: privacyError } = await supabaseAdmin
+    .from("member_privacy_acknowledgements")
+    .select("member_id, verbatim_preference")
+    .eq("team_id", teamId);
+  if (privacyError) throw new Error(`privacy preference load failed: ${privacyError.message}`);
+  const canShareVerbatim = new Set(
+    (privacyRows ?? [])
+      .filter((row) => row.verbatim_preference === "verbatim")
+      .map((row) => row.member_id)
+  );
+  const anonymousMemberIds = new Map(
+    Array.from(new Set(behaviours.map((behavior) => behavior.member_id))).map((memberId, index) => [memberId, `participant-${index + 1}`])
+  );
+  const safeForConsultant = (submission: SubmissionClassification): SubmissionClassification => {
+    const verbatimAllowed = canShareVerbatim.has(submission.member_id);
+    return {
+      ...submission,
+      // Preserve the excerpt preference, not the link to a roster identity.
+      member_id: anonymousMemberIds.get(submission.member_id) ?? "participant",
+      verbatim_allowed: verbatimAllowed,
+      text: verbatimAllowed ? submission.text : "[Participant chose summaries only.]",
+    };
+  };
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
@@ -349,5 +375,13 @@ export async function classifyTeamBehaviours(teamId: string): Promise<Classifica
   // Sort by convergence (member_count desc), stable by id.
   groups.sort((a, b) => b.member_count - a.member_count || (ALL_BUCKETS.findIndex((x) => x.label === a.representative) - ALL_BUCKETS.findIndex((x) => x.label === b.representative)));
 
-  return { groups, unbucketed, trajectories, memberCount };
+  return {
+    groups: groups.map((group) => ({
+      ...group,
+      contributing_submissions: group.contributing_submissions?.map(safeForConsultant),
+    })),
+    unbucketed: unbucketed.map(safeForConsultant),
+    trajectories: trajectories.map(safeForConsultant),
+    memberCount,
+  };
 }

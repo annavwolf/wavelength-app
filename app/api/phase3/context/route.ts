@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
+import { requireAcknowledgedMember } from "@/lib/requestAuth";
 import type { Phase3ContextResponseInsert } from "@/types/database";
 
 // Phase 3 context questions (post-rework):
@@ -17,7 +18,10 @@ export async function GET(req: NextRequest) {
   const teamId = searchParams.get("team_id");
   if (!memberId || !teamId) return NextResponse.json({ error: "member_id and team_id required" }, { status: 400 });
 
-  const { data, error } = await supabase
+  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (!auth.ok) return auth.response;
+
+  const { data, error } = await supabaseAdmin
     .from("phase3_context_responses")
     .select("*")
     .eq("member_id", memberId)
@@ -45,6 +49,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "member_id, team_id, phase required" }, { status: 400 });
   }
 
+  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (!auth.ok) return auth.response;
+
   const now = new Date().toISOString();
   const update: Phase3ContextResponseInsert = { member_id: memberId, team_id: teamId, updated_at: now };
 
@@ -67,7 +74,7 @@ export async function POST(req: NextRequest) {
       update.synchronicity = (body.synchronicity as Phase3ContextResponseInsert["synchronicity"]) ?? null;
   }
 
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from("phase3_context_responses")
     .upsert(update, { onConflict: "member_id,team_id" });
   if (error) return NextResponse.json({ error: "db_error", detail: error.message }, { status: 500 });

@@ -115,13 +115,12 @@ function LoginForm() {
       </h1>
 
       <p className="accent text-lg text-center mb-5">
-        An AI Specialized in Psychological Safety and Virtual Collaboration.
+        An AI specialised in teamwork and psychological safety.
       </p>
 
       <p className="text-center text-[var(--color-grey)] max-w-md mb-8 leading-relaxed">
-        Remote and hybrid collaborations often suffer from disconnected
-        relationships and uncoordinated work. I help teams build Psychological
-        Safety — a superpower in working together from anywhere.
+        I help teams strengthen psychological safety, build better working
+        relationships, and coordinate their work with care.
       </p>
 
       <div className="card w-full max-w-sm">

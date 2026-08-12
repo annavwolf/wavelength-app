@@ -42,6 +42,7 @@ export default function AuthGate({
   // AuthGate must leave those alone rather than bounce a member to /login.
   const isPublicRoute =
     pathname === "/login" ||
+    pathname === "/privacy" ||
     pathname.startsWith("/interview/") ||
     pathname.startsWith("/me") ||
     pathname.startsWith("/member-login");

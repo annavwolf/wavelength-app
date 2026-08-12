@@ -1,20 +1,14 @@
-import type { createBrowserClient } from "@/lib/supabase";
-
-// Shared client type for interview step components — avoids each step file
-// re-deriving it from lib/supabase.ts.
-export type AppSupabaseClient = ReturnType<typeof createBrowserClient>;
-
 export type InterviewStep =
+  | "privacy"
   | "landing"
   | "profile"
-  | "personal_context"
+  | "profile_details"
   | "purpose"
   | "team_name"
   | "missing_member"
   | "own_role"
   | "coordination"
   | "ps_why"
-  | "consent"
   | "faq"
   | "ps_descent"
   | "ps_importance"

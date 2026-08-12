@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
+import { requireTeamOwner } from "@/lib/requestAuth";
 import type { Zone } from "@/types/database";
 
 // Phase 4 §7.4 — Lock. The facilitator has read the assembled agreement aloud,
@@ -27,8 +28,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  const auth = await requireTeamOwner(req, teamId);
+  if (!auth.ok) return auth.response;
+
   // Session must exist and be at the agreement movement.
-  const { data: session, error: sessErr } = await supabase
+  const { data: session, error: sessErr } = await supabaseAdmin
     .from("workshop_sessions")
     .select("*")
     .eq("team_id", teamId)
@@ -37,7 +41,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "no_workshop_session" }, { status: 400 });
 
   // Next version for this team, and retire the previous current agreement.
-  const { data: existing, error: exErr } = await supabase
+  const { data: existing, error: exErr } = await supabaseAdmin
     .from("code_of_conduct")
     .select("version")
     .eq("team_id", teamId)
@@ -46,7 +50,7 @@ export async function POST(req: NextRequest) {
   if (exErr) return NextResponse.json({ error: "db_error", detail: exErr.message }, { status: 500 });
   const nextVersion = (existing?.[0]?.version ?? 0) + 1;
 
-  const { error: retireErr } = await supabase
+  const { error: retireErr } = await supabaseAdmin
     .from("code_of_conduct")
     .update({ is_current: false })
     .eq("team_id", teamId)
@@ -54,7 +58,7 @@ export async function POST(req: NextRequest) {
   if (retireErr) return NextResponse.json({ error: "db_error", detail: retireErr.message }, { status: 500 });
 
   const agreedAt = new Date().toISOString();
-  const { data: coc, error: insErr } = await supabase
+  const { data: coc, error: insErr } = await supabaseAdmin
     .from("code_of_conduct")
     .insert({
       team_id: teamId,
@@ -71,7 +75,7 @@ export async function POST(req: NextRequest) {
   // Revisit date → followups (spec §7.4). Optional: only if a date was set.
   let followupWarning: string | null = null;
   if (revisitDate) {
-    const { data: fu, error: fuCountErr } = await supabase
+    const { data: fu, error: fuCountErr } = await supabaseAdmin
       .from("followups")
       .select("round")
       .eq("team_id", teamId)
@@ -81,14 +85,14 @@ export async function POST(req: NextRequest) {
       followupWarning = fuCountErr.message;
     } else {
       const nextRound = (fu?.[0]?.round ?? 0) + 1;
-      const { error: fuErr } = await supabase
+      const { error: fuErr } = await supabaseAdmin
         .from("followups")
         .insert({ team_id: teamId, scheduled_for: revisitDate, round: nextRound });
       if (fuErr) followupWarning = fuErr.message;
     }
   }
 
-  const { error: closeErr } = await supabase
+  const { error: closeErr } = await supabaseAdmin
     .from("workshop_sessions")
     .update({ phase: "closed", locked_at: agreedAt, revisit_date: revisitDate, updated_at: agreedAt })
     .eq("id", session.id);

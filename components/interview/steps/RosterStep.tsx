@@ -5,6 +5,7 @@ import type { Member, Team } from "@/types/database";
 
 export default function RosterStep({
   member,
+  team,
   allMembers,
   onAdvance,
   readAloud,
@@ -18,7 +19,10 @@ export default function RosterStep({
   return (
     <div>
       <ChatBubble readAloud={readAloud}>
-        I also have some information about a team you belong to.   
+        I also have some information about <strong>{team.team_name}</strong>. This is the team we&apos;ll talk about today.
+      </ChatBubble>
+      <ChatBubble readAloud={readAloud}>
+        I see a team as people with complementary skills who depend on one another to reach common goals. Here&apos;s the roster I have on file.
       </ChatBubble>
 
       {/* Roster — names only */}

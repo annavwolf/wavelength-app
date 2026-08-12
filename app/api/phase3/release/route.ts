@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
-import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { logIdentityLookups } from "@/lib/auditLog";
+import { requireTeamOwner } from "@/lib/requestAuth";
 import type { Phase3ReportJson } from "@/types/database";
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+  }[character] ?? character));
+}
 
 // POST /api/phase3/release
 // { team_id, report: Phase3ReportJson, dry_run?: boolean, resend_all?: boolean }
@@ -16,7 +23,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "team_id and report required" }, { status: 400 });
   }
 
-  const { data: analysis, error: aErr } = await supabase
+  const auth = await requireTeamOwner(req, team_id);
+  if (!auth.ok) return auth.response;
+
+  const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")
     .select("id, phase3_report_json")
     .eq("team_id", team_id)
@@ -40,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     const [identityRes, teamRes] = await Promise.all([
       supabaseAdmin.from("member_identity").select("member_id, display_name, email").eq("team_id", team_id),
-      supabase.from("teams").select("team_name").eq("team_id", team_id).single(),
+      supabaseAdmin.from("teams").select("team_name").eq("team_id", team_id).single(),
     ]);
 
     const teamName = teamRes.data?.team_name ?? "your team";
@@ -62,6 +72,7 @@ export async function POST(req: NextRequest) {
     if (apiKey && toSend.length > 0) {
       const resend = new Resend(apiKey);
       const loginUrl = `${APP_URL}/member-login`;
+      const safeLoginUrl = escapeHtml(loginUrl);
       // Use RESEND_FROM_EMAIL if set (requires a verified Resend domain).
       // Falls back to the shared test sender — only reliably delivers to the
       // Resend account owner's address; use a verified domain for production.
@@ -69,25 +80,27 @@ export async function POST(req: NextRequest) {
 
       for (const m of toSend) {
         const firstName = m.display_name.split(" ")[0];
+        const safeFirstName = escapeHtml(firstName);
+        const safeTeamName = escapeHtml(teamName);
         const { error: sendErr } = await resend.emails.send({
           from: fromAddress,
           to: m.email!,
-          subject: `Your pre-workshop activity — ${teamName}`,
-          text: `Hi ${firstName},\n\nYour consultant has finished the analysis for ${teamName} and your pre-workshop activity is ready.\n\nBefore the workshop, Otis wants to hear a short story from you — a real moment connected to what your session will focus on. It takes around 10 minutes.\n\nStart here:\n${loginUrl}\n\nLog in with the email address you used for your assessment. Once you're in, you'll see a link to start the activity at the top of your profile page.\n\nIf you have any questions, contact your consultant directly.`,
+          subject: `Your Results & Team Agreement Activity — ${teamName}`,
+          text: `Hi ${firstName},\n\nYour consultant has finished the analysis for ${teamName} and your Results & Team Agreement Activity is ready.\n\nBefore the workshop, Otis will guide you through a short reflection connected to what your session will focus on. It takes around 10 minutes.\n\nStart here:\n${loginUrl}\n\nLog in with the email address you used for your assessment. Once you're in, you'll see a link to start the activity at the top of your profile page.\n\nFor questions or technical support, email contact@wavelength.team.`,
           html: `
-<p>Hi ${firstName},</p>
+<p>Hi ${safeFirstName},</p>
 
-<p>Your consultant has finished the analysis for <strong>${teamName}</strong> and your pre-workshop activity is ready.</p>
+<p>Your consultant has finished the analysis for <strong>${safeTeamName}</strong> and your Results &amp; Team Agreement Activity is ready.</p>
 
-<p>Before the workshop, Otis wants to hear a short story from you — a real moment connected to what your session will focus on. It takes around 10 minutes.</p>
+<p>Before the workshop, Otis will guide you through a short reflection connected to what your session will focus on. It takes around 10 minutes.</p>
 
-<p><a href="${loginUrl}" style="display:inline-block;background:#2B2B6B;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Start my pre-workshop activity</a></p>
+<p><a href="${safeLoginUrl}" style="display:inline-block;background:#2B2B6B;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Start my activity</a></p>
 
-<p>Or paste this link into your browser:<br/><a href="${loginUrl}">${loginUrl}</a></p>
+<p>Or paste this link into your browser:<br/><a href="${safeLoginUrl}">${safeLoginUrl}</a></p>
 
 <p>Log in with the email address you used for your assessment. Once you're in, you'll see a link to start the activity at the top of your profile page.</p>
 
-<p style="color:#888;font-size:13px;">If you have any questions, contact your consultant directly.</p>
+<p style="color:#888;font-size:13px;">For questions or technical support, email <a href="mailto:contact@wavelength.team?subject=Otis%20activity%20support">contact@wavelength.team</a>.</p>
           `.trim(),
         });
         if (!sendErr) {
@@ -106,7 +119,7 @@ export async function POST(req: NextRequest) {
     released_at: dry_run ? (existing?.released_at ?? null) : now,
   };
 
-  const { error: saveErr } = await supabase
+  const { error: saveErr } = await supabaseAdmin
     .from("analysis")
     .update({ phase3_report_json: updatedReport as unknown as import("@/types/database").Json })
     .eq("team_id", team_id);

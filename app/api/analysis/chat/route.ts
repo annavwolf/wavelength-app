@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { PART2_SYSTEM_PROMPT } from "@/prompts/part2_analytics";
+import { redactTextForExternalProcessing } from "@/lib/privacy";
+import { requireTeamOwner } from "@/lib/requestAuth";
 
 const MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 1024;
@@ -33,6 +35,8 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
+  const auth = await requireTeamOwner(req, teamId);
+  if (!auth.ok) return auth.response;
 
   try {
     return await runChat(teamId, messages);
@@ -50,7 +54,7 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   }
 
   // ── Analysis row — must already have Tier 1 ─────────────────────────────────
-  const { data: analysisRow, error: analysisError } = await supabase
+  const { data: analysisRow, error: analysisError } = await supabaseAdmin
     .from("analysis")
     .select("*")
     .eq("team_id", teamId)
@@ -64,7 +68,7 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   }
 
   // ── Team context ────────────────────────────────────────────────────────────
-  const { data: team, error: teamError } = await supabase
+  const { data: team, error: teamError } = await supabaseAdmin
     .from("teams")
     .select("*")
     .eq("team_id", teamId)
@@ -77,13 +81,11 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   const teamContext = {
     team_name: team.team_name,
     industry: team.industry,
-    virtuality_level: team.virtuality_level,
-    timezones: team.timezones,
     known_sensitivities: team.known_sensitivities,
   };
 
   // ── Members (for private_code + privacy flag) ───────────────────────────────
-  const { data: members, error: membersError } = await supabase
+  const { data: members, error: membersError } = await supabaseAdmin
     .from("members")
     .select("*")
     .eq("team_id", teamId);
@@ -100,9 +102,9 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   // the per-statement PS detail (below), the purpose statements, and the Tier 1
   // metrics inside tier1_json. No fish_responses, no interview clusters.
   const [purposeRes, stmtRes, psRes] = await Promise.all([
-    supabase.from("purpose_responses").select("*").eq("team_id", teamId),
-    supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),
-    supabase.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1),
+    supabaseAdmin.from("purpose_responses").select("*").eq("team_id", teamId),
+    supabaseAdmin.from("ps_statements").select("*").order("statement_id", { ascending: true }),
+    supabaseAdmin.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1),
   ]);
 
   if (purposeRes.error) {
@@ -140,13 +142,6 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
       })),
   }));
 
-  // Co-location / timezone, so the model can answer who works where.
-  const memberLocations = (members ?? []).map((m) => ({
-    private_code: m.private_code,
-    location: m.location,
-    timezone: m.timezone,
-  }));
-
   // ── Assemble the data package for the model ─────────────────────────────────
   // Includes the proposed Tier 2 interpretation so the consultant can discuss it.
   const dataPackage = {
@@ -157,21 +152,28 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
     team_context: teamContext,
     computed_metrics_tier1: analysisRow.tier1_json,
     ps_items: psItems,
-    member_locations: memberLocations,
     qualitative_material: {
       purpose_statements: purposeStatements,
     },
     proposed_interpretation_tier2: analysisRow.tier2_json ?? null,
   };
 
-  const dataPackageText = JSON.stringify(dataPackage, null, 2);
+  const { data: identities } = await supabaseAdmin
+    .from("member_identity")
+    .select("display_name")
+    .eq("team_id", teamId);
+  const knownNames = (identities ?? []).map((identity) => identity.display_name);
+  const dataPackageText = redactTextForExternalProcessing(JSON.stringify(dataPackage, null, 2), knownNames);
 
   // The context block is prepended to the conversation: the data package, then
   // the consultant-conversation note.
   const contextBlock = `${dataPackageText}\n\n${CONSULTANT_NOTE}`;
 
   // Fold the context into the first user turn so the message sequence stays clean.
-  const convo: ChatMessage[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  const convo: ChatMessage[] = messages
+    .filter((message) => message && (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
+    .slice(-20)
+    .map((message) => ({ role: message.role, content: redactTextForExternalProcessing(message.content.slice(0, 6000), knownNames) }));
   if (convo.length > 0 && convo[0].role === "user") {
     convo[0] = { role: "user", content: `${contextBlock}\n\n---\n\nConsultant: ${convo[0].content}` };
   } else {

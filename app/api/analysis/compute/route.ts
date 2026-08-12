@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { effectiveValue } from "@/lib/psSelection";
 import { embedTexts, cosineSim } from "@/lib/embeddings";
+import { requireTeamOwner } from "@/lib/requestAuth";
 import type {
   CoordinationFrequency,
   Json,
@@ -56,6 +57,8 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
+  const auth = await requireTeamOwner(req, teamId);
+  if (!auth.ok) return auth.response;
   try {
     return await runCompute(teamId);
   } catch (err) {
@@ -66,14 +69,14 @@ export async function POST(req: NextRequest) {
 }
 
 async function runCompute(teamId: string): Promise<NextResponse> {
-  const { data: team, error: teamError } = await supabase
+  const { data: team, error: teamError } = await supabaseAdmin
     .from("teams")
     .select("*")
     .eq("team_id", teamId)
     .single();
   if (teamError || !team) return NextResponse.json({ error: "team_not_found" }, { status: 404 });
 
-  const { data: completedMembers, error: membersError } = await supabase
+  const { data: completedMembers, error: membersError } = await supabaseAdmin
     .from("members")
     .select("*")
     .eq("team_id", teamId)
@@ -82,7 +85,17 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     return NextResponse.json({ error: "db_error", detail: membersError.message }, { status: 500 });
   }
 
-  const members: Member[] = completedMembers ?? [];
+  const completed = (completedMembers ?? []) as Member[];
+  const { data: privacyRows, error: privacyError } = await supabaseAdmin
+    .from("member_privacy_acknowledgements")
+    .select("member_id, verbatim_preference")
+    .eq("team_id", teamId)
+    .in("member_id", completed.map((member) => member.member_id));
+  if (privacyError) return NextResponse.json({ error: "db_error", detail: privacyError.message }, { status: 500 });
+  const privacyById = new Map((privacyRows ?? []).map((record) => [record.member_id, record]));
+  // A completed row from before the beta notice is not analysed until the
+  // participant has read and acknowledged the current privacy information.
+  const members = completed.filter((member) => privacyById.has(member.member_id));
   const nCompleted = members.length;
   // Hard gate (unchanged): < 3 completed members → insufficient.
   if (nCompleted < 3) {
@@ -104,6 +117,9 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     members.map((m) => [(displayNameById.get(m.member_id) ?? "").toLowerCase(), m])
   );
   const codeOf = (id: string) => memberById.get(id)?.private_code ?? "unknown";
+  const coordinationTarget = (rating: { target_member_id?: string | null; target_member_name: string }) =>
+    (rating.target_member_id ? memberById.get(rating.target_member_id) : undefined) ??
+    memberByName.get(rating.target_member_name.toLowerCase());
 
   // Participation confidence (unchanged).
   const rosterSize = team.roster_size;
@@ -116,10 +132,10 @@ async function runCompute(teamId: string): Promise<NextResponse> {
 
   // ── Data fetch (fish dropped; ps_statements added for zones + reverse flag) ──
   const [psResult, coordResult, purposeResult, statementsResult] = await Promise.all([
-    supabase.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1).in("member_id", memberIds),
-    supabase.from("coordination_ratings").select("*").eq("team_id", teamId).in("member_id", memberIds),
-    supabase.from("purpose_responses").select("*").eq("team_id", teamId).in("member_id", memberIds),
-    supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),
+    supabaseAdmin.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1).in("member_id", memberIds),
+    supabaseAdmin.from("coordination_ratings").select("*").eq("team_id", teamId).in("member_id", memberIds),
+    supabaseAdmin.from("purpose_responses").select("*").eq("team_id", teamId).in("member_id", memberIds),
+    supabaseAdmin.from("ps_statements").select("*").order("statement_id", { ascending: true }),
   ]);
   for (const r of [psResult, coordResult, purposeResult, statementsResult]) {
     if (r.error) return NextResponse.json({ error: "db_error", detail: r.error.message }, { status: 500 });
@@ -225,7 +241,7 @@ async function runCompute(teamId: string): Promise<NextResponse> {
       clusters: [],
     };
   } else {
-    const vecs = await embedTexts(purposeTexts);
+    const vecs = await embedTexts(purposeTexts, Array.from(displayNameById.values()));
     // mean pairwise cosine (cohesion)
     let sum = 0,
       pairs = 0;
@@ -282,13 +298,15 @@ async function runCompute(teamId: string): Promise<NextResponse> {
   // Coordination (kept): directed pairs, peripheral members, asymmetric pairs.
   const coordPairs = coordRatings.map((r) => ({
     from_private_code: codeOf(r.member_id),
-    to_private_code: memberByName.get(r.target_member_name.toLowerCase())?.private_code ?? null,
+    to_private_code: coordinationTarget(r)?.private_code ?? null,
     frequency: r.frequency,
   }));
   const peripheralCodes: string[] = [];
   for (const m of members) {
     const received = coordRatings.filter(
-      (r) => r.target_member_name.toLowerCase() === m.display_name.toLowerCase()
+      (r) =>
+        r.target_member_id === m.member_id ||
+        (!r.target_member_id && r.target_member_name.toLowerCase() === (displayNameById.get(m.member_id) ?? "").toLowerCase())
     );
     if (!received.length) continue;
     const low = received.filter((r) => LOW_FREQ.includes(r.frequency)).length;
@@ -304,12 +322,15 @@ async function runCompute(teamId: string): Promise<NextResponse> {
   for (const m of members) {
     for (const rating of coordRatings.filter((r) => r.member_id === m.member_id)) {
       if (!HIGH_FREQ.includes(rating.frequency)) continue;
-      const target = memberByName.get(rating.target_member_name.toLowerCase());
+      const target = coordinationTarget(rating);
       if (!target) continue;
       const reverse = coordRatings.find(
         (r) =>
           r.member_id === target.member_id &&
-          r.target_member_name.toLowerCase() === m.display_name.toLowerCase()
+          (
+            r.target_member_id === m.member_id ||
+            (!r.target_member_id && r.target_member_name.toLowerCase() === (displayNameById.get(m.member_id) ?? "").toLowerCase())
+          )
       );
       if (!reverse || !LOW_FREQ.includes(reverse.frequency)) continue;
       const key = [m.private_code, target.private_code].sort().join(":");
@@ -324,34 +345,24 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     }
   }
 
-  // Geographic (new): nodes from location/timezone; missing location → unplaced.
-  const geoNodes = members.map((m) => ({
-    private_code: m.private_code,
-    location: m.location,
-    timezone: m.timezone,
-    has_location: !!(m.location && m.location.trim()),
-  }));
-  const unplacedCodes = geoNodes.filter((g) => !g.has_location).map((g) => g.private_code);
-  const locationGroups = Array.from(
-    geoNodes
-      .filter((g) => g.has_location)
-      .reduce((map, g) => {
-        const loc = g.location!.trim();
-        map.set(loc, [...(map.get(loc) ?? []), g.private_code]);
-        return map;
-      }, new Map<string, string[]>())
-      .entries()
-  ).map(([location, private_codes]) => ({ location, private_codes }));
+  // Do not expose individual geography or tie a participant code to a location.
+  // The dashboard retains only a team-level time-zone spread indicator.
   const distinctTimezones = new Set(
     members.map((m) => m.timezone?.trim()).filter(Boolean)
   ).size;
 
   // ── Purpose passthrough (with share flag for the raw-responses dropdown) ─────
-  const purpose = purposeResponses.map((r) => ({
-    private_code: codeOf(r.member_id),
-    purpose_text: r.purpose_text,
-    share_verbatim: memberById.get(r.member_id)?.share_verbatim_with_team ?? false,
-  }));
+  const purpose = purposeResponses.map((r) => {
+    const shareVerbatim = privacyById.get(r.member_id)?.verbatim_preference === "verbatim";
+    return {
+      private_code: codeOf(r.member_id),
+      // Never put a summary-only participant's exact text into a payload which
+      // can be delivered to a consultant browser. The aggregate classification
+      // above is still calculated from their response.
+      purpose_text: shareVerbatim ? r.purpose_text : "[Participant chose summaries only.]",
+      share_verbatim: shareVerbatim,
+    };
+  });
 
   // ── Free-text passthrough (raw, consultant-only; no analytics) ──────────────
   // own_role: how each member describes their own contribution. ps_importance:
@@ -359,10 +370,24 @@ async function runCompute(teamId: string): Promise<NextResponse> {
   // reads this to flag dismissive/skeptical answers in its welfare note.
   const ownRoles = members
     .filter((m) => m.own_role?.trim())
-    .map((m) => ({ private_code: m.private_code, text: m.own_role!.trim(), share_verbatim: m.share_verbatim_with_team }));
+    .map((m) => {
+      const shareVerbatim = privacyById.get(m.member_id)?.verbatim_preference === "verbatim";
+      return {
+        private_code: m.private_code,
+        text: shareVerbatim ? m.own_role!.trim() : "[Participant chose summaries only.]",
+        share_verbatim: shareVerbatim,
+      };
+    });
   const psImportance = members
     .filter((m) => m.ps_importance?.trim())
-    .map((m) => ({ private_code: m.private_code, text: m.ps_importance!.trim(), share_verbatim: m.share_verbatim_with_team }));
+    .map((m) => {
+      const shareVerbatim = privacyById.get(m.member_id)?.verbatim_preference === "verbatim";
+      return {
+        private_code: m.private_code,
+        text: shareVerbatim ? m.ps_importance!.trim() : "[Participant chose summaries only.]",
+        share_verbatim: shareVerbatim,
+      };
+    });
 
   // ── Assemble tier1_json ──────────────────────────────────────────────────────
   const result = {
@@ -378,10 +403,10 @@ async function runCompute(teamId: string): Promise<NextResponse> {
         asymmetric_pairs: asymmetricPairs,
       },
       geographic: {
-        nodes: geoNodes,
-        location_groups: locationGroups,
+        nodes: [],
+        location_groups: [],
         distinct_timezones: distinctTimezones,
-        unplaced_codes: unplacedCodes,
+        unplaced_codes: [],
       },
     },
     purpose,
@@ -389,7 +414,7 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     ps_importance: psImportance,
   };
 
-  const { error: upsertError } = await supabase
+  const { error: upsertError } = await supabaseAdmin
     .from("analysis")
     .upsert(
       { team_id: teamId, tier1_json: result as unknown as Json, updated_at: new Date().toISOString() },

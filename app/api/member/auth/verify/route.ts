@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { logIdentityLookups } from "@/lib/auditLog";
 import { hashLoginToken } from "@/lib/memberTokens";
 import {
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   const tokenHash = hashLoginToken(token);
 
-  const { data: row, error } = await supabase
+  const { data: row, error } = await supabaseAdmin
     .from("member_login_tokens")
     .select("*")
     .eq("token_hash", tokenHash)
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   if (new Date(row.expires_at).getTime() < Date.now()) return fail("expired");
 
   // Single-use: burn the token immediately.
-  const { error: burnError } = await supabase
+  const { error: burnError } = await supabaseAdmin
     .from("member_login_tokens")
     .update({ used_at: new Date().toISOString() })
     .eq("id", row.id)
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
 
   // Fetch remaining fields (private_code, role) from members.
   const memberIds = identities.map((i) => i.member_id);
-  const { data: memberRows, error: memberError } = await supabase
+  const { data: memberRows, error: memberError } = await supabaseAdmin
     .from("members")
     .select("member_id, team_id, private_code, role")
     .in("member_id", memberIds);
@@ -96,19 +96,24 @@ export async function GET(req: NextRequest) {
 
   // Several members share this email (multi-team) → chooser. Attach team names.
   const teamIds = Array.from(new Set(members.map((m) => m.team_id)));
-  const { data: teams } = await supabase
+  const { data: teams } = await supabaseAdmin
     .from("teams")
     .select("team_id, team_name")
     .in("team_id", teamIds);
   const teamName = new Map((teams ?? []).map((t) => [t.team_id, t.team_name]));
+
+  if (members.some((member) => !member.private_code)) {
+    console.error("[member/auth/verify] member is missing a private code");
+    return fail("server");
+  }
 
   const candidates: PreSessionCandidate[] = members.map((m) => ({
     member_id: m.member_id,
     team_id: m.team_id,
     team_name: teamName.get(m.team_id) ?? "Your team",
     display_name: m.display_name,
-    private_code: m.private_code,
-    role: m.role,
+    private_code: m.private_code as string,
+    role: m.role ?? null,
   }));
 
   const preJwt = await signPreSession({ email: row.email, candidates });

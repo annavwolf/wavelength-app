@@ -2,19 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { loadVoices, pickMaleVoice } from "@/lib/speech";
-import type { AppSupabaseClient } from "@/components/interview/types";
-import type { Member, PsLabel, PsStatement, Team, Zone } from "@/types/database";
+import type { Member, PsLabel, PsStatement, Zone } from "@/types/database";
 
 const TITLE =
   "Thinking about your team as a whole, how much do you agree with the following statements?";
-
-const LABEL_VALUE: Record<PsLabel, number> = {
-  strongly_disagree: 1,
-  disagree: 2,
-  neutral: 3,
-  agree: 4,
-  strongly_agree: 5,
-};
 
 // imagePositionY controls which part of the ocean image shows via object-position:
 // 0% = surface (Zone 1), 50% = mid-water (Zone 2), 100% = deep (Zone 3).
@@ -60,7 +51,7 @@ function RatingButton({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
-      className={`inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border-2 text-center transition-all whitespace-nowrap ${
+      className={`inline-flex min-h-11 items-center justify-center gap-1.5 text-sm sm:text-base px-4 sm:px-5 py-2.5 sm:py-3 rounded-full border-2 text-center transition-all whitespace-nowrap ${
         selected ? "scale-105 text-white" : "text-white/90"
       } disabled:opacity-60`}
       style={{
@@ -113,18 +104,14 @@ function ZoneStepper({
 
 export default function PsDiagnosticStep({
   member,
-  team,
   statements,
-  supabase,
   readAloud,
   ratings,
   onRatingsChange,
   onAdvance,
 }: {
   member: Member;
-  team: Team;
   statements: PsStatement[];
-  supabase: AppSupabaseClient;
   readAloud: boolean;
   ratings: Record<number, PsLabel>;
   onRatingsChange: (ratings: Record<number, PsLabel>) => void;
@@ -159,15 +146,12 @@ export default function PsDiagnosticStep({
   // Pre-populate saved ratings so a resuming member sees their previous answers.
   useEffect(() => {
     if (Object.keys(ratings).length > 0) return;
-    supabase
-      .from("ps_responses")
-      .select("statement_id, label")
-      .eq("member_id", member.member_id)
-      .eq("round", 1)
-      .then(({ data }) => {
-        if (!data?.length) return;
+    void fetch(`/api/interview/responses?member_id=${encodeURIComponent(member.member_id)}&kind=ps`)
+      .then(async (response) => ({ response, data: await response.json().catch(() => ({})) }))
+      .then(({ response, data }) => {
+        if (!response.ok || !Array.isArray(data.responses) || data.responses.length === 0) return;
         const populated: Record<number, PsLabel> = {};
-        for (const row of data) populated[row.statement_id] = row.label as PsLabel;
+        for (const row of data.responses) populated[row.statement_id] = row.label as PsLabel;
         onRatingsChange(populated);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,44 +161,18 @@ export default function PsDiagnosticStep({
     setSavingId(statement.statement_id);
     setError(null);
 
-    // Check for an existing row so we update in place instead of inserting a duplicate.
-    const { data: existing } = await supabase
-      .from("ps_responses")
-      .select("id")
-      .eq("member_id", member.member_id)
-      .eq("statement_id", statement.statement_id)
-      .eq("round", 1)
-      .maybeSingle();
-
-    const saveError = existing
-      ? (
-          await supabase
-            .from("ps_responses")
-            .update({ label, response_value: LABEL_VALUE[label] })
-            .eq("id", existing.id)
-        ).error
-      : (
-          await supabase.from("ps_responses").insert({
-            member_id: member.member_id,
-            team_id: team.team_id,
-            statement_id: statement.statement_id,
-            zone: statement.zone,
-            label,
-            response_value: LABEL_VALUE[label],
-            round: 1,
-          })
-        ).error;
-
-    if (saveError) {
-      console.error("[interview/ps_diagnostic] failed to save rating:", {
-        message: saveError.message,
-        details: saveError.details,
-        hint: saveError.hint,
-        code: saveError.code,
-      });
-      setError(
-        `That didn't save${saveError.code ? ` (${saveError.code})` : ""}. Please try again.`
-      );
+    const response = await fetch("/api/interview/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        member_id: member.member_id,
+        kind: "ps",
+        statement_id: statement.statement_id,
+        label,
+      }),
+    });
+    if (!response.ok) {
+      setError("That didn't save. Please try again.");
       setSavingId(null);
       return;
     }
@@ -280,11 +238,11 @@ export default function PsDiagnosticStep({
         />
 
         <div className="relative z-10 max-w-3xl mx-auto">
-          <p className="text-sm uppercase tracking-widest text-white/70 mb-2">
+          <p className="text-base uppercase tracking-wide text-white/80 mb-2">
             {zoneConfig.eyebrow}
           </p>
           <h2
-            className="text-3xl italic text-white mb-10"
+            className="text-3xl sm:text-4xl italic text-white mb-10"
             style={{ fontFamily: "Playfair Display, serif" }}
           >
             {zoneConfig.label}
@@ -300,7 +258,7 @@ export default function PsDiagnosticStep({
                 className="rounded-2xl border border-white/20 bg-white/[0.16] backdrop-blur-md p-5 sm:p-6"
               >
                 <p
-                  className="text-white text-base sm:text-lg leading-relaxed mb-4"
+                  className="text-white text-lg sm:text-xl leading-relaxed mb-5"
                   style={{ textShadow: "0 1px 6px rgba(0,0,0,0.35)" }}
                 >
                   {statement.statement_text}
@@ -327,7 +285,7 @@ export default function PsDiagnosticStep({
       </section>
 
       <div className="sticky bottom-0 z-20 bg-[#0b0f1a]/95 backdrop-blur-sm px-6 py-4 flex items-center justify-between gap-4 shadow-[0_-4px_24px_rgba(0,0,0,0.3)]">
-        <div className="text-sm text-white/80">
+        <div className="text-base text-white/80">
           {error ? (
             <span className="text-white">{error}</span>
           ) : (
@@ -338,7 +296,7 @@ export default function PsDiagnosticStep({
           type="button"
           onClick={handleContinue}
           disabled={!zoneAllRated}
-          className="bg-[var(--color-purple)] text-white rounded-full px-8 py-3 font-medium transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+          className="bg-[var(--color-purple)] text-white rounded-full px-8 py-3.5 text-base font-medium transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isLastZone ? "Continue" : "Next zone"}
         </button>

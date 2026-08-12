@@ -41,6 +41,7 @@ export default function MemberResultsPage() {
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
         <p className="text-[var(--color-grey)]">Loading your results…</p>
+        <Link href="/me" className="text-sm text-[var(--color-grey)] underline mt-6">Back to your profile</Link>
       </main>
     );
   }
@@ -52,6 +53,7 @@ export default function MemberResultsPage() {
           We couldn&apos;t load your results.{" "}
           <button onClick={() => window.location.reload()} className="underline">Try again</button>.
         </p>
+        <Link href="/me" className="text-sm text-[var(--color-grey)] underline mt-6">Back to your profile</Link>
       </main>
     );
   }

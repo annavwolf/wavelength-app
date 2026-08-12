@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
-import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { logIdentityLookups } from "@/lib/auditLog";
 import { buildArtifacts } from "@/lib/phase4Artifacts";
+import { requireTeamOwner } from "@/lib/requestAuth";
 import type { Json, Phase4SelfServeJson } from "@/types/database";
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+  }[character] ?? character));
+}
 
 // POST /api/phase4/release
 // { team_id, selfserve: Phase4SelfServeJson, dry_run?, resend_all? }
@@ -19,7 +26,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "team_id and selfserve required" }, { status: 400 });
   }
 
-  const { data: analysis, error: aErr } = await supabase
+  const auth = await requireTeamOwner(req, team_id);
+  if (!auth.ok) return auth.response;
+
+  const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")
     .select("id, phase4_selfserve_json")
     .eq("team_id", team_id)
@@ -54,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     const [identityRes, teamRes] = await Promise.all([
       supabaseAdmin.from("member_identity").select("member_id, display_name, email").eq("team_id", team_id),
-      supabase.from("teams").select("team_name").eq("team_id", team_id).single(),
+      supabaseAdmin.from("teams").select("team_name").eq("team_id", team_id).single(),
     ]);
 
     const teamName = teamRes.data?.team_name ?? "your team";
@@ -73,29 +83,32 @@ export async function POST(req: NextRequest) {
     if (apiKey && toSend.length > 0) {
       const resend = new Resend(apiKey);
       const loginUrl = `${APP_URL}/member-login`;
+      const safeLoginUrl = escapeHtml(loginUrl);
       const fromAddress = process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>";
 
       for (const m of toSend) {
         const firstName = m.display_name.split(" ")[0];
+        const safeFirstName = escapeHtml(firstName);
+        const safeTeamName = escapeHtml(teamName);
         const { error: sendErr } = await resend.emails.send({
           from: fromAddress,
           to: m.email!,
           subject: `Your team's results are ready — ${teamName}`,
           text: `Hi ${firstName},\n\nOtis has drawn up a Team Behaviour Agreement for ${teamName}, along with a game plan for the next 30 days.\n\nYour results include your team's agreement, what to do next, and three guides to run your own team meeting.\n\nSee them here:\n${loginUrl}\n\nLog in with the email address you used for your assessment. Your results are on your profile page.\n\nIf you have any questions, contact your consultant directly.`,
           html: `
-<p>Hi ${firstName},</p>
+<p>Hi ${safeFirstName},</p>
 
-<p>Otis has drawn up a Team Behaviour Agreement for <strong>${teamName}</strong>, along with a game plan for the next 30 days.</p>
+<p>Otis has drawn up a Team Behaviour Agreement for <strong>${safeTeamName}</strong>, along with a game plan for the next 30 days.</p>
 
 <p>Your results include your team's agreement, what to do next, and three guides to run your own team meeting.</p>
 
-<p><a href="${loginUrl}" style="display:inline-block;background:#2B2B6B;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">See my team's results</a></p>
+<p><a href="${safeLoginUrl}" style="display:inline-block;background:#2B2B6B;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">See my team's results</a></p>
 
-<p>Or paste this link into your browser:<br/><a href="${loginUrl}">${loginUrl}</a></p>
+<p>Or paste this link into your browser:<br/><a href="${safeLoginUrl}">${safeLoginUrl}</a></p>
 
 <p>Log in with the email address you used for your assessment. Your results are on your profile page.</p>
 
-<p style="color:#888;font-size:13px;">If you have any questions, contact your consultant directly.</p>
+<p style="color:#888;font-size:13px;">For questions or technical support, email <a href="mailto:contact@wavelength.team?subject=Otis%20team%20results%20support">contact@wavelength.team</a>.</p>
           `.trim(),
         });
         if (!sendErr) {
@@ -115,7 +128,7 @@ export async function POST(req: NextRequest) {
     released_at: dry_run ? (existing?.released_at ?? null) : now,
   };
 
-  const { error: saveErr } = await supabase
+  const { error: saveErr } = await supabaseAdmin
     .from("analysis")
     .update({ phase4_selfserve_json: updated as unknown as Json })
     .eq("team_id", team_id);

@@ -1,10 +1,8 @@
 "use client";
 
-// Persistent member navigation. Two controls:
-//   • the team hub (labelled with the team's name) → /me
-//   • "My Teams" (the team picker) → /member-login/select-team
-// Shown on the member hub and its sub-pages so a member can always get back to
-// their team's results/pre-workshop and to their full list of teams.
+// Persistent member navigation. It is shown at the top of member-facing pages
+// so someone can leave an activity without submitting, withdrawing, or losing
+// anything that has already been saved.
 
 import Link from "next/link";
 
@@ -21,18 +19,19 @@ export default function MemberNav({
         <Link
           href="/me"
           className="text-sm font-medium text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors"
+          aria-label={`Leave this activity and return to ${teamName ? `${teamName} profile` : "your profile"}`}
         >
-          ← {teamName || "My profile"}
+          ← Back to your profile
         </Link>
       ) : (
         <span />
       )}
-      <Link
-        href="/me"
-        className="text-sm font-medium px-4 py-1.5 rounded-full border border-black/15 text-[var(--color-grey)] hover:border-[var(--color-purple)] hover:text-[var(--color-purple)] transition-colors whitespace-nowrap"
+      <a
+        href="mailto:contact@wavelength.team?subject=Otis%20member%20support"
+        className="text-sm font-medium text-[var(--color-grey)] hover:text-[var(--color-purple)] transition-colors"
       >
-        My team
-      </Link>
+        Support
+      </a>
     </nav>
   );
 }

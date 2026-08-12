@@ -29,6 +29,7 @@ type MeResponse = {
   ps_responses: PsResponse[];
   purpose_response: PurposeResponse | null;
   coordination_ratings: CoordinationRating[];
+  privacy_acknowledgement: { acknowledged_at: string } | null;
 };
 
 const COLOR_VAR: Record<PsColor, string> = {
@@ -125,6 +126,33 @@ export default function MemberProfilePage() {
         interview. Your team&apos;s report and workshop will appear here when
         they&apos;re ready.
       </p>
+
+      <section className="card border border-[var(--color-purple)]/20 bg-[var(--color-purple)]/5">
+        <h2 className="text-xl mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
+          Privacy &amp; support
+        </h2>
+        <p className="text-sm text-[var(--color-grey)] leading-relaxed">
+          Review how Otis handles beta participant information, your exact-word and voice-input choices, and how to request withdrawal.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-4 text-sm">
+          <a href="/privacy" className="underline text-[var(--color-purple)]">Read the privacy notice</a>
+          <a href="mailto:contact@wavelength.team?subject=Otis%20member%20support" className="underline text-[var(--color-purple)]">Email Wavelength support</a>
+        </div>
+      </section>
+
+      {!data.privacy_acknowledgement?.acknowledged_at && (
+        <section className="card border border-[var(--color-purple)]/30 bg-[var(--color-purple)]/5">
+          <h2 className="text-lg mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
+            Read the beta privacy information
+          </h2>
+          <p className="text-sm text-[var(--color-grey)] leading-relaxed mb-4">
+            Before Otis can collect or analyse any further beta information, please review and acknowledge the participant privacy notice.
+          </p>
+          <a href={`/interview/${member.member_id}`} className="btn-primary inline-block text-center" style={{ padding: "10px 20px", fontSize: "14px", textDecoration: "none" }}>
+            Read privacy information
+          </a>
+        </section>
+      )}
 
       {/* ── Assessment CTA (hidden once complete) ─────────────────────── */}
       {member.status !== "complete" && (
@@ -234,7 +262,7 @@ export default function MemberProfilePage() {
         <section className="card" style={{ padding: "20px 24px" }}>
           <div className="flex items-center gap-2 mb-1">
             <span aria-hidden className="text-green-600">✓</span>
-            <h2 className="text-lg" style={{ fontFamily: "Playfair Display, serif" }}>Pre-workshop activity</h2>
+            <h2 className="text-lg" style={{ fontFamily: "Playfair Display, serif" }}>Results &amp; Team Agreement Activity</h2>
           </div>
           <p className="text-sm text-[var(--color-grey)] leading-relaxed">
             You&apos;ve completed this activity. Your consultant will be in touch with the next steps.
@@ -243,10 +271,10 @@ export default function MemberProfilePage() {
       ) : data.phase3_released ? (
         <section className="card" style={{ padding: "20px 24px" }}>
           <h2 className="text-lg mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
-            Pre-workshop activity
+            Results &amp; Team Agreement Activity
           </h2>
           <p className="text-sm text-[var(--color-grey)] mb-4 leading-relaxed">
-            Your consultant has released your pre-workshop activity. Otis wants to hear a short story from
+            Your consultant has released this activity. Otis wants to hear a short story from
             you before the session — it takes around 10 minutes.
           </p>
           <a
@@ -254,12 +282,12 @@ export default function MemberProfilePage() {
             className="btn-primary inline-block text-center"
             style={{ padding: "10px 20px", fontSize: "14px", textDecoration: "none" }}
           >
-            Start my pre-workshop activity →
+            Start my activity →
           </a>
         </section>
       ) : (
         <LockedSection
-          title="Pre-workshop activity"
+          title="Results &amp; Team Agreement Activity"
           body="Available once your consultant releases it. You'll do a short activity with Otis here."
         />
       )}

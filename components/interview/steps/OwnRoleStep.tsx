@@ -3,110 +3,105 @@
 import { useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
 import MemberBubble from "@/components/interview/MemberBubble";
+import VoiceTextInput from "@/components/interview/VoiceTextInput";
 import VoiceTextarea from "@/components/interview/VoiceTextarea";
+import type { Member } from "@/types/database";
 
 function isThin(text: string): boolean {
-  const t = text.trim().toLowerCase();
-  if (t.length < 40) return true;
-  if (/^(yes|no|yeah|nope|sure|not really|i think so|i guess|maybe|idk|i don'?t know)\.?$/.test(t))
-    return true;
-  return false;
+  const trimmed = text.trim().toLowerCase();
+  return trimmed.length < 40 || /^(yes|no|yeah|nope|sure|not really|i think so|i guess|maybe|idk|i don't know)\.?$/.test(trimmed);
 }
 
-type Phase = "input" | "nudge" | "done";
+type Stage = "role_check" | "role_update" | "contribution" | "nudge" | "done";
 
 export default function OwnRoleStep({
+  member,
   readAloud,
   text,
   onTextChange,
+  onRoleSaved,
   onAdvance,
 }: {
+  member: Member;
   readAloud: boolean;
   text: string;
   onTextChange: (value: string) => void;
+  onRoleSaved: (role: string | null) => Promise<boolean>;
   onAdvance: () => void;
 }) {
-  const [phase, setPhase] = useState<Phase>("input");
+  const [stage, setStage] = useState<Stage>(member.role ? "role_check" : "contribution");
+  const [role, setRole] = useState(member.role ?? "");
+  const [savingRole, setSavingRole] = useState(false);
+
+  async function saveRoleAndContinue() {
+    setSavingRole(true);
+    const saved = await onRoleSaved(role.trim() || null);
+    setSavingRole(false);
+    if (saved) setStage("contribution");
+  }
 
   function handleSubmit() {
-    if (phase === "input" && isThin(text)) {
-      setPhase("nudge");
+    if (stage === "contribution" && isThin(text)) {
+      setStage("nudge");
       return;
     }
-    setPhase("done");
+    setStage("done");
   }
 
   return (
     <div>
-      <ChatBubble readAloud={readAloud}>
-        And how about your role on the team? What skills, knowledge, or
-        abilities do you contribute?
-      </ChatBubble>
-
-      {phase === "input" && (
+      {stage === "role_check" && (
         <>
-          <div className="mt-6 mb-6">
-            <VoiceTextarea
-              value={text}
-              onChange={onTextChange}
-              rows={4}
-              placeholder="Share what comes to mind..."
-            />
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!text.trim()}
-              className="btn-primary"
-            >
-              Share this
-            </button>
-            <button type="button" onClick={onAdvance} className="btn-secondary">
-              Skip
-            </button>
+          <ChatBubble readAloud={readAloud}>Otis has your role as <strong>{member.role}</strong>. Is that still right?</ChatBubble>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button type="button" onClick={() => setStage("contribution")} className="btn-primary">Yes, that&apos;s right</button>
+            <button type="button" onClick={() => setStage("role_update")} className="btn-secondary">Update my role</button>
           </div>
         </>
       )}
 
-      {phase === "nudge" && (
+      {stage === "role_update" && (
         <>
-          <MemberBubble>{text}</MemberBubble>
+          <ChatBubble readAloud={readAloud}>What role should Otis use instead?</ChatBubble>
+          <div className="mt-6 mb-6">
+            <label className="form-label">Your role</label>
+            <VoiceTextInput value={role} onChange={setRole} placeholder="For example, product manager" />
+          </div>
+          <button type="button" onClick={saveRoleAndContinue} disabled={savingRole} className="btn-primary">{savingRole ? "Saving..." : "Save and continue"}</button>
+        </>
+      )}
+
+      {stage === "contribution" && (
+        <>
           <ChatBubble readAloud={readAloud}>
-            Can you give me a sense of what that looks like in practice —
-            something specific you contribute that others might find hard to
-            substitute?
+            And what skills, knowledge, abilities, or other strengths do you contribute to the team? A few concrete examples are useful.
           </ChatBubble>
           <div className="mt-6 mb-6">
-            <VoiceTextarea
-              value={text}
-              onChange={onTextChange}
-              rows={4}
-              placeholder="A little more detail..."
-            />
+            <VoiceTextarea value={text} onChange={onTextChange} rows={4} placeholder="Share what comes to mind..." />
           </div>
           <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => setPhase("done")}
-              disabled={!text.trim()}
-              className="btn-primary"
-            >
-              Share this
-            </button>
-            <button type="button" onClick={onAdvance} className="btn-secondary">
-              Continue
-            </button>
+            <button type="button" onClick={handleSubmit} disabled={!text.trim()} className="btn-primary">Share this</button>
+            <button type="button" onClick={onAdvance} className="btn-secondary">Skip</button>
           </div>
         </>
       )}
 
-      {phase === "done" && (
+      {stage === "nudge" && (
         <>
           <MemberBubble>{text}</MemberBubble>
-          <button type="button" onClick={onAdvance} className="btn-primary mt-4">
-            Continue
-          </button>
+          <ChatBubble readAloud={readAloud}>Can you give an example of something you contribute that others might find hard to substitute?</ChatBubble>
+          <div className="mt-6 mb-6"><VoiceTextarea value={text} onChange={onTextChange} rows={4} placeholder="A little more detail..." /></div>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" onClick={() => setStage("done")} disabled={!text.trim()} className="btn-primary">Share this</button>
+            <button type="button" onClick={onAdvance} className="btn-secondary">Continue</button>
+          </div>
+        </>
+      )}
+
+      {stage === "done" && (
+        <>
+          <MemberBubble>{text}</MemberBubble>
+          <button type="button" onClick={onAdvance} className="btn-primary mt-4">Continue</button>
         </>
       )}
     </div>

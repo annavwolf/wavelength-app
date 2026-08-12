@@ -18,8 +18,7 @@ export default function PsIntroCloseStep({
       <ChatBubble readAloud={readAloud}>
         Psychological safety is felt at the group level — it&apos;s about
         what&apos;s possible when the whole team is together. Research shows
-        it&apos;s the strongest predictor of how well a team performs, and in
-        virtual teams it&apos;s harder to build and easier to lose. So
+        it is strongly linked to how well teams work together. So
         here&apos;s what I want to understand:
       </ChatBubble>
 

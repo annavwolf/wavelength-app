@@ -1,10 +1,15 @@
-// A small bundled list of major world cities with their IANA timezone, used
-// to power the location autocomplete on the team members page. Deliberately
-// static (no external API/library) so it's simple and reliable — this isn't
-// meant to be exhaustive, just enough to auto-fill the common cases.
+// A curated, bundled list of cities with their IANA time zones. Keeping this
+// local means Otis never has to send a person's location to a geocoding service
+// just to determine their time zone. It is deliberately conservative: an
+// unrecognised location is not guessed.
 export type City = {
   city: string;
   country: string;
+  timezone: string;
+};
+
+export type ResolvedCityLocation = {
+  location: string;
   timezone: string;
 };
 
@@ -129,3 +134,25 @@ export const CITIES: City[] = [
   { city: "Wellington", country: "New Zealand", timezone: "Pacific/Auckland" },
   { city: "Christchurch", country: "New Zealand", timezone: "Pacific/Auckland" },
 ];
+
+function key(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
+/**
+ * Resolve only a city/country pair offered by the local selector. The server
+ * uses this too, so a client cannot submit a made-up timezone value.
+ */
+export function resolveCityLocation(value: unknown): ResolvedCityLocation | null {
+  if (typeof value !== "string") return null;
+  const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [cityName, countryName] = parts;
+  const city = CITIES.find((entry) => key(entry.city) === key(cityName) && key(entry.country) === key(countryName));
+  return city ? { location: `${city.city}, ${city.country}`, timezone: city.timezone } : null;
+}

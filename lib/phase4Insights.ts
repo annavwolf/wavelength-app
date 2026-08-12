@@ -7,7 +7,7 @@
 // representative phrasing — never synthesised (spec §2/§3).
 
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { MODELS } from "@/lib/models";
 import { classifyTeamBehaviours } from "@/lib/behaviourClassification";
 import { renderAgreementSentence } from "@/lib/agreementText";
@@ -247,8 +247,8 @@ export async function generatePhase4Insights(
 ): Promise<GeneratedInsights> {
   const [{ groups, unbucketed, memberCount }, storiesRes, contextRes] = await Promise.all([
     classifyTeamBehaviours(teamId),
-    supabase.from("member_stories").select("member_id, situation_tag").eq("team_id", teamId),
-    supabase.from("phase3_context_responses").select("*").eq("team_id", teamId),
+    supabaseAdmin.from("member_stories").select("member_id, situation_tag").eq("team_id", teamId),
+    supabaseAdmin.from("phase3_context_responses").select("*").eq("team_id", teamId),
   ]);
 
   // Situation convergence from story tags (distinct members per tag).

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { generatePhase4Insights } from "@/lib/phase4Insights";
 import { MODELS } from "@/lib/models";
+import { redactTextForExternalProcessing } from "@/lib/privacy";
+import { requireTeamOwner } from "@/lib/requestAuth";
 import type { Json, Phase3ReportJson, Phase4SelfServeJson, SituationTag } from "@/types/database";
 import type { Tier1Result, Tier2Result, Networks } from "@/components/dashboard/types";
 
@@ -13,7 +15,7 @@ async function autoTagStories(teamId: string): Promise<void> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return;
 
-  const { data: stories } = await supabase
+  const { data: stories } = await supabaseAdmin
     .from("member_stories")
     .select("id, story_text")
     .eq("team_id", teamId)
@@ -38,14 +40,14 @@ async function autoTagStories(teamId: string): Promise<void> {
           },
         }],
         tool_choice: { type: "tool", name: "tag_story" },
-        messages: [{ role: "user", content: `Story: "${story.story_text.slice(0, 600)}"` }],
+        messages: [{ role: "user", content: `Story: "${redactTextForExternalProcessing(story.story_text).slice(0, 600)}"` }],
       });
       const toolUse = response.content.find(
         (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "tag_story"
       );
       const tag = (toolUse?.input as { tag?: SituationTag })?.tag;
       if (tag && VALID_TAGS.includes(tag)) {
-        await supabase.from("member_stories")
+        await supabaseAdmin.from("member_stories")
           .update({ situation_tag: tag, updated_at: new Date().toISOString() })
           .eq("id", story.id);
       }
@@ -66,13 +68,16 @@ export async function POST(req: NextRequest) {
   const teamId = body?.team_id as string | undefined;
   if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
 
+  const auth = await requireTeamOwner(req, teamId);
+  if (!auth.ok) return auth.response;
+
   // Phase 3 completion signal: a member has submitted at least one behavior to
   // the team's behavior board. This is the core deliverable of the Phase 3
   // activity and is present even if later steps (synchronicity, commitment) were
   // skipped or saved before those questions were added to the flow.
   const [membersRes, behaviorsRes] = await Promise.all([
-    supabase.from("members").select("member_id, status").eq("team_id", teamId),
-    supabase.from("member_behaviors").select("member_id").eq("team_id", teamId),
+    supabaseAdmin.from("members").select("member_id, status").eq("team_id", teamId),
+    supabaseAdmin.from("member_behaviors").select("member_id").eq("team_id", teamId),
   ]);
   if (membersRes.error) return NextResponse.json({ error: "db_error", detail: membersRes.error.message }, { status: 500 });
   const members = membersRes.data ?? [];
@@ -94,7 +99,7 @@ export async function POST(req: NextRequest) {
   // Soft warning returned with the generated insights if < 80% done (caller decides how to present it).
   const lowParticipation = pctComplete < 0.8;
 
-  const { data: analysis, error: aErr } = await supabase
+  const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")
     .select("tier1_json, tier2_json, phase3_report_json, phase4_selfserve_json")
     .eq("team_id", teamId)
@@ -111,7 +116,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no_focus_item" }, { status: 400 });
   }
 
-  const { data: statement } = await supabase
+  const { data: statement } = await supabaseAdmin
     .from("ps_statements")
     .select("statement_text")
     .eq("statement_id", focusStatementId)
@@ -141,7 +146,7 @@ export async function POST(req: NextRequest) {
     sent_member_ids: prior?.sent_member_ids ?? [],
   };
 
-  const { error: saveErr } = await supabase
+  const { error: saveErr } = await supabaseAdmin
     .from("analysis")
     .update({ phase4_selfserve_json: merged as unknown as Json })
     .eq("team_id", teamId);
@@ -151,7 +156,9 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    insights: merged,
+    // Recipient ids stay server-side. The consultant UI only needs the draft
+    // content and aggregated counts, never a recipient-to-response mapping.
+    insights: { ...merged, sent_member_ids: [] },
     completed_count: completedCount,
     total_count: totalCount,
     low_participation: lowParticipation,

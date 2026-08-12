@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
-import type { AppSupabaseClient } from "@/components/interview/types";
-import type { CoordinationFrequency, Member, Team } from "@/types/database";
+import type { CoordinationFrequency, Member } from "@/types/database";
 
 const OPTIONS: { value: CoordinationFrequency; label: string }[] = [
   { value: "daily", label: "Daily" },
@@ -14,18 +13,14 @@ const OPTIONS: { value: CoordinationFrequency; label: string }[] = [
 
 export default function CoordinationStep({
   member,
-  team,
   otherMembers,
-  supabase,
   readAloud,
   ratings,
   onRatingsChange,
   onAdvance,
 }: {
   member: Member;
-  team: Team;
   otherMembers: Member[];
-  supabase: AppSupabaseClient;
   readAloud: boolean;
   ratings: Record<string, CoordinationFrequency>;
   onRatingsChange: (ratings: Record<string, CoordinationFrequency>) => void;
@@ -37,17 +32,15 @@ export default function CoordinationStep({
   // Pre-populate saved ratings so a resuming member sees their previous answers.
   useEffect(() => {
     if (Object.keys(ratings).length > 0) return;
-    supabase
-      .from("coordination_ratings")
-      .select("target_member_name, frequency")
-      .eq("member_id", member.member_id)
-      .then(({ data }) => {
-        if (!data?.length) return;
+    void fetch(`/api/interview/responses?member_id=${encodeURIComponent(member.member_id)}&kind=coordination`)
+      .then(async (response) => ({ response, data: await response.json().catch(() => ({})) }))
+      .then(({ response, data }) => {
+        if (!response.ok || !Array.isArray(data.ratings) || data.ratings.length === 0) return;
         const populated: Record<string, CoordinationFrequency> = {};
-        for (const row of data) {
-          const match = otherMembers.find(
-            (m) => m.display_name.toLowerCase() === row.target_member_name.toLowerCase()
-          );
+        for (const row of data.ratings) {
+          const match = row.target_member_id
+            ? otherMembers.find((member) => member.member_id === row.target_member_id)
+            : otherMembers.find((member) => member.display_name.toLowerCase() === row.target_member_name.toLowerCase());
           if (match) populated[match.member_id] = row.frequency as CoordinationFrequency;
         }
         if (Object.keys(populated).length > 0) onRatingsChange(populated);
@@ -59,38 +52,17 @@ export default function CoordinationStep({
     setSavingId(target.member_id);
     setError(null);
 
-    // Check for an existing row keyed on (member_id, target_member_name)
-    // so we update in place instead of inserting a duplicate.
-    const { data: existing } = await supabase
-      .from("coordination_ratings")
-      .select("id")
-      .eq("member_id", member.member_id)
-      .eq("target_member_name", target.display_name)
-      .maybeSingle();
-
-    const saveError = existing
-      ? (
-          await supabase
-            .from("coordination_ratings")
-            .update({ frequency })
-            .eq("id", existing.id)
-        ).error
-      : (
-          await supabase.from("coordination_ratings").insert({
-            member_id: member.member_id,
-            team_id: team.team_id,
-            target_member_name: target.display_name,
-            frequency,
-          })
-        ).error;
-
-    if (saveError) {
-      console.error("[interview/coordination] failed to save rating:", {
-        message: saveError.message,
-        details: saveError.details,
-        hint: saveError.hint,
-        code: saveError.code,
-      });
+    const response = await fetch("/api/interview/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        member_id: member.member_id,
+        kind: "coordination",
+        target_member_id: target.member_id,
+        frequency,
+      }),
+    });
+    if (!response.ok) {
       setError("Something went wrong saving that. Please try again.");
       setSavingId(null);
       return;

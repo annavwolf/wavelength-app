@@ -10,8 +10,22 @@ import { verifySession, SESSION_COOKIE } from "@/lib/memberSession";
 export async function middleware(req: NextRequest) {
   const session = await verifySession(req.cookies.get(SESSION_COOKIE)?.value);
   if (!session) {
+    // The sign-in pages remain available to someone who has not yet proved
+    // their email address. `/me` itself is still protected below.
+    if (req.nextUrl.pathname.startsWith("/member-login")) {
+      return NextResponse.next();
+    }
     const url = req.nextUrl.clone();
     url.pathname = "/member-login";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  // A verified member session lasts 30 days. Do not make a member request a
+  // fresh magic link merely because they followed the member-login bookmark.
+  if (req.nextUrl.pathname.startsWith("/member-login")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/me";
     url.search = "";
     return NextResponse.redirect(url);
   }
@@ -20,5 +34,5 @@ export async function middleware(req: NextRequest) {
 
 // Only the member profile area. Consultant routes are untouched.
 export const config = {
-  matcher: ["/me", "/me/:path*"],
+  matcher: ["/me", "/me/:path*", "/member-login", "/member-login/:path*"],
 };

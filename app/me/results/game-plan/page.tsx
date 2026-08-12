@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Phase4SelfServeJson } from "@/types/database";
+import MemberNav from "@/components/member/MemberNav";
 
 type Loaded = {
   teamName: string;
@@ -55,13 +56,21 @@ export default function GamePlanPage() {
   }, [router]);
 
   if (state === "loading") {
-    return <main className="flex-1 flex items-center justify-center py-24 text-[var(--color-grey)]">Loading…</main>;
+    return (
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center text-[var(--color-grey)]">
+        <p>Loading…</p>
+        <Link href="/me" className="text-sm underline mt-6">Back to your profile</Link>
+      </main>
+    );
   }
   if (state === "not_ready" || !data) {
     return (
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <p className="text-[var(--color-grey)]">Your game plan isn&apos;t available yet.</p>
-        <Link href="/me/results" className="text-sm underline mt-4">Back to your results</Link>
+        <div className="flex flex-wrap justify-center gap-x-5 gap-y-2 mt-4 text-sm">
+          <Link href="/me/results" className="underline">Back to your results</Link>
+          <Link href="/me" className="underline">Back to your profile</Link>
+        </div>
       </main>
     );
   }
@@ -69,6 +78,7 @@ export default function GamePlanPage() {
   return (
     <main className="flex-1">
       <div className="w-full max-w-2xl mx-auto px-6 pt-8 pb-20">
+        <MemberNav />
         <div className="flex items-center justify-between gap-4 mb-6 print:hidden">
           <Link href="/me/results" className="text-sm text-[var(--color-grey)] underline">← Back to your results</Link>
           <button type="button" onClick={() => window.print()} className="btn-secondary" style={{ padding: "8px 16px", fontSize: "13px" }}>

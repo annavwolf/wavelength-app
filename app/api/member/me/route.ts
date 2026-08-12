@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { verifySession, SESSION_COOKIE } from "@/lib/memberSession";
 import { logIdentityLookup } from "@/lib/auditLog";
+import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
 import type { Phase4SelfServeJson } from "@/types/database";
 
 // GET /api/member/me
@@ -25,25 +26,37 @@ export async function GET(req: NextRequest) {
     responsesRes,
     purposeRes,
     coordinationRes,
+    privacyRes,
+    rosterRes,
   ] = await Promise.all([
-    supabase.from("members").select("*").eq("member_id", member_id).single(),
+    supabaseAdmin.from("members").select("*").eq("member_id", member_id).single(),
     supabaseAdmin.from("member_identity").select("email, display_name").eq("member_id", member_id).maybeSingle(),
-    supabase.from("ps_statements").select("*").order("statement_id", { ascending: true }),
-    supabase
+    supabaseAdmin.from("ps_statements").select("*").order("statement_id", { ascending: true }),
+    supabaseAdmin
       .from("ps_responses")
       .select("*")
       .eq("member_id", member_id)
       .eq("round", 1)
       .order("statement_id", { ascending: true }),
-    supabase
+    supabaseAdmin
       .from("purpose_responses")
       .select("*")
       .eq("member_id", member_id)
       .maybeSingle(),
-    supabase
+    supabaseAdmin
       .from("coordination_ratings")
       .select("*")
       .eq("member_id", member_id),
+    supabaseAdmin
+      .from("member_privacy_acknowledgements")
+      .select("privacy_notice_version, acknowledged_at, verbatim_preference, preference_updated_at, voice_input_opt_in")
+      .eq("member_id", member_id)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("member_identity")
+      .select("display_name")
+      .eq("team_id", session.team_id)
+      .order("display_name", { ascending: true }),
   ]);
 
   if (memberRes.error || !memberRes.data) {
@@ -53,17 +66,20 @@ export async function GET(req: NextRequest) {
 
   const member = memberRes.data;
   const identity = identityRes.data;
+  const currentPrivacy = privacyRes.data?.privacy_notice_version === PRIVACY_NOTICE_VERSION
+    ? privacyRes.data
+    : null;
   void logIdentityLookup(member_id, "member_me", "member viewing own profile");
 
   const [{ data: team }, { data: analysisRow }, { data: phase3Ctx }] = await Promise.all([
-    supabase.from("teams").select("team_id, team_name").eq("team_id", member.team_id).maybeSingle(),
-    supabase
+    supabaseAdmin.from("teams").select("team_id, team_name").eq("team_id", member.team_id).maybeSingle(),
+    supabaseAdmin
       .from("analysis")
       .select("phase3_report_json, phase4_selfserve_json")
       .eq("team_id", member.team_id)
       .maybeSingle(),
     // Phase 3 completion: member has submitted at least one behavior (core deliverable).
-    supabase
+    supabaseAdmin
       .from("member_behaviors")
       .select("id")
       .eq("member_id", member_id)
@@ -109,12 +125,14 @@ export async function GET(req: NextRequest) {
     },
     team: team ?? null,
     phase3_released: phase3Released,
-    phase3_complete: !!phase3Ctx,   // member has finished the pre-workshop activity
+    phase3_complete: !!phase3Ctx,   // member has finished the Results & Team Agreement Activity
     phase4_released: phase4Released,
     phase4: phase4,
     statements: statementsRes.data ?? [],
     ps_responses: responsesRes.data ?? [],
     purpose_response: purposeRes.data ?? null,
     coordination_ratings: coordinationRes.data ?? [],
+    privacy_acknowledgement: currentPrivacy,
+    roster_names: (rosterRes.data ?? []).map((row) => row.display_name).filter(Boolean),
   });
 }

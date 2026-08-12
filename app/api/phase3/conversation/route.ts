@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
+import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { redactTextForExternalProcessing } from "@/lib/privacy";
 import {
   buildPhase3SystemPrompt,
   buildPhase3ImpactPrompt,
@@ -16,6 +18,12 @@ const MODEL = MODELS.interpret; // reuse the sonnet-tier model
 const MAX_TOKENS = 1024;
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
+
+function isChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Partial<ChatMessage>;
+  return (message.role === "user" || message.role === "assistant") && typeof message.content === "string";
+}
 
 // State carried per kind. Story tracks the two-phase story flow; impact just
 // tracks completion + the captured impact text.
@@ -76,7 +84,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "member_id and team_id required" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (!auth.ok) return auth.response;
+
+  const { data, error } = await supabaseAdmin
     .from("phase3_conversation_messages")
     .select("messages, state")
     .eq("member_id", memberId)
@@ -98,7 +109,7 @@ async function persistTranscript(
   messages: ChatMessage[],
   state: ConvState
 ) {
-  const { error } = await supabase.from("phase3_conversation_messages").upsert(
+  const { error } = await supabaseAdmin.from("phase3_conversation_messages").upsert(
     {
       member_id: memberId,
       team_id: teamId,
@@ -118,7 +129,7 @@ export async function POST(req: NextRequest) {
   let memberId: string;
   let teamId: string;
   let statementId: number;
-  let memberName: string;
+  const memberName = "there";
   let messages: ChatMessage[];
   let state: ConvState;
   let kind: Phase3ConversationKind;
@@ -128,8 +139,12 @@ export async function POST(req: NextRequest) {
     memberId = body.member_id;
     teamId = body.team_id;
     statementId = body.statement_id;
-    memberName = typeof body.member_name === "string" && body.member_name ? body.member_name : "there";
-    messages = Array.isArray(body.messages) ? body.messages : [];
+    messages = Array.isArray(body.messages)
+      ? body.messages
+          .filter(isChatMessage)
+          .slice(-20)
+          .map((message: ChatMessage) => ({ role: message.role, content: message.content.slice(0, 4000) }))
+      : [];
     kind = body.kind === "impact" ? "impact" : "story";
     state = body.state?.story_complete !== undefined ? { ...emptyState(), ...body.state } : emptyState();
     if (!memberId || !teamId || typeof statementId !== "number") {
@@ -139,11 +154,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (!auth.ok) return auth.response;
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI service not configured" }, { status: 500 });
 
   // Canonical statement wording from DB.
-  const { data: statement, error: stmtErr } = await supabase
+  const { data: statement, error: stmtErr } = await supabaseAdmin
     .from("ps_statements")
     .select("statement_id, statement_text")
     .eq("statement_id", statementId)
@@ -182,7 +200,10 @@ export async function POST(req: NextRequest) {
 
   const convo: ChatMessage[] = [
     { role: "user", content: "Begin or continue this conversation based on the transcript. Call the tool." },
-    ...messages,
+    ...messages.map((message) => ({
+      ...message,
+      content: redactTextForExternalProcessing(message.content),
+    })),
   ];
 
   const anthropic = new Anthropic({ apiKey });
@@ -223,7 +244,7 @@ export async function POST(req: NextRequest) {
 
     // On completion, save the captured impact into the context row.
     if (nextState.impact_complete && nextState.impact_text) {
-      const { error: ctxErr } = await supabase.from("phase3_context_responses").upsert(
+      const { error: ctxErr } = await supabaseAdmin.from("phase3_context_responses").upsert(
         { member_id: memberId, team_id: teamId, impact_text: nextState.impact_text, updated_at: new Date().toISOString() },
         { onConflict: "member_id,team_id" }
       );
@@ -244,7 +265,7 @@ export async function POST(req: NextRequest) {
 
   // Auto-save story when complete.
   if (nextState.story_complete && !state.story_complete && nextState.story_text) {
-    const { error: storyErr } = await supabase.from("member_stories").upsert(
+    const { error: storyErr } = await supabaseAdmin.from("member_stories").upsert(
       {
         member_id: memberId,
         team_id: teamId,

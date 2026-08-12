@@ -50,7 +50,7 @@ export const FACILITATOR_SCRIPTS: Record<MovementId, string[]> = {
     "Warm-up round: one word each — how are you arriving today? (Gets every voice into the room in the first five minutes — do not cut it.)",
   ],
   pairs: [
-    "Put people into the pairs below. Remote: create breakout rooms matching these pairs. In person: turn to your partner.",
+    "Put people into the pairs below in the way that works for your session.",
     "Each pair agrees on the 2 behaviours they most want to see (ALWAYS) and the 2 they least want to see (NEVER) in this situation.",
     "For each pick: how would we actually know we're doing it — what would someone see or hear? They type that on their pair sheet.",
   ],
@@ -100,7 +100,7 @@ export const REINFORCEMENT_LIBRARY: ReinforcementMechanism[] = [
     title: "In-the-moment interrupt — when a NEVER happens live",
     blurb: "Pick what the team is ready for. The collective \"we\" is the key linguistic move and it is teachable.",
     options: [
-      "A neutral signal — an agreed hand raise, emoji, or code word (low-confrontation, works remotely)",
+      "A neutral signal — an agreed hand raise, brief phrase, or code word (low-confrontation)",
       "A short scripted phrase naming the behaviour not the person — \"Can we pause — I think we're talking over each other.\"",
       "Defer to the reflection — note it, raise it at the check-in",
     ],

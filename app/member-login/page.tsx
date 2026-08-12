@@ -15,6 +15,7 @@ export default function MemberLoginPage() {
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
+  const [devLoginUrl, setDevLoginUrl] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
 
   // Read a ?error=… left by the verify redirect (avoids needing a Suspense
@@ -49,6 +50,7 @@ export default function MemberLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: effectiveEmail }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         // Don't mask real failures behind the success screen.
         setLinkError(ERROR_COPY.server);
@@ -57,6 +59,7 @@ export default function MemberLoginPage() {
       }
       // Otherwise show the same confirmation whether or not the email matched a
       // member (no membership enumeration).
+      setDevLoginUrl(typeof data.dev_login_url === "string" ? data.dev_login_url : null);
       setSent(true);
     } catch {
       setLinkError(ERROR_COPY.server);
@@ -86,13 +89,22 @@ export default function MemberLoginPage() {
             <p className="text-lg" style={{ fontFamily: "Playfair Display, serif" }}>
               Check your email
             </p>
-            <p className="text-sm text-[var(--color-grey)] leading-relaxed">
-              If <strong>{email}</strong> is on a team, we&apos;ve sent a secure
-              sign-in link. It expires in 30 minutes.
-            </p>
+            {devLoginUrl ? (
+              <>
+                <p className="text-sm text-[var(--color-grey)] leading-relaxed">
+                  Your local sign-in link is ready. It expires in 30 minutes.
+                </p>
+                <a href={devLoginUrl} className="btn-primary w-full text-center mt-3">Continue in this browser</a>
+              </>
+            ) : (
+              <p className="text-sm text-[var(--color-grey)] leading-relaxed">
+                If <strong>{email}</strong> is on a team, we&apos;ve sent a secure
+                sign-in link. It expires in 30 minutes.
+              </p>
+            )}
             <button
               type="button"
-              onClick={() => setSent(false)}
+              onClick={() => { setSent(false); setDevLoginUrl(null); }}
               className="mt-4 text-sm text-[var(--color-grey)] underline"
             >
               Use a different email
@@ -104,6 +116,11 @@ export default function MemberLoginPage() {
               Enter the email your consultant used to invite you. We&apos;ll send
               you a secure link — no password needed.
             </p>
+            {process.env.NODE_ENV === "development" && (
+              <p className="text-sm text-[var(--color-grey)] leading-relaxed rounded-lg bg-black/5 px-3 py-2">
+            Local preview: no email is sent from localhost. After you request a link, you can continue directly in this browser.
+              </p>
+            )}
 
             {linkError && (
               <p className="text-sm text-[var(--color-safety-red)]">{linkError}</p>
@@ -130,6 +147,10 @@ export default function MemberLoginPage() {
             </button>
           </form>
         )}
+        <p className="mt-6 pt-4 border-t border-black/10 text-center text-sm text-[var(--color-grey)]">
+          Need help signing in?{" "}
+          <a href="mailto:contact@wavelength.team?subject=Otis%20member%20sign-in%20support" className="underline text-[var(--color-purple)]">Contact support</a>
+        </p>
       </div>
     </div>
   );

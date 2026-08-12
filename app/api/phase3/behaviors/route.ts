@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
+import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { redactTextForExternalProcessing } from "@/lib/privacy";
 import { MODELS } from "@/lib/models";
 import type { BehaviorBucket } from "@/types/database";
 
@@ -80,7 +82,10 @@ export async function GET(req: NextRequest) {
   const teamId = searchParams.get("team_id");
   if (!memberId || !teamId) return NextResponse.json({ error: "member_id and team_id required" }, { status: 400 });
 
-  const { data, error } = await supabase
+  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (!auth.ok) return auth.response;
+
+  const { data, error } = await supabaseAdmin
     .from("member_behaviors")
     .select("*")
     .eq("member_id", memberId)
@@ -125,13 +130,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (!auth.ok) return auth.response;
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI service not configured" }, { status: 500 });
 
   // Run the coaching checks, but never block on them — infra failures pass.
   let checks: CheckResult;
   try {
-    checks = await runChecks(text, apiKey);
+    checks = await runChecks(redactTextForExternalProcessing(text), apiKey);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[phase3/behaviors] coaching check failed:", msg);
@@ -144,7 +152,7 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
 
   if (behaviorId) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("member_behaviors")
       .update({ text, bucket, flagged, nudge_text: nudgeText, updated_at: now })
       .eq("id", behaviorId)
@@ -155,7 +163,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ saved: true, behavior: data });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("member_behaviors")
     .insert({ member_id: memberId, team_id: teamId, statement_id: statementId, bucket, text, source: "member", flagged, nudge_text: nudgeText })
     .select()
@@ -171,7 +179,10 @@ export async function DELETE(req: NextRequest) {
   const memberId = searchParams.get("member_id");
   if (!id || !memberId) return NextResponse.json({ error: "id and member_id required" }, { status: 400 });
 
-  const { error } = await supabase
+  const auth = await requireAcknowledgedMember(req, { memberId });
+  if (!auth.ok) return auth.response;
+
+  const { error } = await supabaseAdmin
     .from("member_behaviors")
     .delete()
     .eq("id", id)

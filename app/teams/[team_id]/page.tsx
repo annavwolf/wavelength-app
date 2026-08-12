@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { createBrowserClient } from "@/lib/supabase";
 import type { Analysis, MemberWithIdentity, Team } from "@/types/database";
 import {
   hasText, ZONE_BADGE, ZONE_SHORT,
@@ -53,13 +52,13 @@ const WORKSHOP_ACCENT = "#8A6D1F";
 const WORKSHOP_BG = "rgba(138,109,31,0.07)";
 const WORKSHOP_BORDER = "rgba(138,109,31,0.35)";
 
-function memberStatusCls(m: Member) {
+function memberStatusCls(m: MemberWithIdentity) {
   if (m.status === "complete") return "bg-green-100 text-green-700";
   if (m.status === "in_progress") return "bg-blue-100 text-blue-700";
   if (m.status === "invited") return "bg-amber-100 text-amber-700";
   return "bg-gray-200 text-[var(--color-ink)]";
 }
-function memberStatusLabel(m: Member) {
+function memberStatusLabel(m: MemberWithIdentity) {
   if (m.status === "complete") return "Complete ✓";
   if (m.status === "in_progress") return "In progress";
   if (m.status === "invited") {
@@ -71,12 +70,6 @@ function memberStatusLabel(m: Member) {
   }
   return "Not invited yet";
 }
-function formatVirtuality(v: Team["virtuality_level"]) {
-  if (v === "fully_remote") return "Fully remote";
-  if (v === "hybrid") return "Hybrid";
-  if (v === "mostly_in_person") return "Mostly in-person";
-  return null;
-}
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 }
@@ -85,12 +78,10 @@ function formatDate(iso: string) {
 
 export default function TeamDashboardPage() {
   const { team_id: teamId } = useParams<{ team_id: string }>();
-  const [supabase] = useState(() => createBrowserClient());
 
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<MemberWithIdentity[]>([]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [missingFlags, setMissingFlags] = useState<{ missing_name: string; missing_role: string | null }[]>([]);
   const [phase3DoneIds, setPhase3DoneIds] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
@@ -105,42 +96,33 @@ export default function TeamDashboardPage() {
   const [activeTab, setActiveTab] = useState<"analytics" | "report" | "agreement" | "workshop">("analytics");
 
   useEffect(() => { load(); }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const interval = window.setInterval(() => { void load(true); }, 30000);
+    return () => window.clearInterval(interval);
+  }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function load() {
-    setLoading(true);
-    const { data: teamData, error: teamErr } = await supabase
-      .from("teams").select("*").eq("team_id", teamId).single();
-    if (teamErr || !teamData) { setLoading(false); return; }
-    setTeam(teamData);
-
-    const membersApiRes = await fetch(`/api/teams/${teamId}/members`);
-    const membersJson: MemberWithIdentity[] = membersApiRes.ok ? await membersApiRes.json() : [];
-
-    const [analysisRes, missingRes, phase3DoneRes] = await Promise.all([
-      supabase.from("analysis").select("*").eq("team_id", teamId).maybeSingle(),
-      supabase.from("missing_member_flags").select("missing_name, missing_role").eq("team_id", teamId),
-      // Phase 3 completion: members who submitted at least one behavior (the core Phase 3 deliverable).
-      // More robust than checking synchronicity/context responses, which may be absent for older completions.
-      supabase.from("member_behaviors").select("member_id").eq("team_id", teamId),
-    ]);
-
-    setMembers(membersJson);
-    setMissingFlags(missingRes.data ?? []);
-    // Distinct member_ids who have submitted behaviors (deduped).
-    setPhase3DoneIds(new Set((phase3DoneRes.data ?? []).map((r) => r.member_id)));
-
-    const aRow = analysisRes.data ?? null;
-    setAnalysis(aRow);
-    if (aRow) {
-      setInterpretation((aRow.tier2_json as unknown as Tier2Result | null) ?? null);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
+    try {
+      const response = await fetch(`/api/teams/${teamId}/dashboard`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setTeam(null);
+        return;
+      }
+      setTeam(data.team as Team);
+      setMembers((data.members as MemberWithIdentity[] | undefined) ?? []);
+      setPhase3DoneIds(new Set((data.phase3_done_member_ids as string[] | undefined) ?? []));
+      const analysisRow = (data.analysis as Analysis | null | undefined) ?? null;
+      setAnalysis(analysisRow);
+      setInterpretation((analysisRow?.tier2_json as unknown as Tier2Result | null) ?? null);
+    } finally {
+      if (!silent) setLoading(false);
     }
-
-    setLoading(false);
   }
 
   async function fetchMembers() {
-    const res = await fetch(`/api/teams/${teamId}/members`);
-    if (res.ok) setMembers(await res.json());
+    await load();
   }
 
   async function handleRunAnalysis() {
@@ -200,15 +182,16 @@ export default function TeamDashboardPage() {
   async function adoptTeamName(name: string) {
     if (!team || !name.trim() || name.trim() === team.team_name) return;
     const next = name.trim();
-    const { error } = await supabase
-      .from("teams")
-      .update({ team_name: next })
-      .eq("team_id", teamId);
-    if (error) {
-      console.error("[team] failed to adopt suggested name:", error.message);
+    const response = await fetch(`/api/teams/${teamId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team_name: next }),
+    });
+    if (!response.ok) {
+      console.error("[team] failed to adopt suggested name");
       return;
     }
-    setTeam({ ...team, team_name: next });
+    setTeam(await response.json());
   }
 
   async function handleSendInvite(memberId: string) {
@@ -267,7 +250,7 @@ export default function TeamDashboardPage() {
   const pctComplete = rosterSize > 0 ? Math.round((completeCount / rosterSize) * 100) : 0;
   // conf retained for the stored tier1.participation.confidence (used by Otis reads and data quality note).
   const tier1 = analysis?.tier1_json as unknown as Tier1Result | null;
-  const subtitle = [team.industry, formatVirtuality(team.virtuality_level)].filter(Boolean).join(" · ");
+  const subtitle = team.industry ?? "";
 
   // ── SETUP MODE ────────────────────────────────────────────────────────────
   if (!tier1) {
@@ -335,13 +318,10 @@ export default function TeamDashboardPage() {
 
               <div className="space-y-2">
                 {members.map((m) => (
-                  <div key={m.member_id} className="card flex items-center justify-between gap-4"
-                    style={{ padding: "12px 20px" }}>
+                    <div key={m.member_id} className="card flex items-center justify-between gap-4"
+                      style={{ padding: "12px 20px" }}>
                     <div className="flex items-center gap-3">
-                      <span className="bg-[var(--color-navy)] text-white text-xs px-3 py-1 rounded-full flex-shrink-0">
-                        {m.private_code}
-                      </span>
-                      <div>
+                       <div>
                         <p className="font-medium text-sm">{m.display_name}</p>
                         {m.role && <p className="text-xs text-[var(--color-grey)]">{m.role}</p>}
                       </div>
@@ -358,6 +338,24 @@ export default function TeamDashboardPage() {
                       )}
                       <span className={`text-xs px-3 py-1 rounded-full ${memberStatusCls(m)}`}>
                         {memberStatusLabel(m)}
+                      </span>
+                      <span
+                        className={`text-xs px-3 py-1 rounded-full ${
+                          m.privacy_acknowledged_currently
+                            ? "bg-purple-100 text-purple-800"
+                            : m.privacy_acknowledged_at
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-gray-100 text-gray-600"
+                        }`}
+                        title={m.privacy_acknowledged_at
+                          ? `Acknowledged ${new Date(m.privacy_acknowledged_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+                          : undefined}
+                      >
+                        {m.privacy_acknowledged_currently
+                          ? "Privacy acknowledged"
+                          : m.privacy_acknowledged_at
+                            ? "Updated notice pending"
+                            : "Privacy pending"}
                       </span>
                     </div>
                   </div>
@@ -377,6 +375,9 @@ export default function TeamDashboardPage() {
                   </button>
                 )}
               </div>
+              <p className="mt-3 text-xs text-[var(--color-grey)]">
+                Privacy status shows whether each participant has acknowledged the current notice. Exact-word and voice-input choices remain private.
+              </p>
             </div>
 
             {/* Progress panel */}
@@ -421,23 +422,10 @@ export default function TeamDashboardPage() {
   }
 
   // ── ANALYSIS MODE ─────────────────────────────────────────────────────────
-  const completedCodes = members.filter((m) => m.status === "complete").map((m) => m.private_code);
+  const completedCodes = Array.from(
+    new Set((tier1.ps_statements ?? []).flatMap((statement) => statement.per_member.map((response) => response.private_code)))
+  );
   const focus = interpretation?.focus_hypothesis;
-
-  // Members flagged as possibly missing from the roster (#11a). Aggregated by
-  // name so the same person flagged twice shows once; the reporter is never shown.
-  const missingAgg = (() => {
-    const map = new Map<string, { name: string; roles: Set<string>; count: number }>();
-    for (const f of missingFlags) {
-      const key = f.missing_name?.trim().toLowerCase();
-      if (!key) continue;
-      const e = map.get(key) ?? { name: f.missing_name.trim(), roles: new Set<string>(), count: 0 };
-      e.count++;
-      if (f.missing_role?.trim()) e.roles.add(f.missing_role.trim());
-      map.set(key, e);
-    }
-    return Array.from(map.values());
-  })();
 
   // Phase 3 completion — keyed off phase3_context_responses.synchronicity (the
   // reliable signal; doesn't depend on the members-table write of phase3_completed_at).
@@ -555,11 +543,11 @@ export default function TeamDashboardPage() {
             </p>
           )}
 
-          {/* Pre-workshop activity completion — visible here so the consultant
+          {/* Results & Team Agreement Activity completion — visible here so the consultant
               always knows who's in before opening the Team Agreement tab. */}
           <div className="flex items-center justify-between gap-4 rounded-xl border border-black/10 px-5 py-3" style={{ background: "rgba(20,32,60,0.04)" }}>
             <div>
-              <span className="text-sm font-medium">Pre-workshop activity: {phase3CompletedCount}/{phase3TotalCount} members finished</span>
+              <span className="text-sm font-medium">Results &amp; Team Agreement Activity: {phase3CompletedCount}/{phase3TotalCount} members finished</span>
               {phase3TotalCount > 0 && phase3CompletedCount < phase3TotalCount && (
                 <p className="text-xs text-[var(--color-grey)] mt-0.5">Waiting on: {phase3Outstanding.join(", ")}</p>
               )}
@@ -576,22 +564,6 @@ export default function TeamDashboardPage() {
             blurb="How each member described their own role and contribution. Raw, unanalysed — for your read only."
             entries={tier1.own_roles ?? []}
           />
-          {missingAgg.length > 0 && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
-              <p className="text-xs uppercase tracking-widest text-amber-800 mb-1.5 font-medium">Possibly missing from the roster</p>
-              <p className="text-xs text-[var(--color-grey)] mb-3">Members flagged these people during the assessment — check whether anyone should be added to the team.</p>
-              <ul className="space-y-1.5">
-                {missingAgg.map((m, i) => (
-                  <li key={i} className="text-sm">
-                    <span className="font-medium">{m.name}</span>
-                    {m.roles.size > 0 && <span className="text-[var(--color-grey)]"> — {Array.from(m.roles).join(", ")}</span>}
-                    {m.count > 1 && <span className="text-xs text-amber-700"> · flagged by {m.count}</span>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           {/* ── b. PSYCHOLOGICAL SAFETY ── */}
           <PsSafetyPanel tier1={tier1} tier2={interpretation} />
           <FreeTextPanel
@@ -631,7 +603,6 @@ export default function TeamDashboardPage() {
             outstanding={phase3Outstanding}
             tier1={tier1}
             tier2={interpretation}
-            members={members}
             report={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
           />
         </div>

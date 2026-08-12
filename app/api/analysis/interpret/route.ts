@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { PART2_SYSTEM_PROMPT } from "@/prompts/part2_analytics";
 import { MODELS } from "@/lib/models";
 import type { Json } from "@/types/database";
+import { redactTextForExternalProcessing } from "@/lib/privacy";
+import { requireTeamOwner } from "@/lib/requestAuth";
 
 const MODEL = MODELS.interpret;
 // Zone read + shared-purpose read + focus hypothesis. 6000 tokens is ample.
@@ -20,6 +22,8 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
+  const auth = await requireTeamOwner(req, teamId);
+  if (!auth.ok) return auth.response;
 
   try {
     return await runInterpret(teamId);
@@ -64,8 +68,6 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
   const teamContext = {
     team_name: team.team_name,
     industry: team.industry,
-    virtuality_level: team.virtuality_level,
-    timezones: team.timezones,
     known_sensitivities: team.known_sensitivities,
   };
 
@@ -82,7 +84,14 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
     computed_metrics_tier1: analysisRow.tier1_json,
   };
 
-  const userMessage = JSON.stringify(dataPackage, null, 2);
+  const { data: identities } = await supabaseAdmin
+    .from("member_identity")
+    .select("display_name")
+    .eq("team_id", teamId);
+  const userMessage = redactTextForExternalProcessing(
+    JSON.stringify(dataPackage, null, 2),
+    (identities ?? []).map((identity) => identity.display_name)
+  );
 
   // ── Call Anthropic (written reads + focus hypothesis only) ──────────────────
   const anthropic = new Anthropic({ apiKey });
@@ -121,9 +130,9 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
     interpretation = JSON.parse(jsonText);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[analysis/interpret] JSON parse failed. Raw text:", rawText);
+    console.error("[analysis/interpret] JSON parse failed", { message: msg });
     return NextResponse.json(
-      { error: "ai_response_not_json", detail: msg, raw: rawText.slice(0, 2000) },
+      { error: "ai_response_not_json", detail: msg },
       { status: 502 }
     );
   }

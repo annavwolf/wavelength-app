@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { MODELS } from "@/lib/models";
+import { redactTextForExternalProcessing } from "@/lib/privacy";
+import { requireTeamOwner } from "@/lib/requestAuth";
 import type { SituationTag } from "@/types/database";
 
 const MODEL = MODELS.interpret;
@@ -39,7 +41,7 @@ async function tagStory(storyText: string, apiKey: string): Promise<SituationTag
 - other: does not fit any above`,
     tools: [TAG_TOOL],
     tool_choice: { type: "tool", name: "tag_story" },
-    messages: [{ role: "user", content: `Story: "${storyText.slice(0, 600)}"` }],
+    messages: [{ role: "user", content: `Story: "${redactTextForExternalProcessing(storyText).slice(0, 600)}"` }],
   });
 
   const toolUse = response.content.find(
@@ -62,10 +64,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  const auth = await requireTeamOwner(req, teamId);
+  if (!auth.ok) return auth.response;
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI service not configured" }, { status: 500 });
 
-  const { data: stories, error } = await supabase
+  const { data: stories, error } = await supabaseAdmin
     .from("member_stories")
     .select("id, story_text")
     .eq("team_id", teamId)
@@ -80,7 +85,7 @@ export async function POST(req: NextRequest) {
   for (const story of stories) {
     try {
       const tag = await tagStory(story.story_text, apiKey);
-      await supabase
+      await supabaseAdmin
         .from("member_stories")
         .update({ situation_tag: tag, updated_at: new Date().toISOString() })
         .eq("id", story.id);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
+import { requireAcknowledgedMember } from "@/lib/requestAuth";
 import type { PulseCheckKey, PulseCheckRating } from "@/types/database";
 
 const VALID_KEYS: PulseCheckKey[] = ["zone1", "zone2", "zone3", "purpose"];
@@ -21,7 +22,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "member_id and team_id required" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (!auth.ok) return auth.response;
+
+  const { data, error } = await supabaseAdmin
     .from("phase3_pulse_checks")
     .select("*")
     .eq("member_id", memberId)
@@ -59,8 +63,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (!auth.ok) return auth.response;
+
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from("phase3_pulse_checks")
     .upsert(
       { member_id: memberId, team_id: teamId, read_key: readKey, accuracy_rating: accuracyRating, comment, updated_at: now },

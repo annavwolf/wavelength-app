@@ -182,8 +182,8 @@ export default function Phase3ReleasePreview({
         )}
         <PreviewBubble auto section="Team Agreement" color={SECTION_COLOR.agreement} title="Build the agreement" body={agreementBody} />
         <PreviewBubble section="Team Agreement" color={SECTION_COLOR.agreement} title="30-day commitment" body="Commitment question + how the team meets." />
-        <PreviewBubble section="Finish" color={SECTION_COLOR.finish} title="Review, consent & submit"
-          body="Members review everything, set both consent choices, can withdraw, download a report, and submit." />
+        <PreviewBubble section="Finish" color={SECTION_COLOR.finish} title="Review & submit"
+          body="Members review everything, may update their global exact-excerpt preference, can withdraw, download a report, and submit." />
       </div>
     </div>
   );
