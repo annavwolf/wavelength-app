@@ -11,6 +11,10 @@ import {
   REINTERPRET_REQUIRED_MESSAGE,
   withTier1Provenance,
 } from "@/lib/analysisProvenance";
+import {
+  OTIS_APP_URL_CONFIGURATION_ERROR,
+  resolveOtisAppUrl,
+} from "@/lib/otisAppUrl";
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -40,6 +44,19 @@ export async function POST(req: NextRequest) {
     if (!earlyAccess.ok) return earlyAccess.response;
   }
 
+  let appUrl: string | null = null;
+  if (!dry_run) {
+    try {
+      appUrl = resolveOtisAppUrl(req.nextUrl.origin);
+    } catch (error) {
+      console.error("[phase3/release] canonical email URL unavailable:", error);
+      return NextResponse.json(
+        { error: OTIS_APP_URL_CONFIGURATION_ERROR },
+        { status: 503, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+  }
+
   const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")
     .select("id, tier1_json, tier2_json, phase3_report_json")
@@ -67,7 +84,6 @@ export async function POST(req: NextRequest) {
 
   if (!dry_run) {
     const apiKey = process.env.RESEND_API_KEY;
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
     const [identityRes, teamRes] = await Promise.all([
       supabaseAdmin.from("member_identity").select("member_id, display_name, email").eq("team_id", team_id),
@@ -92,7 +108,7 @@ export async function POST(req: NextRequest) {
 
     if (apiKey && toSend.length > 0) {
       const resend = new Resend(apiKey);
-      const loginUrl = `${APP_URL}/member-login`;
+      const loginUrl = `${appUrl!}/member-login`;
       const safeLoginUrl = escapeHtml(loginUrl);
       // Use RESEND_FROM_EMAIL if set (requires a verified Resend domain).
       // Falls back to the shared test sender — only reliably delivers to the

@@ -10,6 +10,18 @@ export type SpeechOptions = {
   memberId?: string;
 };
 
+/**
+ * Browser-only signal used by the read-aloud control when an opted-in hosted
+ * request cannot be played. It deliberately carries no provider, response,
+ * participant, or message information.
+ */
+export const HOSTED_SPEECH_UNAVAILABLE_EVENT = "otis-hosted-speech-unavailable";
+
+function reportHostedSpeechUnavailable() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(HOSTED_SPEECH_UNAVAILABLE_EVENT));
+}
+
 let _cached: SpeechSynthesisVoice[] = [];
 let _activeAudio: HTMLAudioElement | null = null;
 let _activeAudioUrl: string | null = null;
@@ -203,6 +215,10 @@ export async function speakText(
   if (options.allowHosted) {
     const played = await speakWithHostedVoice(message, requestId);
     if (played || requestId !== _speechRequestId) return;
+    // Do not silently make a Deepgram failure look like success. We still
+    // provide the device voice as a resilient fallback, but the UI can now
+    // clearly tell the participant which one is being used.
+    reportHostedSpeechUnavailable();
   }
 
   if (requestId === _speechRequestId) await speakWithBrowser(message, rate);

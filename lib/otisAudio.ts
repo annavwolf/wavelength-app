@@ -13,8 +13,12 @@ export const OTIS_AUDIO_LIMITS = {
   minRecordingDurationMs: 500,
   /** Below Vercel's request-body limit, with room for multipart overhead. */
   maxRecordingBytes: 4 * 1024 * 1024,
-  /** Otis messages are capped before sending them to a hosted voice provider. */
-  maxSynthesisCharacters: 4_000,
+  /**
+   * Deepgram Aura's REST endpoint accepts at most 2,000 characters per
+   * request. Keeping Otis below that provider boundary prevents a long
+   * message from quietly falling back to the device voice.
+   */
+  maxSynthesisCharacters: 2_000,
 } as const;
 
 export type HostedAudioCapabilities = {
@@ -64,4 +68,3 @@ export function isSupportedRecordingMimeType(mimeType: string | null | undefined
     "audio/x-wav",
   ].includes(normalized);
 }
-

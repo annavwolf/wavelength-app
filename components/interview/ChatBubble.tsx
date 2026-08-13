@@ -3,7 +3,11 @@
 import { useEffect, useRef, isValidElement } from "react";
 import type { ReactNode } from "react";
 import { speakText, cancelSpeech } from "@/lib/speech";
-import { useHostedSpeechAvailable, useVoiceParticipantMemberId } from "@/components/interview/VoiceInputContext";
+import {
+  useHostedAudioLoading,
+  useHostedSpeechAvailable,
+  useVoiceParticipantMemberId,
+} from "@/components/interview/VoiceInputContext";
 
 // Recursively pull the readable text out of arbitrary children so bubbles that
 // contain interpolation ({name}) or markup (<strong>, <br/>) still auto-play
@@ -37,6 +41,7 @@ export default function ChatBubble({
   // than just a boolean so each distinct line is read once.
   const lastSpokenTextRef = useRef<string | null>(null);
   const hostedSpeechAvailable = useHostedSpeechAvailable();
+  const hostedAudioLoading = useHostedAudioLoading();
   const memberId = useVoiceParticipantMemberId();
   const extracted = extractText(children).trim();
   const text = speakTextProp ?? (extracted || null);
@@ -50,14 +55,19 @@ export default function ChatBubble({
       lastSpokenTextRef.current = null;
       return;
     }
+    // An opted-in participant may reach this bubble before the privacy-gated
+    // capability probe has settled. Wait without marking it as spoken, so the
+    // same line can use enhanced voice once it is ready (or safely fall back
+    // once the probe says it is unavailable).
+    if (hostedAudioLoading) return;
     if (lastSpokenTextRef.current === text) return;
     lastSpokenTextRef.current = text;
     void speakText(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hostedSpeechAvailable, memberId, readAloud, text]);
+  }, [hostedAudioLoading, hostedSpeechAvailable, memberId, readAloud, text]);
 
   async function handleClick() {
-    if (!readAloud || !text) return;
+    if (!readAloud || !text || hostedAudioLoading) return;
     cancelSpeech();
     await speakText(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
   }
@@ -76,7 +86,7 @@ export default function ChatBubble({
       <div
         className={`card py-3 px-5 max-w-[520px] ${readAloud && text ? "cursor-pointer hover:ring-1 hover:ring-[var(--color-purple)]/30 transition-all" : ""}`}
         onClick={handleClick}
-        title={readAloud && text ? "Click to replay" : undefined}
+        title={readAloud && text ? (hostedAudioLoading ? "Checking enhanced voice…" : "Click to replay") : undefined}
       >
         <p>{children}</p>
       </div>

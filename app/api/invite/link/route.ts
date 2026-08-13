@@ -4,6 +4,10 @@ import {
   issueInterviewAccessToken,
   revokeInterviewAccessTokens,
 } from "@/lib/interviewAccess";
+import {
+  OTIS_APP_URL_CONFIGURATION_ERROR,
+  resolveOtisAppUrl,
+} from "@/lib/otisAppUrl";
 import { requireTeamOwner } from "@/lib/requestAuth";
 
 // Generate (but do not email) a fresh secure participant invite URL. The raw
@@ -21,6 +25,17 @@ export async function POST(request: NextRequest) {
   const auth = await requireTeamOwner(request, teamId);
   if (!auth.ok) return auth.response;
 
+  let appUrl: string;
+  try {
+    appUrl = resolveOtisAppUrl(request.nextUrl.origin);
+  } catch (error) {
+    console.error("[invite/link] canonical participant URL unavailable:", error);
+    return NextResponse.json(
+      { error: OTIS_APP_URL_CONFIGURATION_ERROR },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   try {
     if (invalidateExisting) {
       const revoked = await revokeInterviewAccessTokens(memberId, teamId);
@@ -32,7 +47,6 @@ export async function POST(request: NextRequest) {
       }
     }
     const issued = await issueInterviewAccessToken({ memberId, teamId });
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin).replace(/\/$/, "");
     return NextResponse.json(
       {
         interview_url: interviewAccessUrl(appUrl, issued.token),

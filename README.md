@@ -32,7 +32,8 @@ file — it's already covered by `.gitignore`):
 | `NEXT_PUBLIC_SUPABASE_URL`      | Your Supabase project URL (Project Settings → API).             |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Your Supabase anon/publishable key (Project Settings → API).    |
 | `SUPABASE_SERVICE_ROLE_KEY`     | Server-only Supabase key used by authenticated application routes. |
-| `NEXT_PUBLIC_APP_URL`           | Canonical deployed URL, for example `https://app.example.com`.  |
+| `OTIS_APP_URL`                  | Required server-only production URL for Otis email and invite links, e.g. `https://your-otis-app.vercel.app`. Never set it to `https://wavelength.team` or `https://www.wavelength.team` (the marketing site). |
+| `NEXT_PUBLIC_APP_URL`           | Transitional fallback for `OTIS_APP_URL`; set it to the same Otis app URL if client code needs it. |
 | `MEMBER_SESSION_SECRET`         | Long random server-only secret used to sign member and scoped interview sessions. |
 | `ANTHROPIC_API_KEY`             | Anthropic API key, used for Wavelength's AI-driven analysis.    |
 | `VOYAGE_API_KEY`                | Voyage key used for embeddings, when analysis uses embeddings.  |
@@ -57,6 +58,7 @@ file — it's already covered by `.gitignore`):
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+OTIS_APP_URL=http://localhost:3000
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 MEMBER_SESSION_SECRET=a-long-random-secret
 ANTHROPIC_API_KEY=your-anthropic-api-key
@@ -74,6 +76,18 @@ OTIS_DEEPGRAM_STT_MODEL=nova-3
 `NEXT_PUBLIC_*` variables are inlined into the client bundle at **build
 time**, so when deploying, make sure they're set before the first build runs
 (or trigger a redeploy after adding/changing them).
+
+### Canonical email-link URL
+
+Every emailed invite, magic link, and activity/result notification is built
+from `OTIS_APP_URL` (with `NEXT_PUBLIC_APP_URL` kept only as a temporary
+fallback). In Vercel production it must be the deployed Otis application URL,
+for example the app's Vercel URL or a dedicated application subdomain. Do not
+use `https://wavelength.team` or `https://www.wavelength.team`: those point to
+the Wavelength marketing site and do not host `/i/...` assessment links. The
+email-producing routes fail closed with a clear configuration message rather
+than send a broken link when this setting is missing or points to either
+marketing host. After changing it, redeploy and send yourself a test invite.
 
 ### Member magic-link protection
 
@@ -175,6 +189,8 @@ WAF rate-limit rule for `/api/audio/*`, `/api/early-access`, and
 
 This app deploys cleanly to [Vercel](https://vercel.com). Set every required
 environment variable above in the Vercel project's dashboard before deploying,
-then add the deployed URL to Supabase Auth's allowed redirect URLs. Apply the
-SQL migrations in [BETA_LAUNCH_CHECKLIST.md](./BETA_LAUNCH_CHECKLIST.md) before
-using the deployed beta.
+including `OTIS_APP_URL` for the deployed Otis application (not the Wavelength
+marketing domain), then add the deployed URL to Supabase Auth's allowed
+redirect URLs. Apply the SQL migrations in
+[BETA_LAUNCH_CHECKLIST.md](./BETA_LAUNCH_CHECKLIST.md) before using the
+deployed beta.

@@ -18,11 +18,10 @@ import {
 // Validates a single-use magic-link token, then either signs the member in
 // (one matching member) or hands off to the "which team?" chooser (several).
 export async function GET(req: NextRequest) {
-  const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const token = req.nextUrl.searchParams.get("token");
 
   const fail = (reason: string) =>
-    NextResponse.redirect(`${APP_URL}/member-login?error=${reason}`);
+    NextResponse.redirect(new URL(`/member-login?error=${encodeURIComponent(reason)}`, req.nextUrl.origin));
 
   if (!token) return fail("missing");
 
@@ -90,7 +89,7 @@ export async function GET(req: NextRequest) {
   if (members.length === 1) {
     const m = members[0];
     const jwt = await signSession({ member_id: m.member_id, team_id: m.team_id });
-    const res = NextResponse.redirect(`${APP_URL}/me`);
+    const res = NextResponse.redirect(new URL("/me", req.nextUrl.origin));
     res.cookies.set(SESSION_COOKIE, jwt, sessionCookieOptions(SESSION_COOKIE_MAX_AGE));
     // Do not carry a previous recipient's invite capability into a fresh
     // passwordless sign-in on a shared browser.
@@ -121,7 +120,7 @@ export async function GET(req: NextRequest) {
   }));
 
   const preJwt = await signPreSession({ email: row.email, candidates });
-  const res = NextResponse.redirect(`${APP_URL}/member-login/select-team`);
+  const res = NextResponse.redirect(new URL("/member-login/select-team", req.nextUrl.origin));
   res.cookies.set(PRESESSION_COOKIE, preJwt, sessionCookieOptions(PRESESSION_COOKIE_MAX_AGE));
   return res;
 }

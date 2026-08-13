@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { logIdentityLookup } from "@/lib/auditLog";
 import { interviewAccessUrl, issueInterviewAccessToken } from "@/lib/interviewAccess";
+import {
+  OTIS_APP_URL_CONFIGURATION_ERROR,
+  resolveOtisAppUrl,
+} from "@/lib/otisAppUrl";
 import { requireTeamOwner } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -24,6 +28,17 @@ export async function POST(request: NextRequest) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "Email service not configured" }, { status: 500 });
 
+  let appUrl: string;
+  try {
+    appUrl = resolveOtisAppUrl(request.nextUrl.origin);
+  } catch (error) {
+    console.error("[invite/send] canonical email URL unavailable:", error);
+    return NextResponse.json(
+      { error: OTIS_APP_URL_CONFIGURATION_ERROR },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   const [{ data: identity, error: identityError }, { data: team, error: teamError }] = await Promise.all([
     supabaseAdmin
       .from("member_identity")
@@ -40,7 +55,6 @@ export async function POST(request: NextRequest) {
   let interviewUrl: string;
   try {
     const issued = await issueInterviewAccessToken({ memberId, teamId });
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin).replace(/\/$/, "");
     interviewUrl = interviewAccessUrl(appUrl, issued.token);
   } catch {
     return NextResponse.json({ error: "Unable to create a secure participant link. Please try again." }, { status: 500 });

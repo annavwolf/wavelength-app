@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { generateLoginToken, hashLoginToken } from "@/lib/memberTokens";
 import { memberLoginRateLimitKeys } from "@/lib/memberLoginRateLimit";
 import { logIdentityLookup } from "@/lib/auditLog";
+import { resolveOtisAppUrl } from "@/lib/otisAppUrl";
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -102,6 +103,16 @@ export async function POST(req: NextRequest) {
   const members = identities;
   void logIdentityLookup(members[0].member_id, "auth_request", "magic-link email lookup");
 
+  let appUrl: string;
+  try {
+    appUrl = resolveOtisAppUrl(req.nextUrl.origin);
+  } catch (error) {
+    // Preserve the non-enumerating browser response, but do not mint a token
+    // or send a link until operators configure a safe canonical app URL.
+    console.error("[member/auth/request] canonical magic-link URL unavailable:", error);
+    return genericOk;
+  }
+
   // 2) Mint + store a single-use token (only its hash). Done BEFORE the email
   //    step so a missing/misconfigured email provider can never prevent token
   //    creation — the token is the actual auth artefact.
@@ -129,8 +140,7 @@ export async function POST(req: NextRequest) {
 
   // In local development, print a usable link even when Resend is not
   // configured. Localhost testing should not depend on real email delivery.
-  const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const loginUrl = `${APP_URL}/api/member/auth/verify?token=${rawToken}`;
+  const loginUrl = `${appUrl}/api/member/auth/verify?token=${rawToken}`;
   if (process.env.NODE_ENV === "development") {
     console.log(`\n[DEV] Magic link for ${email}:\n${loginUrl}\n`);
     return NextResponse.json({

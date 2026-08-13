@@ -12,6 +12,10 @@ import {
   REPORT_REBUILD_REQUIRED_MESSAGE,
   withTier1Provenance,
 } from "@/lib/analysisProvenance";
+import {
+  OTIS_APP_URL_CONFIGURATION_ERROR,
+  resolveOtisAppUrl,
+} from "@/lib/otisAppUrl";
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -37,6 +41,19 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return auth.response;
   const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
   if (!earlyAccess.ok) return earlyAccess.response;
+
+  let appUrl: string | null = null;
+  if (!dry_run) {
+    try {
+      appUrl = resolveOtisAppUrl(req.nextUrl.origin);
+    } catch (error) {
+      console.error("[phase4/release] canonical email URL unavailable:", error);
+      return NextResponse.json(
+        { error: OTIS_APP_URL_CONFIGURATION_ERROR },
+        { status: 503, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+  }
 
   const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")
@@ -76,7 +93,6 @@ export async function POST(req: NextRequest) {
 
   if (!dry_run) {
     const apiKey = process.env.RESEND_API_KEY;
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
     const [identityRes, teamRes] = await Promise.all([
       supabaseAdmin.from("member_identity").select("member_id, display_name, email").eq("team_id", team_id),
@@ -98,7 +114,7 @@ export async function POST(req: NextRequest) {
 
     if (apiKey && toSend.length > 0) {
       const resend = new Resend(apiKey);
-      const loginUrl = `${APP_URL}/member-login`;
+      const loginUrl = `${appUrl!}/member-login`;
       const safeLoginUrl = escapeHtml(loginUrl);
       const fromAddress = process.env.RESEND_FROM_EMAIL ?? "Otis <otis@wavelength.team>";
 
