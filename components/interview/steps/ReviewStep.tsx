@@ -164,7 +164,7 @@ export default function ReviewStep({
         <fieldset className="space-y-2">
           <legend className="font-medium text-base mb-2">Optional enhanced audio</legend>
           <label className="flex items-start gap-3 cursor-pointer text-base leading-relaxed"><input type="radio" name="voice" checked={!voiceInputAllowed} onChange={() => setVoiceInputAllowed(false)} className="mt-1 h-5 w-5" /><span><strong>Use text only.</strong> Do not show microphone controls or use the optional audio provider.</span></label>
-          <label className="flex items-start gap-3 cursor-pointer text-base leading-relaxed"><input type="radio" name="voice" checked={voiceInputAllowed} onChange={() => setVoiceInputAllowed(true)} className="mt-1 h-5 w-5" /><span><strong>I may use enhanced audio.</strong> ElevenLabs may process Otis&apos;s spoken text and a recording only when I choose to use a microphone control. Otis does not store raw recordings.</span></label>
+          <label className="flex items-start gap-3 cursor-pointer text-base leading-relaxed"><input type="radio" name="voice" checked={voiceInputAllowed} onChange={() => setVoiceInputAllowed(true)} className="mt-1 h-5 w-5" /><span><strong>I may use enhanced audio.</strong> Deepgram may process Otis&apos;s spoken text and a recording only when I choose to use a microphone control. Otis does not store raw recordings.</span></label>
         </fieldset>
         {privacyMessage && <p className="text-base text-[var(--color-grey)]" role="status">{privacyMessage}</p>}
         <button type="button" onClick={savePrivacySettings} disabled={privacySaving} className="btn-secondary">{privacySaving ? "Saving..." : "Save privacy settings"}</button>

@@ -96,6 +96,9 @@ export default function PrivacyStep({
           </p>
         </div>
         <p>
+          This updated beta notice names Deepgram as the optional enhanced-audio processor. If you previously acknowledged an earlier beta notice, please read and acknowledge this updated version before continuing.
+        </p>
+        <p>
           The interview asks about your work on the team. It does not ask for age, gender, ethnicity, nationality, or other demographic details. If you choose to provide a broad work location, Otis uses a recognised city and country to set a time zone automatically where it can. Please do not enter a street address.
         </p>
         <p>
@@ -105,7 +108,7 @@ export default function PrivacyStep({
           Otis uses external AI services to help analyse de-identified team material. It removes common direct identifiers such as names, email addresses, phone numbers and links before sending text where possible, but cannot guarantee that every detail in free text is non-identifying. Raw microphone audio is not stored by Otis.
         </p>
         <p>
-          Optional enhanced audio is provided by ElevenLabs when it is available. If you choose it, Otis sends the text needed to create a spoken reply to ElevenLabs. When you tap a microphone control, your recording is sent to ElevenLabs to make an editable transcript. Otis does not save raw recordings; it keeps only the text you choose to submit. ElevenLabs may handle request data under its own service terms and privacy practices, including outside your country. Text-only input is always available.
+          Optional enhanced audio is provided by Deepgram when it is available. If you choose it, Otis sends the text needed to create a spoken reply to Deepgram. When you tap a microphone control, your recording is sent to Deepgram to make an editable transcript. Otis does not save raw recordings; it keeps only the text you choose to submit. Deepgram may handle request data under its own service terms and privacy practices, including outside your country. Text-only input is always available.
         </p>
         <p>
           This acknowledgement covers your beta journey, including the Results &amp; Team Agreement Activity. Before you share stories or behaviours there, Otis will ask you to confirm or change your exact-word setting. That is not a second privacy acknowledgement unless this notice is updated.
@@ -135,7 +138,7 @@ export default function PrivacyStep({
         </ChoiceCard>
         <ChoiceCard selected={voiceInputAllowed === true} onSelect={() => setVoiceInputAllowed(true)}>
           <strong>I may use enhanced audio.</strong><br />
-          I understand ElevenLabs may process Otis&apos;s spoken text and any recording I choose to make. Otis does not keep the raw recording; I can edit the resulting text before I submit it.
+          I understand Deepgram may process Otis&apos;s spoken text and any recording I choose to make. Otis does not keep the raw recording; I can edit the resulting text before I submit it.
         </ChoiceCard>
       </section>
 

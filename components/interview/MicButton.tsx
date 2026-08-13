@@ -28,7 +28,7 @@ type Props = {
 /**
  * Voice input deliberately has no browser-recognition fallback. A browser's
  * non-standard recognition API can send audio to an undisclosed provider,
- * whereas this beta's consent specifies ElevenLabs. When enhanced audio isn't
+ * whereas this beta's consent specifies Deepgram. When enhanced audio isn't
  * configured, people simply keep the reliable text input they already have.
  */
 export default function MicButton({ onResult }: Props) {

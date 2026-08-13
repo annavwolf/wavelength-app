@@ -41,15 +41,17 @@ file — it's already covered by `.gitignore`):
 | `MEMBER_LOGIN_RATE_LIMIT_SECRET` | Recommended dedicated server-only HMAC secret for durable member magic-link request limits; falls back to `MEMBER_SESSION_SECRET`. |
 | `EARLY_ACCESS_CODE_HASHES`      | Server-only comma-separated SHA-256 hashes for beta early-access codes. |
 | `EARLY_ACCESS_PENDING_COOKIE_SECRET` | Recommended dedicated server-only secret for short-lived sign-up early-access claims; falls back to `MEMBER_SESSION_SECRET` during transition. |
-| `ELEVENLABS_API_KEY`            | Server-only ElevenLabs API key for optional enhanced audio.     |
-| `OTIS_ELEVENLABS_VOICE_ID`      | ElevenLabs stock voice ID for Otis's optional read-aloud.       |
-| `OTIS_ELEVENLABS_TTS_MODEL`     | Optional; defaults to `eleven_flash_v2_5`.                      |
-| `OTIS_ELEVENLABS_STT_MODEL`     | Optional; defaults to `scribe_v2`.                              |
+| `DEEPGRAM_API_KEY`              | Server-only Deepgram API key for optional enhanced audio.       |
+| `OTIS_DEEPGRAM_TTS_MODEL`       | Optional; defaults to `aura-2-arcas-en`.                        |
+| `OTIS_DEEPGRAM_STT_MODEL`       | Optional; defaults to `nova-3`.                                 |
 | `OTIS_AUDIO_TTS_REQUESTS_PER_MINUTE` | Optional bounded per-participant hosted-TTS quota; defaults to `20`. |
 | `OTIS_AUDIO_TTS_CHARACTERS_PER_MINUTE` | Optional bounded TTS character quota; defaults to `20000`. |
 | `OTIS_AUDIO_STT_REQUESTS_PER_MINUTE` | Optional bounded voice-to-text quota; defaults to `6`. |
 | `OTIS_AUDIO_STT_DURATION_MS_PER_MINUTE` | Optional declared-recording-duration quota; defaults to `120000`. |
 | `OTIS_AUDIO_STT_BYTES_PER_MINUTE` | Optional trusted byte quota; defaults to `1048576` (1 MiB). |
+| `OTIS_AUDIO_PILOT_TTS_CHARACTERS_PER_MONTH` | Optional shared pilot TTS cap; defaults to `1000000`. |
+| `OTIS_AUDIO_PILOT_STT_DURATION_MS_PER_MONTH` | Optional shared pilot STT cap; defaults to `30000000` (500 minutes). |
+| `OTIS_AUDIO_PILOT_STT_BYTES_PER_MONTH` | Optional shared pilot STT byte cap; defaults to `536870912` (512 MiB). |
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
@@ -64,8 +66,9 @@ RESEND_FROM_EMAIL="Otis <otis@your-verified-domain.com>"
 MEMBER_LOGIN_RATE_LIMIT_SECRET=a-separate-long-random-secret
 EARLY_ACCESS_CODE_HASHES=sha256-hash-of-your-long-code
 EARLY_ACCESS_PENDING_COOKIE_SECRET=a-separate-long-random-secret
-ELEVENLABS_API_KEY=your-elevenlabs-api-key
-OTIS_ELEVENLABS_VOICE_ID=your-stock-voice-id
+DEEPGRAM_API_KEY=your-deepgram-api-key
+OTIS_DEEPGRAM_TTS_MODEL=aura-2-arcas-en
+OTIS_DEEPGRAM_STT_MODEL=nova-3
 ```
 
 `NEXT_PUBLIC_*` variables are inlined into the client bundle at **build
@@ -119,24 +122,34 @@ in-memory counters, so this operational control remains important.
 ### Optional enhanced audio
 
 Otis works fully with typed responses and the browser's read-aloud fallback.
-To enable the optional hosted voice experience, create an ElevenLabs API key
-and select a **stock** voice in the ElevenLabs dashboard. Add
-`ELEVENLABS_API_KEY` and `OTIS_ELEVENLABS_VOICE_ID` as Vercel server-only
-environment variables; do not expose either with a `NEXT_PUBLIC_*` name.
+To enable the optional hosted voice experience, create a Deepgram project API
+key and, where the console offers permission choices, limit it to the speech-
+to-text and text-to-speech features Otis needs. Add `DEEPGRAM_API_KEY` as a
+server-only Vercel environment variable. `OTIS_DEEPGRAM_TTS_MODEL` and
+`OTIS_DEEPGRAM_STT_MODEL` are optional server-only overrides. Do not expose any
+of these with a `NEXT_PUBLIC_*` name, place a key in source control, or paste a
+key into a browser console.
 
-With those variables set, a participant who has explicitly selected enhanced
+Before adding the key to Vercel, open the Deepgram project's billing settings
+and turn **Auto-Load** off. Keep it off during the pilot, review the project's
+usage and remaining credit regularly, and do not rely on free credit as a
+spending control.
+
+With the variables set, a participant who has explicitly selected enhanced
 audio can tap the microphone to record a short answer, stop recording, and
-receive an editable transcript. Otis proxies the clip to ElevenLabs in memory
+receive an editable transcript. Otis proxies the clip to Deepgram in memory
 only; it does not save raw recordings. Participants who choose text-only never
-call the hosted audio routes. The in-app notice is version `beta-0.4`, so a
-new acknowledgement is required before the enhanced provider can be used.
+call the hosted audio routes. The in-app notice is version `beta-0.5`, so a
+fresh acknowledgement is required before the enhanced provider can be used.
 
-Before enabling the ElevenLabs production key, set a conservative hard monthly
-spend cap and billing alert in ElevenLabs. The app also uses a durable
-per-participant minute quota (`0029_durable_audio_quota.sql`), but no
-application quota can replace the provider-side cap against a large number of
-new accounts. Add a Vercel WAF rate-limit rule for `/api/audio/*`,
-`/api/early-access`, and `/api/early-access/pending` as a production backstop.
+The app also uses a durable per-participant minute quota
+(`0029_durable_audio_quota.sql`) and a shared monthly pilot cap
+(`0031_pilot_audio_quota.sql`). The default shared cap is 1,000,000 spoken
+characters and 500 minutes / 512 MiB of submitted speech each UTC month. That
+is intentionally enough for a 50-person pilot, but it is not a replacement for
+provider billing controls against a large number of new accounts. Add a Vercel
+WAF rate-limit rule for `/api/audio/*`, `/api/early-access`, and
+`/api/early-access/pending` as a production backstop.
 
 ## Routes
 

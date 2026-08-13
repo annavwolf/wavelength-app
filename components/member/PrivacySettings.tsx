@@ -81,7 +81,7 @@ export default function PrivacySettings({
         </label>
         <label className="flex items-start gap-3 cursor-pointer text-sm leading-relaxed">
           <input type="radio" name="member-audio" checked={voiceInputAllowed} onChange={() => setVoiceInputAllowed(true)} className="mt-0.5 h-5 w-5" />
-          <span><strong>I may use enhanced audio.</strong><br />ElevenLabs may process Otis&apos;s spoken text and a recording only when I choose to use a microphone control. Otis does not store raw recordings.</span>
+          <span><strong>I may use enhanced audio.</strong><br />Deepgram may process Otis&apos;s spoken text and a recording only when I choose to use a microphone control. Otis does not store raw recordings.</span>
         </label>
       </fieldset>
 

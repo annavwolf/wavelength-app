@@ -33,7 +33,7 @@ export function VoiceInputProvider({
   // The optional hosted audio service is discovered once per participant
   // session. We never even probe those routes until the participant has
   // explicitly enabled voice input; the server independently rechecks that
-  // setting before it contacts ElevenLabs.
+  // setting before it contacts Deepgram.
   useEffect(() => {
     if (!allowed) {
       setHostedAudio(NO_HOSTED_AUDIO);

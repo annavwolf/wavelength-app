@@ -1,8 +1,6 @@
-# Otis beta participant privacy notice (v0.4)
+# Otis beta participant privacy notice (v0.5)
 
-> Historical version. This notice was superseded by [v0.5](./Otis_Beta_Participant_Privacy_Notice_v0.5.md) when the optional enhanced-audio processor changed from ElevenLabs to Deepgram. Do not use v0.4 for new or continuing beta participation.
-
-This is the implementation source for the in-app beta notice. It must be reviewed by the organisation's privacy owner before it is used as a final public privacy notice.
+This is the implementation source for the in-app beta notice. It must be reviewed by the organisation's privacy owner before it is used as a final public privacy notice. Version 0.5 replaces version 0.4 for active beta participation because the optional enhanced-audio processor changed from ElevenLabs to Deepgram. A person who acknowledged an earlier beta notice must read and acknowledge this version before continuing.
 
 ## What Otis collects
 
@@ -20,9 +18,9 @@ Please avoid including other people's private information or unnecessary identif
 
 Otis uses external AI services to help analyse de-identified team material. Before external processing, the application removes common direct identifiers, such as known participant names, email addresses, phone numbers, handles, and links where possible. This cannot guarantee that every contextual detail in free text is non-identifying.
 
-Enhanced audio is optional. When it is available and you choose it, Otis uses ElevenLabs to generate Otis's spoken replies and to turn a recording you choose to make into an editable transcript. The recording is held in memory only long enough to request the transcript and is then discarded by Otis; Otis does not store raw microphone recordings. Otis stores only the text you choose to submit.
+Enhanced audio is optional. When it is available and you choose it, Otis uses Deepgram to generate Otis's spoken replies and to turn a recording you choose to make into an editable transcript. Otis holds the recording in memory only long enough to request the transcript and then discards it; Otis does not store raw microphone recordings. Otis stores only the text you choose to submit.
 
-ElevenLabs is an external processor. It may process request data under its own service terms and privacy practices, including in locations outside your country. The beta does not use a zero-retention audio service. You can use text-only input instead, and can change your enhanced-audio choice from your profile at any time.
+Deepgram is an external processor. It receives your chosen microphone recording for transcription and the text needed to create Otis's spoken reply. It may process request data under its own service terms and privacy practices, including in locations outside your country. You can use text-only input instead, and can change your enhanced-audio choice from your profile at any time.
 
 ## Your choices and withdrawal
 
@@ -34,4 +32,4 @@ Beta participant data is reviewed for deletion 12 months after the team's beta p
 
 ## Before publishing externally
 
-The privacy owner must add and verify the legal entity, privacy contact, external processors and processing locations, the applicable legal basis, the final retention/deletion procedure, and the contractual/data-transfer basis for ElevenLabs. Do not represent this draft as a complete legal privacy notice until those details are confirmed.
+The privacy owner must add and verify the legal entity, privacy contact, external processors and processing locations, the applicable legal basis, the final retention/deletion procedure, and the contractual/data-transfer basis for Deepgram and every other external AI service used by the beta. Do not represent this draft as a complete legal privacy notice until those details are confirmed.

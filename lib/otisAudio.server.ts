@@ -2,11 +2,12 @@ import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { OTIS_AUDIO_LIMITS, type HostedAudioCapabilities } from "@/lib/otisAudio";
+import { consumePilotAudioAllowance } from "@/lib/audioPilotQuota";
 import { requireInterviewAccess } from "@/lib/interviewAccess";
 import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
 import { supabaseAdmin } from "@/lib/supabase";
 
-const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1";
+const DEEPGRAM_API_BASE = "https://api.deepgram.com/v1";
 const PROVIDER_TIMEOUT_MS = 25_000;
 
 type VoiceParticipantAuthorization =
@@ -80,31 +81,29 @@ function getAudioQuotaLimits(): AudioQuotaLimits {
   };
 }
 
-type ElevenLabsConfig = {
+type DeepgramConfig = {
   apiKey: string;
-  voiceId?: string;
   transcriptionModel: string;
   synthesisModel: string;
 };
 
-function getElevenLabsConfig(): ElevenLabsConfig | null {
-  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+function getDeepgramConfig(): DeepgramConfig | null {
+  const apiKey = process.env.DEEPGRAM_API_KEY?.trim();
   if (!apiKey) return null;
 
   return {
     apiKey,
-    voiceId: process.env.OTIS_ELEVENLABS_VOICE_ID?.trim() || undefined,
-    transcriptionModel: process.env.OTIS_ELEVENLABS_STT_MODEL?.trim() || "scribe_v2",
-    synthesisModel: process.env.OTIS_ELEVENLABS_TTS_MODEL?.trim() || "eleven_flash_v2_5",
+    transcriptionModel: process.env.OTIS_DEEPGRAM_STT_MODEL?.trim() || "nova-3",
+    synthesisModel: process.env.OTIS_DEEPGRAM_TTS_MODEL?.trim() || "aura-2-arcas-en",
   };
 }
 
 /** Never expose an API key or provider configuration to the browser. */
 export function getHostedAudioCapabilities(): HostedAudioCapabilities {
-  const config = getElevenLabsConfig();
+  const config = getDeepgramConfig();
   return {
     transcription: !!config,
-    synthesis: !!config?.voiceId,
+    synthesis: !!config,
   };
 }
 
@@ -187,7 +186,7 @@ function audioQuotaUnavailableResponse(): NextResponse {
 
 /**
  * Atomically consume a Supabase-backed, per-member minute budget before audio
- * or text reaches ElevenLabs. The database stores only aggregate counters,
+ * or text reaches Deepgram. The database stores only aggregate counters,
  * never recordings, transcripts, or message text. A quota/RPC failure is
  * deliberately fail-closed so a serverless retry cannot spend provider credit.
  */
@@ -219,7 +218,12 @@ export async function consumeHostedAudioAllowance(
       return audioQuotaUnavailableResponse();
     }
 
-    if (outcome.allowed) return null;
+    if (outcome.allowed) {
+      // A shared monthly beta cap is the second, durable guard. It is only
+      // reached after this participant's short rolling limit allows the
+      // request, and it too fails closed before any provider request runs.
+      return consumePilotAudioAllowance(allowance);
+    }
 
     const retryAfter = Number.isInteger(outcome.retry_after_seconds)
       ? Math.max(1, Math.min(60, outcome.retry_after_seconds))
@@ -252,43 +256,55 @@ function providerAbortController() {
  * Transcribe a short, validated in-memory audio clip. This function never
  * persists the clip and intentionally does not return upstream error text.
  */
-export async function transcribeWithElevenLabs({
+export async function transcribeWithDeepgram({
   audio,
-  filename,
   languageCode,
 }: {
   audio: Blob;
-  filename: string;
   languageCode?: string;
 }): Promise<{ text: string }> {
-  const config = getElevenLabsConfig();
+  const config = getDeepgramConfig();
   if (!config) throw new HostedAudioConfigurationError("transcription");
 
-  const form = new FormData();
-  form.append("file", audio, filename);
-  form.append("model_id", config.transcriptionModel);
-  // Let Scribe detect the spoken language unless a future caller has a
-  // deliberate, validated language hint. Hard-coding English made the voice
-  // path needlessly worse for multilingual teams.
+  const url = new URL(`${DEEPGRAM_API_BASE}/listen`);
+  url.searchParams.set("model", config.transcriptionModel);
+  url.searchParams.set("smart_format", "true");
+  url.searchParams.set("mip_opt_out", "true");
+
+  // Default to Deepgram's pre-recorded language detection instead of
+  // hard-coding English. A future caller may provide a deliberate BCP-47 hint
+  // (for example, a saved participant preference); otherwise Deepgram chooses
+  // the most likely spoken language for this short, single-speaker clip.
   if (languageCode && /^[a-z]{2,3}(?:-[a-z]{2,4})?$/i.test(languageCode)) {
-    form.append("language_code", languageCode);
+    url.searchParams.set("language", languageCode);
+  } else {
+    url.searchParams.set("detect_language", "true");
   }
-  form.append("diarize", "false");
-  form.append("tag_audio_events", "false");
+
+  const contentType = audio.type.trim() || "application/octet-stream";
+  const audioBytes = await audio.arrayBuffer();
 
   const request = providerAbortController();
   try {
-    const response = await fetch(`${ELEVENLABS_API_BASE}/speech-to-text`, {
+    const response = await fetch(url, {
       method: "POST",
-      headers: { "xi-api-key": config.apiKey },
-      body: form,
+      headers: {
+        Authorization: `Token ${config.apiKey}`,
+        "Content-Type": contentType,
+        Accept: "application/json",
+      },
+      body: audioBytes,
       cache: "no-store",
       signal: request.signal,
     });
     if (!response.ok) throw new HostedAudioProviderError("transcription", response.status);
 
-    const payload = (await response.json()) as { text?: unknown };
-    const text = typeof payload.text === "string" ? payload.text.trim() : "";
+    const payload = (await response.json()) as {
+      results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> };
+    };
+    const text = typeof payload.results?.channels?.[0]?.alternatives?.[0]?.transcript === "string"
+      ? payload.results.channels[0].alternatives[0].transcript.trim()
+      : "";
     if (!text) throw new HostedAudioProviderError("transcription", 422);
 
     return { text: text.slice(0, OTIS_AUDIO_LIMITS.maxSynthesisCharacters * 2) };
@@ -306,29 +322,32 @@ export async function transcribeWithElevenLabs({
  * Generate spoken audio for an Otis message. The caller proxies the stream
  * straight to the participant; the generated audio is never stored by Otis.
  */
-export async function synthesizeWithElevenLabs(text: string): Promise<Response> {
-  const config = getElevenLabsConfig();
-  if (!config?.voiceId) throw new HostedAudioConfigurationError("synthesis");
+export async function synthesizeWithDeepgram(text: string): Promise<Response> {
+  const config = getDeepgramConfig();
+  if (!config) throw new HostedAudioConfigurationError("synthesis");
+
+  const url = new URL(`${DEEPGRAM_API_BASE}/speak`);
+  url.searchParams.set("model", config.synthesisModel);
+  // MP3 is broadly supported by Safari, Android, and desktop browsers. The
+  // modest 48 kbit/s setting avoids an unnecessary mobile-data penalty while
+  // remaining clear for short spoken prompts.
+  url.searchParams.set("encoding", "mp3");
+  url.searchParams.set("bit_rate", "48000");
+  url.searchParams.set("mip_opt_out", "true");
 
   const request = providerAbortController();
   try {
-    const response = await fetch(
-      `${ELEVENLABS_API_BASE}/text-to-speech/${encodeURIComponent(config.voiceId)}?output_format=mp3_44100_128`,
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": config.apiKey,
-          "Content-Type": "application/json",
-          Accept: "audio/mpeg",
-        },
-        body: JSON.stringify({
-          text,
-          model_id: config.synthesisModel,
-        }),
-        cache: "no-store",
-        signal: request.signal,
-      }
-    );
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${config.apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({ text }),
+      cache: "no-store",
+      signal: request.signal,
+    });
     if (!response.ok || !response.body) {
       throw new HostedAudioProviderError("synthesis", response.status || 502);
     }

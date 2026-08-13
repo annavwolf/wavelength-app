@@ -6,7 +6,7 @@ import {
   getHostedAudioCapabilities,
   HostedAudioConfigurationError,
   HostedAudioProviderError,
-  synthesizeWithElevenLabs,
+  synthesizeWithDeepgram,
 } from "@/lib/otisAudio.server";
 
 export const runtime = "nodejs";
@@ -25,6 +25,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await authorizeVoiceParticipant(request);
   if (!auth.ok) return auth.response;
+  if (!getHostedAudioCapabilities().synthesis) {
+    return NextResponse.json(
+      { error: "Enhanced read-aloud is not configured." },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
   const contentLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > 64 * 1024) {
@@ -44,7 +50,7 @@ export async function POST(request: NextRequest) {
   if (allowance) return allowance;
 
   try {
-    const upstream = await synthesizeWithElevenLabs(text);
+    const upstream = await synthesizeWithDeepgram(text);
     return new NextResponse(upstream.body, {
       status: 200,
       headers: {
@@ -58,7 +64,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Enhanced read-aloud is not configured." }, { status: 503 });
     }
     if (error instanceof HostedAudioProviderError) {
-      console.error("[audio/synthesize] ElevenLabs request failed", error.upstreamStatus);
+      console.error("[audio/synthesize] Deepgram request failed", error.upstreamStatus);
       return NextResponse.json({ error: "Enhanced read-aloud is temporarily unavailable." }, { status: 502 });
     }
     console.error("[audio/synthesize] Unexpected error", error);

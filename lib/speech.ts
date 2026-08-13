@@ -1,6 +1,6 @@
 // Read-aloud utility with a privacy-gated hosted-voice enhancement. Browser
 // speech synthesis remains the always-available fallback, so an assessment is
-// still fully usable before an ElevenLabs key is configured or if a provider
+// still fully usable before a Deepgram key is configured or if a provider
 // is temporarily unavailable.
 
 export type SpeechOptions = {

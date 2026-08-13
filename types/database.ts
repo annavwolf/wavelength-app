@@ -1193,6 +1193,27 @@ export type MemberAudioUsageWindowInsert = {
 
 export type MemberAudioUsageWindowUpdate = Partial<MemberAudioUsageWindowInsert>;
 
+// One aggregate, server-only row per UTC month for the whole pilot. Unlike
+// MemberAudioUsageWindow, this deliberately has no member/team identifier and
+// never holds any recording, transcript, spoken text, or provider credential.
+export type PilotAudioUsageMonth = {
+  month_started_at: string;
+  synthesis_characters: number;
+  transcription_duration_ms: number;
+  transcription_bytes: number;
+  created_at: string;
+};
+
+export type PilotAudioUsageMonthInsert = {
+  month_started_at: string;
+  synthesis_characters?: number;
+  transcription_duration_ms?: number;
+  transcription_bytes?: number;
+  created_at?: string;
+};
+
+export type PilotAudioUsageMonthUpdate = Partial<PilotAudioUsageMonthInsert>;
+
 // One coded label from the Phase 2 coding pass (Coding Spec §4). Input to
 // clustering; carries member_id + statement_id so clustering can count member
 // convergence and stay item-anchored. Embeddings are computed in-request, not
@@ -1302,6 +1323,12 @@ export type Database = {
         Row: MemberAudioUsageWindow;
         Insert: MemberAudioUsageWindowInsert;
         Update: MemberAudioUsageWindowUpdate;
+        Relationships: [];
+      };
+      pilot_audio_usage_months: {
+        Row: PilotAudioUsageMonth;
+        Insert: PilotAudioUsageMonthInsert;
+        Update: PilotAudioUsageMonthUpdate;
         Relationships: [];
       };
       interview_labels: {
@@ -1463,6 +1490,21 @@ export type Database = {
           p_tts_request_limit?: number;
           p_tts_character_limit?: number;
           p_stt_request_limit?: number;
+          p_stt_duration_limit_ms?: number;
+          p_stt_byte_limit?: number;
+        };
+        Returns: {
+          allowed: boolean;
+          retry_after_seconds: number;
+        }[];
+      };
+      consume_pilot_audio_quota: {
+        Args: {
+          p_capability: string;
+          p_tts_characters?: number;
+          p_stt_duration_ms?: number;
+          p_stt_bytes?: number;
+          p_tts_character_limit?: number;
           p_stt_duration_limit_ms?: number;
           p_stt_byte_limit?: number;
         };

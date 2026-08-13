@@ -6,7 +6,7 @@ import {
   getHostedAudioCapabilities,
   HostedAudioConfigurationError,
   HostedAudioProviderError,
-  transcribeWithElevenLabs,
+  transcribeWithDeepgram,
 } from "@/lib/otisAudio.server";
 
 export const runtime = "nodejs";
@@ -46,18 +46,15 @@ function looksLikeAudio(bytes: Uint8Array): boolean {
   return isWebm || isOgg || isWav || isMp4 || isMp3;
 }
 
-function extensionForMimeType(mimeType: string): string {
-  const type = mimeType.toLowerCase().split(";", 1)[0].trim();
-  if (type === "audio/mp4") return "m4a";
-  if (type === "audio/ogg") return "ogg";
-  if (type === "audio/mpeg") return "mp3";
-  if (type === "audio/wav" || type === "audio/x-wav") return "wav";
-  return "webm";
-}
-
 export async function POST(request: NextRequest) {
   const auth = await authorizeVoiceParticipant(request);
   if (!auth.ok) return auth.response;
+  if (!getHostedAudioCapabilities().transcription) {
+    return NextResponse.json(
+      { error: "Enhanced voice input is not configured." },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
   const contentLength = Number(request.headers.get("content-length"));
   // Multipart adds a small boundary overhead. Refuse known-oversized uploads
@@ -100,7 +97,6 @@ export async function POST(request: NextRequest) {
   // Re-wrap the exact inspected bytes. Nothing is persisted: this Blob exists
   // only for the outbound request and becomes collectible afterwards.
   const audio = new Blob([bytes], { type: candidate.type });
-  const filename = `otis-answer.${extensionForMimeType(candidate.type)}`;
   const allowance = await consumeHostedAudioAllowance(auth.memberId, {
     capability: "transcription",
     transcriptionDurationMs: durationMs,
@@ -109,7 +105,7 @@ export async function POST(request: NextRequest) {
   if (allowance) return allowance;
 
   try {
-    const { text } = await transcribeWithElevenLabs({ audio, filename });
+    const { text } = await transcribeWithDeepgram({ audio });
     return NextResponse.json(
       { text },
       { headers: { "Cache-Control": "no-store" } }
@@ -119,7 +115,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Enhanced voice input is not configured." }, { status: 503 });
     }
     if (error instanceof HostedAudioProviderError) {
-      console.error("[audio/transcribe] ElevenLabs request failed", error.upstreamStatus);
+      console.error("[audio/transcribe] Deepgram request failed", error.upstreamStatus);
       return NextResponse.json({ error: "Voice transcription is temporarily unavailable." }, { status: 502 });
     }
     console.error("[audio/transcribe] Unexpected error", error);
