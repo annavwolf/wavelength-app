@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { loadVoices, pickMaleVoice } from "@/lib/speech";
+import { speakText } from "@/lib/speech";
+import { useHostedSpeechAvailable, useVoiceParticipantMemberId } from "@/components/interview/VoiceInputContext";
 
 const TITLE = "Think of how safe you'd feel exploring an ocean with your team.";
 
@@ -34,26 +35,21 @@ export default function PsDescentStep({
   onAdvance: () => void;
 }) {
   const hasSpokenRef = useRef(false);
+  const hostedSpeechAvailable = useHostedSpeechAvailable();
+  const memberId = useVoiceParticipantMemberId();
 
   useEffect(() => {
     if (!readAloud) return;
     if (hasSpokenRef.current) return;
     hasSpokenRef.current = true;
 
-    async function speak() {
-      const voices = await loadVoices();
-      const voice = pickMaleVoice(voices);
-
-      const texts = [TITLE, ...ZONES.map((z) => z.text)];
-      for (const t of texts) {
-        const utt = new SpeechSynthesisUtterance(t);
-        utt.rate = 0.95;
-        if (voice) utt.voice = voice;
-        window.speechSynthesis.speak(utt);
-      }
-    }
-    speak();
-  }, [readAloud]);
+    // The provider synthesizes one complete message, preventing multiple
+    // concurrent requests from racing through the ocean explanation.
+    void speakText([TITLE, ...ZONES.map((zone) => zone.text)].join(" "), 0.95, {
+      allowHosted: hostedSpeechAvailable,
+      memberId,
+    });
+  }, [readAloud, hostedSpeechAvailable, memberId]);
 
   return (
     <div>
@@ -64,11 +60,11 @@ export default function PsDescentStep({
         {TITLE}
       </h2>
 
-      <div className="relative -mx-6">
+      <div className="relative -mx-4 overflow-hidden bg-[#092332] px-4 py-5 sm:-mx-6 sm:px-0 sm:py-0">
         <img
           src="/ps-ocean.png"
           alt="Ocean cross-section showing three depths of psychological safety"
-          className="w-full h-auto block"
+          className="absolute inset-0 h-full w-full object-cover opacity-70 sm:relative sm:h-auto sm:opacity-100"
         />
 
         <div
@@ -79,25 +75,27 @@ export default function PsDescentStep({
           }}
         />
 
-        {ZONES.map((zone) => (
-          <div
-            key={zone.key}
-            className="absolute"
-            style={{ top: zone.top, left: "5%", width: "48%" }}
-          >
-            <div className="rounded-xl bg-white/[0.16] backdrop-blur-md border border-white/25 px-5 py-4">
-              <p className="text-sm sm:text-base uppercase tracking-wide text-white/80 mb-2">
-                {zone.eyebrow}
-              </p>
-              <p
-                className="text-white text-base sm:text-lg leading-relaxed"
-                style={{ textShadow: "0 1px 6px rgba(0,0,0,0.4)" }}
-              >
-                {zone.text}
-              </p>
+        <div className="relative z-10 flex flex-col gap-5 sm:absolute sm:inset-0 sm:block">
+          {ZONES.map((zone) => (
+            <div
+              key={zone.key}
+              className="static w-full sm:absolute sm:left-[5%] sm:w-[48%]"
+              style={{ top: zone.top }}
+            >
+              <div className="rounded-xl border border-white/25 bg-white/[0.16] px-5 py-5 backdrop-blur-md sm:py-4">
+                <p className="mb-2 text-[13px] uppercase tracking-wide text-white/85 sm:text-base">
+                  {zone.eyebrow}
+                </p>
+                <p
+                  className="text-[17px] leading-relaxed text-white sm:text-lg"
+                  style={{ textShadow: "0 1px 6px rgba(0,0,0,0.4)" }}
+                >
+                  {zone.text}
+                </p>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <div className="mt-8 pb-4">

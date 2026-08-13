@@ -2,23 +2,36 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generatePhase4Insights } from "@/lib/phase4Insights";
+import {
+  currentPrivacyParticipantIds,
+  getCurrentPrivacyParticipants,
+} from "@/lib/currentPrivacyParticipants";
 import { MODELS } from "@/lib/models";
 import { redactTextForExternalProcessing } from "@/lib/privacy";
 import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
+import {
+  artifactMatchesTier1,
+  currentTier1Provenance,
+  RECOMPUTE_REQUIRED_MESSAGE,
+  REINTERPRET_REQUIRED_MESSAGE,
+  REPORT_REBUILD_REQUIRED_MESSAGE,
+  withTier1Provenance,
+} from "@/lib/analysisProvenance";
 import type { Json, Phase3ReportJson, Phase4SelfServeJson, SituationTag } from "@/types/database";
 import type { Tier1Result, Tier2Result, Networks } from "@/components/dashboard/types";
 
 const VALID_TAGS: SituationTag[] = ["meeting", "async_chat", "email", "document", "project_task", "other"];
 
 // Auto-tag any untagged stories for the team before generating insights.
-async function autoTagStories(teamId: string): Promise<void> {
+async function autoTagStories(teamId: string, memberIds: string[]): Promise<void> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return;
+  if (!apiKey || memberIds.length === 0) return;
 
   const { data: stories } = await supabaseAdmin
     .from("member_stories")
     .select("id, story_text")
     .eq("team_id", teamId)
+    .in("member_id", memberIds)
     .is("situation_tag", null);
 
   if (!stories || stories.length === 0) return;
@@ -77,21 +90,34 @@ export async function POST(req: NextRequest) {
   // the team's behavior board. This is the core deliverable of the Phase 3
   // activity and is present even if later steps (synchronicity, commitment) were
   // skipped or saved before those questions were added to the flow.
+  const privacyParticipants = await getCurrentPrivacyParticipants(teamId);
+  const currentMemberIds = currentPrivacyParticipantIds(privacyParticipants);
+  if (currentMemberIds.length === 0) {
+    return NextResponse.json({ error: "no_current_privacy_participants" }, { status: 409 });
+  }
+
   const [membersRes, behaviorsRes] = await Promise.all([
     supabaseAdmin.from("members").select("member_id, status").eq("team_id", teamId),
-    supabaseAdmin.from("member_behaviors").select("member_id").eq("team_id", teamId),
+    supabaseAdmin.from("member_behaviors").select("member_id").eq("team_id", teamId).in("member_id", currentMemberIds),
   ]);
   if (membersRes.error) return NextResponse.json({ error: "db_error", detail: membersRes.error.message }, { status: 500 });
   const members = membersRes.data ?? [];
   if (members.length === 0) return NextResponse.json({ error: "no_members" }, { status: 400 });
 
-  const participants = members.filter((m) => m.status === "complete");
+  const currentMemberIdSet = new Set(currentMemberIds);
+  const currentMembers = members.filter((member) => currentMemberIdSet.has(member.member_id));
+
+  const participants = currentMembers.filter((m) => m.status === "complete");
   // Distinct members who have submitted at least one behavior.
-  const phase3CompletedIds = new Set((behaviorsRes.data ?? []).map((r) => r.member_id));
+  const phase3CompletedIds = new Set(
+    (behaviorsRes.data ?? [])
+      .map((row) => row.member_id)
+      .filter((memberId) => currentMemberIdSet.has(memberId))
+  );
   const completedCount = participants.length > 0
     ? participants.filter((m) => phase3CompletedIds.has(m.member_id)).length
     : phase3CompletedIds.size; // fallback if no one has status=complete yet
-  const totalCount = participants.length || members.length;
+  const totalCount = participants.length || currentMembers.length;
   const pctComplete = totalCount > 0 ? completedCount / totalCount : 0;
 
   // Hard block only if nobody has finished at all.
@@ -109,10 +135,23 @@ export async function POST(req: NextRequest) {
   if (aErr || !analysis) {
     return NextResponse.json({ error: "Analysis not found for this team" }, { status: 404 });
   }
+  const tier1Provenance = currentTier1Provenance(analysis.tier1_json);
+  if (!tier1Provenance) {
+    return NextResponse.json({ error: RECOMPUTE_REQUIRED_MESSAGE, code: "analysis_recompute_required" }, { status: 409 });
+  }
 
   // Resolve the focus item: phase3_report_json wins, then tier2 focus_hypothesis.
   const report = (analysis.phase3_report_json as Phase3ReportJson | null) ?? null;
   const tier2 = (analysis.tier2_json as unknown as Tier2Result | null) ?? null;
+  if (!artifactMatchesTier1(tier2, tier1Provenance)) {
+    return NextResponse.json({ error: REINTERPRET_REQUIRED_MESSAGE, code: "analysis_reinterpret_required" }, { status: 409 });
+  }
+  // Phase 4 is only generated from an explicitly saved Phase 3 draft. A
+  // missing report must not silently fall back to Tier 2, because that would
+  // bypass the consultant's release/editor checkpoint.
+  if (!report || !artifactMatchesTier1(report, tier1Provenance)) {
+    return NextResponse.json({ error: REPORT_REBUILD_REQUIRED_MESSAGE, code: "report_rebuild_required" }, { status: 409 });
+  }
   const focusStatementId = report?.focus_statement_id ?? tier2?.focus_hypothesis?.statement_id ?? null;
   if (!focusStatementId) {
     return NextResponse.json({ error: "no_focus_item" }, { status: 400 });
@@ -129,11 +168,17 @@ export async function POST(req: NextRequest) {
   const networks: Networks | null = tier1?.networks ?? null;
 
   // Auto-tag any untagged stories so situation data is populated.
-  await autoTagStories(teamId);
+  await autoTagStories(teamId, currentMemberIds);
 
   let insights;
   try {
-    insights = await generatePhase4Insights(teamId, focusStatementId, focusText, networks);
+    insights = await generatePhase4Insights(
+      teamId,
+      focusStatementId,
+      focusText,
+      networks,
+      privacyParticipants
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[phase4/generate] failed:", msg);
@@ -141,12 +186,12 @@ export async function POST(req: NextRequest) {
   }
 
   const prior = (analysis.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null;
-  const merged: Phase4SelfServeJson = {
+  const merged = withTier1Provenance({
     ...insights,
     artifacts: insights.artifacts?.length ? insights.artifacts : (prior?.artifacts ?? []),
     released_at: prior?.released_at ?? null,
     sent_member_ids: prior?.sent_member_ids ?? [],
-  };
+  }, tier1Provenance);
 
   const { error: saveErr } = await supabaseAdmin
     .from("analysis")

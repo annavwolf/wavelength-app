@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { speakText } from "@/lib/speech";
+import { useHostedSpeechAvailable, useVoiceParticipantMemberId } from "@/components/interview/VoiceInputContext";
 
 type Segment = {
   key: string;
@@ -61,13 +63,15 @@ export default function PsIntroStep({
 }) {
   const [spokenKeys, setSpokenKeys] = useState<Set<string>>(new Set());
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  const hostedSpeechAvailable = useHostedSpeechAvailable();
+  const memberId = useVoiceParticipantMemberId();
 
   // Narrate each segment once, the first time it scrolls into view — not
   // on every pass, so scrolling back up to re-read stays calm and doesn't
   // re-trigger speech.
   useEffect(() => {
     if (!readAloud) return;
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    if (typeof window === "undefined") return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -82,12 +86,7 @@ export default function PsIntroStep({
           const fullText = segment.question
             ? `${segment.text} ${segment.question}`
             : segment.text;
-          const utterance = new SpeechSynthesisUtterance(fullText);
-          utterance.rate = 0.95;
-          const voices = window.speechSynthesis.getVoices();
-          const englishVoice = voices.find((v) => v.lang.startsWith("en"));
-          if (englishVoice) utterance.voice = englishVoice;
-          window.speechSynthesis.speak(utterance);
+          void speakText(fullText, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
 
           setSpokenKeys((prev) => new Set(prev).add(key));
         }
@@ -101,7 +100,7 @@ export default function PsIntroStep({
     }
 
     return () => observer.disconnect();
-  }, [readAloud, spokenKeys]);
+  }, [readAloud, spokenKeys, hostedSpeechAvailable, memberId]);
 
   return (
     <div>

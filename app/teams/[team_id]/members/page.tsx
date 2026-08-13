@@ -142,13 +142,13 @@ export default function TeamMembersPage() {
   }
 
   return (
-    <main className="px-6 py-16">
+    <main className="px-4 py-8 sm:px-6 sm:py-16">
       <div className="max-w-2xl mx-auto">
-        <Link href={`/teams/${teamId}`} className="text-[var(--color-grey)]">
+        <Link href={`/teams/${teamId}`} className="inline-flex min-h-11 items-center text-[var(--color-grey)]">
           ← Back to team
         </Link>
 
-        <h1 className="text-4xl sm:text-5xl leading-tight mt-10">
+        <h1 className="mt-8 break-words text-3xl leading-tight sm:mt-10 sm:text-5xl">
           Your team: <span className="accent">{team.team_name}</span>
         </h1>
 
@@ -207,19 +207,19 @@ export default function TeamMembersPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="btn-primary"
+            className="btn-primary w-full sm:w-auto"
           >
             {submitting ? "Adding..." : "Add member"}
           </button>
         </form>
 
         <section className="mt-16">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
             <h2 className="text-lg font-medium">Team members</h2>
             <button
               type="button"
               onClick={fetchMembers}
-              className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline"
+              className="min-h-11 px-1 text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline"
             >
               Refresh
             </button>
@@ -228,28 +228,28 @@ export default function TeamMembersPage() {
             {members.map((member) => (
               <div
                 key={member.member_id}
-                className="card flex items-center justify-between gap-4 py-4"
+                className="card flex flex-col items-stretch gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div className="flex items-center gap-4">
+                <div className="min-w-0">
                   <div>
-                    <p className="font-medium">{member.display_name}</p>
-                    <p className="text-sm text-[var(--color-grey)]">
+                    <p className="break-words font-medium">{member.display_name}</p>
+                    <p className="break-words text-sm text-[var(--color-grey)]">
                       {[member.email, member.role, member.location, member.timezone ? `Time zone: ${member.timezone}` : null]
                         .filter(Boolean)
                         .join(" · ")}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                   <span
-                    className={`text-xs px-3 py-1 rounded-full ${statusBadgeClasses(
+                    className={`rounded-full px-3 py-1 text-center text-xs ${statusBadgeClasses(
                       member.status
                     )}`}
                   >
                     {statusLabel(member.status)}
                   </span>
                   <span
-                    className={`text-xs px-3 py-1 rounded-full ${
+                    className={`rounded-full px-3 py-1 text-center text-xs ${
                       member.privacy_acknowledged_currently
                         ? "bg-purple-100 text-purple-800"
                         : member.privacy_acknowledged_at
@@ -270,7 +270,7 @@ export default function TeamMembersPage() {
                     type="button"
                     onClick={() => handleDeleteMember(member.member_id)}
                     aria-label={`Remove ${member.display_name}`}
-                    className="text-[var(--color-grey)] hover:text-[var(--color-ink)] text-lg leading-none"
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-lg leading-none text-[var(--color-grey)] hover:bg-black/5 hover:text-[var(--color-ink)]"
                   >
                     ×
                   </button>
@@ -292,7 +292,7 @@ export default function TeamMembersPage() {
 
         {members.length > 0 && (
           <button
-            className="btn-primary mt-10"
+            className="btn-primary mt-10 w-full sm:w-auto"
             onClick={() => router.push(`/teams/${teamId}/invite`)}
           >
             Next: invite members →

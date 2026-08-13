@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { Phase3ReportJson, PsStatement } from "@/types/database";
 import type { Tier1Result, Tier2Result } from "@/components/dashboard/types";
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
     supabaseAdmin.from("member_identity").select("display_name").eq("team_id", teamId).order("display_name", { ascending: true }),
     supabaseAdmin
       .from("member_privacy_acknowledgements")
-      .select("acknowledged_at, verbatim_preference, voice_input_opt_in")
+      .select("acknowledged_at, privacy_notice_version, verbatim_preference, voice_input_opt_in")
       .eq("member_id", memberId)
       .maybeSingle(),
   ]);
@@ -56,7 +57,11 @@ export async function GET(request: NextRequest) {
       display_name: identityRes.data?.display_name ?? "",
       status: memberRes.data.status,
     },
-    privacy_acknowledgement: privacyRes.data ?? null,
+    privacy_acknowledgement:
+      privacyRes.data?.acknowledged_at &&
+      privacyRes.data.privacy_notice_version === PRIVACY_NOTICE_VERSION
+        ? privacyRes.data
+        : null,
     report,
     // Phase 3 only renders zone scores. Deliberately omit response-level,
     // purpose, and free-text consultant data from the member payload.

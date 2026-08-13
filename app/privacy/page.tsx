@@ -23,7 +23,8 @@ export default function PrivacyNoticePage() {
         <section>
           <h2 className="text-2xl mb-2">AI and voice input</h2>
           <p>Otis uses external AI services to help analyse de-identified team material. Before external processing, the application removes common direct identifiers such as known participant names, email addresses, phone numbers, handles, and links where possible. This does not guarantee that all contextual details in free text are non-identifying.</p>
-          <p>Voice input is optional. If you opt in and use a microphone control, your browser&apos;s speech-recognition provider processes your audio into text. Otis receives and stores the resulting text; it does not record or retain raw microphone audio.</p>
+          <p>Enhanced audio is optional. When it is available and you opt in, Otis uses ElevenLabs to turn Otis&apos;s text into speech and a recording you choose to make into an editable transcript. Otis does not record or retain raw microphone audio: it holds the recording only in memory long enough to request a transcript, then discards it. Otis stores only the text you choose to submit.</p>
+          <p>ElevenLabs is an external processor. It may handle request data under its own service terms and privacy practices, including in locations outside your country. The beta does not use a zero-retention audio service. You can use text-only input instead, and can change this choice from your profile.</p>
         </section>
         <section>
           <h2 className="text-2xl mb-2">Your choices and withdrawal</h2>

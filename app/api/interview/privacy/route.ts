@@ -1,25 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireInterviewAccess } from "@/lib/interviewAccess";
 import { PRIVACY_NOTICE_VERSION, isVerbatimPreference } from "@/lib/privacy";
 import { supabaseAdmin } from "@/lib/supabase";
 
-// The emailed interview URL is a participant capability link. This endpoint is
-// deliberately narrow: it can only read/write that link's acknowledgement and
-// cannot reveal a roster, responses, email address, or consultant data.
+// The privacy choice is scoped to the holder's secure interview cookie. It is
+// deliberately available before acknowledgement, but a raw member UUID alone
+// cannot read or write it.
 export async function GET(request: NextRequest) {
   const memberId = request.nextUrl.searchParams.get("member_id");
   if (!memberId) return NextResponse.json({ error: "member_id is required" }, { status: 400 });
 
+  const auth = await requireInterviewAccess(request, { memberId });
+  if (!auth.ok) return auth.response;
+
   const { data, error } = await supabaseAdmin
     .from("member_privacy_acknowledgements")
     .select("privacy_notice_version, acknowledged_at, verbatim_preference, preference_updated_at, voice_input_opt_in")
-    .eq("member_id", memberId)
+    .eq("member_id", auth.value.memberId)
     .maybeSingle();
   if (error) return NextResponse.json({ error: "Unable to load privacy status." }, { status: 500 });
 
-  return NextResponse.json({
-    acknowledged: data?.privacy_notice_version === PRIVACY_NOTICE_VERSION,
-    acknowledgement: data?.privacy_notice_version === PRIVACY_NOTICE_VERSION ? data : null,
-  });
+  return NextResponse.json(
+    {
+      acknowledged: data?.privacy_notice_version === PRIVACY_NOTICE_VERSION,
+      acknowledgement: data?.privacy_notice_version === PRIVACY_NOTICE_VERSION ? data : null,
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -33,10 +40,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const auth = await requireInterviewAccess(request, { memberId });
+  if (!auth.ok) return auth.response;
+
   const { data: member, error: memberError } = await supabaseAdmin
     .from("members")
     .select("member_id, team_id, status")
-    .eq("member_id", memberId)
+    .eq("member_id", auth.value.memberId)
     .maybeSingle();
   if (memberError) return NextResponse.json({ error: "Unable to verify participant." }, { status: 500 });
   if (!member) return NextResponse.json({ error: "Participant not found." }, { status: 404 });
@@ -48,12 +58,12 @@ export async function POST(request: NextRequest) {
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("member_privacy_acknowledgements")
     .select("acknowledged_at, privacy_notice_version")
-    .eq("member_id", memberId)
+    .eq("member_id", auth.value.memberId)
     .maybeSingle();
   if (existingError) return NextResponse.json({ error: "Unable to save acknowledgement." }, { status: 500 });
 
   const acknowledgementRecord = {
-    member_id: memberId,
+    member_id: auth.value.memberId,
     team_id: member.team_id,
     privacy_notice_version: PRIVACY_NOTICE_VERSION,
     acknowledged_at: existing?.privacy_notice_version === PRIVACY_NOTICE_VERSION
@@ -82,13 +92,13 @@ export async function POST(request: NextRequest) {
       phase3_behavior_verbatim: preference === "verbatim",
       ...(member.status === "pending" || member.status === "invited" ? { status: "in_progress" } : {}),
     })
-    .eq("member_id", memberId);
+    .eq("member_id", auth.value.memberId);
   if (memberUpdateError) {
     return NextResponse.json({ error: "Acknowledged, but unable to start the interview." }, { status: 500 });
   }
 
-  return NextResponse.json({
-    acknowledged: true,
-    acknowledgement: acknowledgementRecord,
-  });
+  return NextResponse.json(
+    { acknowledged: true, acknowledgement: acknowledgementRecord },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }

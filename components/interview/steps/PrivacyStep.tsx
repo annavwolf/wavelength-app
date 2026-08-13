@@ -105,7 +105,7 @@ export default function PrivacyStep({
           Otis uses external AI services to help analyse de-identified team material. It removes common direct identifiers such as names, email addresses, phone numbers and links before sending text where possible, but cannot guarantee that every detail in free text is non-identifying. Raw microphone audio is not stored by Otis.
         </p>
         <p>
-          Voice input is optional. If you choose it and later tap a microphone button, your browser&apos;s speech-recognition provider processes your voice to create text. You can use text inputs only. You may withdraw future use by contacting your consultant; material already included in a generated team report may not be removable from that report.
+          Optional enhanced audio is provided by ElevenLabs when it is available. If you choose it, Otis sends the text needed to create a spoken reply to ElevenLabs. When you tap a microphone control, your recording is sent to ElevenLabs to make an editable transcript. Otis does not save raw recordings; it keeps only the text you choose to submit. ElevenLabs may handle request data under its own service terms and privacy practices, including outside your country. Text-only input is always available.
         </p>
         <p>
           This acknowledgement covers your beta journey, including the Results &amp; Team Agreement Activity. Before you share stories or behaviours there, Otis will ask you to confirm or change your exact-word setting. That is not a second privacy acknowledgement unless this notice is updated.
@@ -128,14 +128,14 @@ export default function PrivacyStep({
       </section>
 
       <section className="mt-6 space-y-3">
-        <h2 className="text-lg font-medium">Optional voice input</h2>
+        <h2 className="text-lg font-medium">Optional enhanced audio</h2>
         <ChoiceCard selected={voiceInputAllowed === false} onSelect={() => setVoiceInputAllowed(false)}>
           <strong>Use text only.</strong><br />
-          Do not show microphone controls in this interview.
+          Do not send my words or recordings to the optional audio provider. Hide microphone controls.
         </ChoiceCard>
         <ChoiceCard selected={voiceInputAllowed === true} onSelect={() => setVoiceInputAllowed(true)}>
-          <strong>I may use voice input.</strong><br />
-          I understand my browser&apos;s speech-recognition provider processes audio when I tap a microphone control; Otis receives the resulting text, not a raw recording.
+          <strong>I may use enhanced audio.</strong><br />
+          I understand ElevenLabs may process Otis&apos;s spoken text and any recording I choose to make. Otis does not keep the raw recording; I can edit the resulting text before I submit it.
         </ChoiceCard>
       </section>
 
@@ -153,7 +153,7 @@ export default function PrivacyStep({
       <button type="button" onClick={continueToInterview} disabled={!ready || saving} className="btn-primary mt-6">
         {saving ? "Saving..." : "Acknowledge and continue"}
       </button>
-      {!ready && <p className="mt-3 text-sm text-[var(--color-grey)]">Choose how exact words and optional voice input should be handled, then acknowledge the notice to continue.</p>}
+      {!ready && <p className="mt-3 text-sm text-[var(--color-grey)]">Choose how exact words and optional enhanced audio should be handled, then acknowledge the notice to continue.</p>}
     </div>
   );
 }

@@ -24,7 +24,11 @@ import { ACTION_PHRASES, PLACE_PHRASES } from "@/prompts/phase3_conversation";
 import { SHARED_PURPOSE_INTRO } from "@/lib/phase3Copy";
 import MemberNav from "@/components/member/MemberNav";
 import { primeSpeech, speakText, cancelSpeech } from "@/lib/speech";
-import { VoiceInputProvider } from "@/components/interview/VoiceInputContext";
+import {
+  VoiceInputProvider,
+  useHostedSpeechAvailable,
+  useVoiceParticipantMemberId,
+} from "@/components/interview/VoiceInputContext";
 
 type SessionMember = { member_id: string; display_name: string };
 type PageState = "loading" | "not_ready" | "done" | "withdrawn" | Phase3Step;
@@ -189,7 +193,7 @@ export default function MemberPhase3Page() {
 
   // ── Navigation ────────────────────────────────────────────────────────────
   function stopSpeech() {
-    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+    cancelSpeech();
   }
 
   function goToStep(next: Phase3Step) {
@@ -387,26 +391,30 @@ export default function MemberPhase3Page() {
 
       case "results":
         return (
-          <div className="w-full max-w-2xl mx-auto px-6 pb-16 space-y-6">
+          <div className="w-full max-w-2xl mx-auto px-4 pb-16 space-y-6 sm:px-6">
             <ChatBubble readAloud={readAloud}>
               If you recall from our last conversations, I asked you to picture psychological safety like exploring an
               ocean with your team.
             </ChatBubble>
-            <div className="relative -mx-6 sm:mx-0 sm:rounded-2xl overflow-hidden">
-              <img src="/ps-ocean.png" alt="Ocean cross-section showing three depths of psychological safety" className="w-full h-auto block" />
-              <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(to right, rgba(6,18,28,0.55), rgba(6,18,28,0.2) 50%, rgba(6,18,28,0) 72%)" }} />
-              {OCEAN_ZONES.map((zone) => (
-                <Speakable
-                  key={zone.key}
-                  readAloud={readAloud}
-                  text={`${zone.eyebrow}. ${zone.text}`}
-                  className="absolute rounded-xl bg-white/[0.14] backdrop-blur-md border border-white/20 px-4 py-3.5"
-                  style={{ top: zone.top, left: "5%", width: "46%" }}
-                >
-                  <p className="text-sm uppercase tracking-widest text-white/80 mb-1.5">{zone.eyebrow}</p>
-                  <p className="text-white text-base leading-relaxed" style={{ textShadow: "0 1px 6px rgba(0,0,0,0.4)" }}>{zone.text}</p>
-                </Speakable>
-              ))}
+            <div className="relative -mx-4 overflow-hidden sm:mx-0 sm:rounded-2xl">
+              <div className="relative">
+                <img src="/ps-ocean.png" alt="Ocean cross-section showing three depths of psychological safety" className="block h-auto w-full" />
+                <div className="pointer-events-none absolute inset-0 hidden sm:block" style={{ background: "linear-gradient(to right, rgba(6,18,28,0.55), rgba(6,18,28,0.2) 50%, rgba(6,18,28,0) 72%)" }} />
+              </div>
+              <div className="space-y-4 bg-[var(--color-bg)] px-4 py-5 sm:contents">
+                {OCEAN_ZONES.map((zone) => (
+                  <Speakable
+                    key={zone.key}
+                    readAloud={readAloud}
+                    text={`${zone.eyebrow}. ${zone.text}`}
+                    className="w-full rounded-xl border border-black/10 bg-white px-5 py-4 shadow-sm sm:absolute sm:left-[5%] sm:top-[var(--zone-top)] sm:w-[46%] sm:border-white/20 sm:bg-white/[0.14] sm:px-4 sm:py-3.5 sm:shadow-none sm:backdrop-blur-md"
+                    style={{ "--zone-top": zone.top } as React.CSSProperties}
+                  >
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-[var(--color-purple)] sm:mb-1.5 sm:text-sm sm:font-normal sm:text-white/80">{zone.eyebrow}</p>
+                    <p className="text-[17px] leading-relaxed text-[var(--color-ink)] sm:text-base sm:text-white" style={{ textShadow: "0 1px 6px rgba(0,0,0,0.4)" }}>{zone.text}</p>
+                  </Speakable>
+                ))}
+              </div>
             </div>
             <ChatBubble readAloud={readAloud}>Let&apos;s review each zone one at a time.</ChatBubble>
             <button type="button" onClick={() => goToStep("zone1")} className="btn-primary">Continue →</button>
@@ -726,12 +734,12 @@ export default function MemberPhase3Page() {
 
   // ── Shared shell ───────────────────────────────────────────────────────────
   return (
-    <VoiceInputProvider allowed={voiceInputAllowed}>
+    <VoiceInputProvider allowed={voiceInputAllowed} memberId={member?.member_id}>
     <main className="flex-1 flex flex-col items-center relative">
       {/* Section tint overlay — matches the progress bar colour for the section */}
       <div className="fixed inset-0 pointer-events-none transition-colors duration-700" style={{ background: phase3SectionOverlay(barStep) }} />
 
-      <div className="w-full max-w-2xl px-6 pt-8 relative z-10">
+      <div className="relative z-10 w-full max-w-2xl px-4 pt-6 sm:px-6 sm:pt-8">
         {/* A safe, non-destructive exit is always available from within the activity. */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex flex-col items-start gap-1">
@@ -755,12 +763,12 @@ export default function MemberPhase3Page() {
         <button
           type="button"
           onClick={() => goToStep("review")}
-          className="fixed bottom-6 left-6 z-20 px-4 py-2.5 rounded-full border border-[var(--color-purple)]/40 bg-white/90 backdrop-blur-sm text-sm font-medium text-[var(--color-purple)] hover:bg-[var(--color-purple)] hover:text-white transition-colors shadow-sm"
+          className="relative z-20 mb-4 ml-4 self-start rounded-full border border-[var(--color-purple)]/40 bg-white/90 px-4 py-2.5 text-sm font-medium text-[var(--color-purple)] shadow-sm transition-colors hover:bg-[var(--color-purple)] hover:text-white sm:fixed sm:bottom-6 sm:left-6 sm:mb-0 sm:ml-0"
         >
           ← Return to summary
         </button>
       ) : canBack ? (
-        <button type="button" onClick={goBack} aria-label="Go back" className="fixed bottom-6 left-6 z-20 p-3 rounded-full border border-black/15 bg-white/60 backdrop-blur-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] transition-colors text-xl leading-none shadow-sm">←</button>
+        <button type="button" onClick={goBack} aria-label="Go back" className="relative z-20 mb-4 ml-4 self-start rounded-full border border-black/15 bg-white/90 p-3 text-xl leading-none text-[var(--color-grey)] shadow-sm transition-colors hover:text-[var(--color-ink)] sm:fixed sm:bottom-6 sm:left-6 sm:mb-0 sm:ml-0 sm:bg-white/60 sm:backdrop-blur-sm">←</button>
       ) : null}
     </main>
     </VoiceInputProvider>
@@ -797,17 +805,19 @@ function Speakable({
   style?: React.CSSProperties;
 }) {
   const spoken = useRef(false);
+  const hostedSpeech = useHostedSpeechAvailable();
+  const memberId = useVoiceParticipantMemberId();
   useEffect(() => {
     if (!readAloud || !text) { spoken.current = false; return; }
     if (spoken.current) return;
     spoken.current = true;
-    speakText(text);
-  }, [readAloud, text]);
+    void speakText(text, 0.95, { allowHosted: hostedSpeech, memberId });
+  }, [readAloud, text, hostedSpeech, memberId]);
   return (
     <div
       className={`${className ?? ""} ${readAloud ? "cursor-pointer hover:ring-1 hover:ring-[var(--color-purple)]/30 transition-all" : ""}`}
       style={style}
-      onClick={readAloud ? () => { cancelSpeech(); speakText(text); } : undefined}
+      onClick={readAloud ? () => { cancelSpeech(); void speakText(text, 0.95, { allowHosted: hostedSpeech, memberId }); } : undefined}
       title={readAloud ? "Click to replay" : undefined}
     >
       {children}

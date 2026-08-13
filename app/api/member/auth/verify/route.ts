@@ -8,6 +8,7 @@ import {
   sessionCookieOptions,
   SESSION_COOKIE,
   PRESESSION_COOKIE,
+  INTERVIEW_SESSION_COOKIE,
   SESSION_COOKIE_MAX_AGE,
   PRESESSION_COOKIE_MAX_AGE,
   type PreSessionCandidate,
@@ -91,6 +92,9 @@ export async function GET(req: NextRequest) {
     const jwt = await signSession({ member_id: m.member_id, team_id: m.team_id });
     const res = NextResponse.redirect(`${APP_URL}/me`);
     res.cookies.set(SESSION_COOKIE, jwt, sessionCookieOptions(SESSION_COOKIE_MAX_AGE));
+    // Do not carry a previous recipient's invite capability into a fresh
+    // passwordless sign-in on a shared browser.
+    res.cookies.set(INTERVIEW_SESSION_COOKIE, "", sessionCookieOptions(0));
     return res;
   }
 

@@ -10,7 +10,7 @@ import type {
   PsStatement,
   Team,
 } from "@/types/database";
-import type { InterviewStep } from "@/components/interview/types";
+import type { InterviewRosterMember, InterviewStep } from "@/components/interview/types";
 import ProgressBar from "@/components/interview/ProgressBar";
 import ReadAloudToggle from "@/components/interview/ReadAloudToggle";
 import LandingStep from "@/components/interview/steps/LandingStep";
@@ -112,7 +112,7 @@ function ProfileExit({ onExit }: { onExit?: () => void }) {
     <Link
       href="/me"
       onClick={onExit}
-      className="fixed top-4 left-4 z-30 rounded-full border border-black/10 bg-white/90 px-4 py-2 text-sm font-medium text-[var(--color-grey)] shadow-sm backdrop-blur-sm transition-colors hover:text-[var(--color-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-purple)]"
+      className="absolute left-4 top-4 z-20 rounded-full border border-black/10 bg-white/90 px-4 py-2 text-sm font-medium text-[var(--color-grey)] shadow-sm backdrop-blur-sm transition-colors hover:text-[var(--color-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-purple)]"
       aria-label="Exit this activity and return to your profile"
     >
       Exit to my profile
@@ -125,7 +125,7 @@ export default function InterviewPage() {
 
   const [member, setMember] = useState<Member | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
-  const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [allMembers, setAllMembers] = useState<InterviewRosterMember[]>([]);
   const [psStatements, setPsStatements] = useState<PsStatement[]>([]);
   const [savedCoordinationCount, setSavedCoordinationCount] = useState(0);
 
@@ -167,7 +167,7 @@ export default function InterviewPage() {
       const data = await response.json();
       const memberData = data.member as Member;
       const teamData = data.team as Team | null;
-      const membersData = data.all_members as Member[];
+      const membersData = data.all_members as InterviewRosterMember[];
       const statements = (data.ps_statements ?? []) as PsStatement[];
       const psResponsesData = (data.ps_responses ?? []) as { statement_id: number; label: PsLabel }[];
       const purposeCount = Number(data.purpose_count ?? 0);
@@ -267,9 +267,11 @@ export default function InterviewPage() {
 
   function applyMemberFields(fields: Partial<Member>) {
     setMember((prev) => (prev ? { ...prev, ...fields } : prev));
-    setAllMembers((previous) => previous.map((entry) =>
-      entry.member_id === member?.member_id ? { ...entry, ...fields } : entry
-    ));
+    if (typeof fields.display_name === "string") {
+      setAllMembers((previous) => previous.map((entry) =>
+        entry.is_self ? { ...entry, display_name: fields.display_name ?? entry.display_name } : entry
+      ));
+    }
   }
 
   function updateDraft(fields: Partial<InterviewDraft>) {
@@ -409,11 +411,15 @@ export default function InterviewPage() {
 
   if (notFound) {
     return (
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
+      <main className="relative flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <ProfileExit />
         <p className="text-[var(--color-grey)]">
-          We couldn&apos;t find your interview link. Please check the link
-          your consultant sent you.
+          This interview link is missing, expired, or no longer active. Please
+          open the secure link your consultant sent you, or{" "}
+          <Link href="/member-login" className="text-[var(--color-purple)] underline">
+            sign in to your member profile
+          </Link>{" "}
+          to continue.
         </p>
       </main>
     );
@@ -421,7 +427,7 @@ export default function InterviewPage() {
 
   if (loading || !member || !team) {
     return (
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
+      <main className="relative flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <ProfileExit />
         <img src="/octopus-logo.png" alt="" className="h-20 w-auto mx-auto mb-8" />
         <h1 className="text-4xl font-serif mb-2" style={{ fontFamily: "Playfair Display, serif" }}>
@@ -436,7 +442,7 @@ export default function InterviewPage() {
   // Dedicated welcome-back screen for returning members.
   if (resuming) {
     return (
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
+      <main className="relative flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <ProfileExit onExit={saveVisibleCheckpointOnExit} />
         <img
           src="/octopus-logo.png"
@@ -465,7 +471,7 @@ export default function InterviewPage() {
     );
   }
 
-  const otherMembers = allMembers.filter((m) => m.member_id !== member.member_id);
+  const otherMembers = allMembers.filter((m) => !m.is_self);
   const fullBleed = FULL_BLEED_STEPS.includes(step);
   // Review edits are deliberately a short, save-first detour. Hiding the
   // ordinary back arrow prevents an unsaved draft being mistaken for a saved
@@ -473,11 +479,9 @@ export default function InterviewPage() {
   const showBack = !NO_BACK_STEPS.includes(step) && !editingFromReview;
 
   return (
-    <VoiceInputProvider allowed={voiceInputAllowed}>
+    <VoiceInputProvider allowed={voiceInputAllowed} memberId={member.member_id}>
     <main
       className="flex-1 flex flex-col items-center relative"
-      data-member-id={member.member_id}
-      data-team-id={team.team_id}
     >
       <ProfileExit onExit={saveVisibleCheckpointOnExit} />
       {/* Section tint overlay — fades between sections */}
@@ -539,7 +543,6 @@ export default function InterviewPage() {
 
         {step === "roster" && (
           <RosterStep
-            member={member}
             team={team}
             allMembers={allMembers}
             readAloud={readAloud}
@@ -574,7 +577,6 @@ export default function InterviewPage() {
 
         {step === "team_name" && (
           <TeamNameStep
-            member={member}
             allMembers={allMembers}
             teamName={team.team_name}
             readAloud={readAloud}

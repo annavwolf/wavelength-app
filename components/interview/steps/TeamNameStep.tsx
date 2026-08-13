@@ -4,12 +4,11 @@ import { useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
 import MemberBubble from "@/components/interview/MemberBubble";
 import VoiceTextarea from "@/components/interview/VoiceTextarea";
-import type { Member } from "@/types/database";
+import type { InterviewRosterMember } from "@/components/interview/types";
 
 type Stage = "choose" | "suggest" | "confirmed";
 
 export default function TeamNameStep({
-  member,
   allMembers,
   teamName,
   readAloud,
@@ -17,8 +16,7 @@ export default function TeamNameStep({
   onTeamNameTextChange,
   onAdvance,
 }: {
-  member: Member;
-  allMembers: Member[];
+  allMembers: InterviewRosterMember[];
   teamName: string;
   readAloud: boolean;
   teamNameText: string;
@@ -42,10 +40,10 @@ export default function TeamNameStep({
     <div>
       <div className="space-y-2 mb-6">
         {allMembers.map((participant) => (
-          <div key={participant.member_id} className="card flex items-center py-3">
+          <div key={participant.roster_key} className="card flex items-center py-3">
             <p className="font-medium">
               {participant.display_name}
-              {participant.member_id === member.member_id && <span className="text-sm text-[var(--color-grey)]"> (you)</span>}
+              {participant.is_self && <span className="text-sm text-[var(--color-grey)]"> (you)</span>}
             </p>
           </div>
         ))}

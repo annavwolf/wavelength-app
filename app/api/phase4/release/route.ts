@@ -5,6 +5,13 @@ import { logIdentityLookups } from "@/lib/auditLog";
 import { buildArtifacts } from "@/lib/phase4Artifacts";
 import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import type { Json, Phase4SelfServeJson } from "@/types/database";
+import {
+  artifactMatchesTier1,
+  currentTier1Provenance,
+  RECOMPUTE_REQUIRED_MESSAGE,
+  REPORT_REBUILD_REQUIRED_MESSAGE,
+  withTier1Provenance,
+} from "@/lib/analysisProvenance";
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -33,14 +40,21 @@ export async function POST(req: NextRequest) {
 
   const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")
-    .select("id, phase4_selfserve_json")
+    .select("id, tier1_json, phase4_selfserve_json")
     .eq("team_id", team_id)
     .maybeSingle();
   if (aErr || !analysis) {
     return NextResponse.json({ error: "Analysis not found for this team" }, { status: 404 });
   }
+  const tier1Provenance = currentTier1Provenance(analysis.tier1_json);
+  if (!tier1Provenance) {
+    return NextResponse.json({ error: RECOMPUTE_REQUIRED_MESSAGE, code: "analysis_recompute_required" }, { status: 409 });
+  }
 
   const existing = (analysis.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null;
+  if (!artifactMatchesTier1(existing, tier1Provenance)) {
+    return NextResponse.json({ error: REPORT_REBUILD_REQUIRED_MESSAGE, code: "phase4_regenerate_required" }, { status: 409 });
+  }
   const alreadySentIds: string[] = existing?.sent_member_ids ?? [];
 
   const now = new Date().toISOString();
@@ -123,12 +137,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const updated: Phase4SelfServeJson = {
+  const updated = withTier1Provenance({
     ...incoming,
     artifacts,
     sent_member_ids: newSentIds,
     released_at: dry_run ? (existing?.released_at ?? null) : now,
-  };
+  }, tier1Provenance);
 
   const { error: saveErr } = await supabaseAdmin
     .from("analysis")

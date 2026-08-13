@@ -113,7 +113,7 @@ export default function Phase3ProgressBar({
   const maxIdx = complete ? ORDERED.length : Math.max(currentIdx, reachedIdx);
 
   return (
-    <div className="w-full mb-10">
+    <div className="mb-8 w-full sm:mb-10">
       <div className="flex gap-1 h-3 mb-2">
         {sections.map((section) => {
           const fill = complete
@@ -148,7 +148,7 @@ export default function Phase3ProgressBar({
         })}
       </div>
 
-      <div className="flex gap-1">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:flex sm:gap-1">
         {sections.map((section) => {
           const sectionFirstIdx = ORDERED.indexOf(section.steps[0]);
           const reachable = maxIdx >= sectionFirstIdx;
@@ -160,7 +160,8 @@ export default function Phase3ProgressBar({
               type="button"
               disabled={!reachable || !onSectionClick}
               onClick={() => reachable && onSectionClick?.(section.steps[0])}
-              className={`text-left leading-tight truncate transition-colors ${
+              aria-current={isCurrent ? "step" : undefined}
+              className={`min-h-11 rounded-md px-1 text-left text-xs leading-tight transition-colors sm:min-h-0 sm:px-0 sm:text-[13px] ${
                 isCurrent
                   ? "font-semibold"
                   : reachable
@@ -169,7 +170,6 @@ export default function Phase3ProgressBar({
               }`}
               style={{
                 flex: section.steps.length,
-                fontSize: "13px",
                 color: isCurrent ? section.color : undefined,
               }}
             >

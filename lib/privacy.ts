@@ -4,10 +4,10 @@
  * any arbitrary free text can be made anonymous in every circumstance.
  */
 
-// v0.3 adds the optional city-and-country collection used to derive a time
-// zone. A version bump requires a fresh acknowledgement before an interview
-// can continue with the revised data practice.
-export const PRIVACY_NOTICE_VERSION = "beta-0.3";
+// v0.4 adds the optional hosted audio provider used for enhanced read-aloud
+// and voice-to-text. A version bump requires a fresh acknowledgement before
+// an interview can continue with this revised data practice.
+export const PRIVACY_NOTICE_VERSION = "beta-0.4";
 
 export type VerbatimPreference = "summary_only" | "verbatim";
 

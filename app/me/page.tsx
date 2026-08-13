@@ -10,6 +10,7 @@ import type {
 } from "@/types/database";
 import { psColorGroup, PS_LABEL_WORD, type PsColor } from "@/lib/psLabels";
 import MemberNav from "@/components/member/MemberNav";
+import PrivacySettings from "@/components/member/PrivacySettings";
 
 type MeResponse = {
   member: {
@@ -29,7 +30,11 @@ type MeResponse = {
   ps_responses: PsResponse[];
   purpose_response: PurposeResponse | null;
   coordination_ratings: CoordinationRating[];
-  privacy_acknowledgement: { acknowledged_at: string } | null;
+  privacy_acknowledgement: {
+    acknowledged_at: string;
+    verbatim_preference: "summary_only" | "verbatim";
+    voice_input_opt_in: boolean;
+  } | null;
 };
 
 const COLOR_VAR: Record<PsColor, string> = {
@@ -132,12 +137,18 @@ export default function MemberProfilePage() {
           Privacy &amp; support
         </h2>
         <p className="text-sm text-[var(--color-grey)] leading-relaxed">
-          Review how Otis handles beta participant information, your exact-word and voice-input choices, and how to request withdrawal.
+          Review how Otis handles beta participant information, update your exact-word and enhanced-audio choices, or request support and withdrawal.
         </p>
         <div className="mt-4 flex flex-wrap gap-4 text-sm">
           <a href="/privacy" className="underline text-[var(--color-purple)]">Read the privacy notice</a>
           <a href="mailto:contact@wavelength.team?subject=Otis%20member%20support" className="underline text-[var(--color-purple)]">Email Wavelength support</a>
         </div>
+        <PrivacySettings
+          acknowledgement={data.privacy_acknowledgement}
+          onSaved={(next) => setData((current) => current
+            ? { ...current, privacy_acknowledgement: current.privacy_acknowledgement ? { ...current.privacy_acknowledgement, ...next } : current.privacy_acknowledgement }
+            : current)}
+        />
       </section>
 
       {!data.privacy_acknowledgement?.acknowledged_at && (

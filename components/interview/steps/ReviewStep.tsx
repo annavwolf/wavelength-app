@@ -162,9 +162,9 @@ export default function ReviewStep({
           <label className="flex items-start gap-3 cursor-pointer text-base leading-relaxed"><input type="radio" name="verbatim" checked={verbatimPreference === "verbatim"} onChange={() => setVerbatimPreference("verbatim")} className="mt-1 h-5 w-5" /><span><strong>Permit short exact excerpts without my name.</strong><br />They may be used in team materials without attribution.</span></label>
         </fieldset>
         <fieldset className="space-y-2">
-          <legend className="font-medium text-base mb-2">Optional voice input</legend>
-          <label className="flex items-start gap-3 cursor-pointer text-base leading-relaxed"><input type="radio" name="voice" checked={!voiceInputAllowed} onChange={() => setVoiceInputAllowed(false)} className="mt-1 h-5 w-5" /><span><strong>Use text only.</strong> Hide microphone controls.</span></label>
-          <label className="flex items-start gap-3 cursor-pointer text-base leading-relaxed"><input type="radio" name="voice" checked={voiceInputAllowed} onChange={() => setVoiceInputAllowed(true)} className="mt-1 h-5 w-5" /><span><strong>I may use voice input.</strong> My browser&apos;s speech-recognition provider processes audio only when I tap a microphone control.</span></label>
+          <legend className="font-medium text-base mb-2">Optional enhanced audio</legend>
+          <label className="flex items-start gap-3 cursor-pointer text-base leading-relaxed"><input type="radio" name="voice" checked={!voiceInputAllowed} onChange={() => setVoiceInputAllowed(false)} className="mt-1 h-5 w-5" /><span><strong>Use text only.</strong> Do not show microphone controls or use the optional audio provider.</span></label>
+          <label className="flex items-start gap-3 cursor-pointer text-base leading-relaxed"><input type="radio" name="voice" checked={voiceInputAllowed} onChange={() => setVoiceInputAllowed(true)} className="mt-1 h-5 w-5" /><span><strong>I may use enhanced audio.</strong> ElevenLabs may process Otis&apos;s spoken text and a recording only when I choose to use a microphone control. Otis does not store raw recordings.</span></label>
         </fieldset>
         {privacyMessage && <p className="text-base text-[var(--color-grey)]" role="status">{privacyMessage}</p>}
         <button type="button" onClick={savePrivacySettings} disabled={privacySaving} className="btn-secondary">{privacySaving ? "Saving..." : "Save privacy settings"}</button>

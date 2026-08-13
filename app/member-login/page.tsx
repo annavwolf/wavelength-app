@@ -52,8 +52,13 @@ export default function MemberLoginPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // Don't mask real failures behind the success screen.
-        setLinkError(ERROR_COPY.server);
+        // A rate-limit response does not reveal whether this email belongs to
+        // a member, but it is useful to tell someone when they can try again.
+        setLinkError(
+          res.status === 429 && typeof data.message === "string"
+            ? data.message
+            : ERROR_COPY.server
+        );
         setSubmitting(false);
         return;
       }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { logIdentityLookup } from "@/lib/auditLog";
+import { interviewAccessUrl, issueInterviewAccessToken } from "@/lib/interviewAccess";
 import { requireTeamOwner } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -36,8 +37,14 @@ export async function POST(request: NextRequest) {
   if (teamError || !team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
   if (!identity.email) return NextResponse.json({ error: "This participant has no email address" }, { status: 400 });
 
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const interviewUrl = `${appUrl}/interview/${memberId}`;
+  let interviewUrl: string;
+  try {
+    const issued = await issueInterviewAccessToken({ memberId, teamId });
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin).replace(/\/$/, "");
+    interviewUrl = interviewAccessUrl(appUrl, issued.token);
+  } catch {
+    return NextResponse.json({ error: "Unable to create a secure participant link. Please try again." }, { status: 500 });
+  }
   const firstName = identity.display_name.split(" ")[0] || "there";
   const safeFirstName = escapeHtml(firstName);
   const safeTeamName = escapeHtml(team.team_name);

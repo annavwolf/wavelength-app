@@ -5,6 +5,7 @@ import {
   sessionCookieOptions,
   SESSION_COOKIE,
   PRESESSION_COOKIE,
+  INTERVIEW_SESSION_COOKIE,
   SESSION_COOKIE_MAX_AGE,
 } from "@/lib/memberSession";
 
@@ -55,6 +56,9 @@ export async function POST(req: NextRequest) {
 
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, jwt, sessionCookieOptions(SESSION_COOKIE_MAX_AGE));
+  // A new selected membership supersedes any lingering public invite session
+  // on this browser, which matters on shared devices.
+  res.cookies.set(INTERVIEW_SESSION_COOKIE, "", sessionCookieOptions(0));
   // Pre-session done — clear it.
   res.cookies.set(PRESESSION_COOKIE, "", sessionCookieOptions(0));
   return res;

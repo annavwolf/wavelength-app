@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
+import {
+  currentPrivacyParticipantIds,
+  getCurrentPrivacyParticipants,
+} from "@/lib/currentPrivacyParticipants";
 
-// Consultant-only supporting data for the Phase 4 screen. Free-text fields are
-// projected before they enter the browser: a summary-only participant's exact
-// words are never shipped merely because the UI happens to hide them.
+// Consultant-only supporting data for the Phase 4 screen. Every query is
+// constrained to participants who acknowledge the current notice; then
+// free-text fields are projected before they enter the browser so a
+// summary-only participant's exact words are never shipped merely because the
+// UI happens to hide them.
 export async function GET(request: NextRequest, { params }: { params: Promise<{ team_id: string }> }) {
   const { team_id: teamId } = await params;
   const auth = await requireTeamOwner(request, teamId);
@@ -12,23 +18,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
   if (!earlyAccess.ok) return earlyAccess.response;
 
-  const [contextRes, pulseRes, behaviorRes, storiesRes, privacyRes] = await Promise.all([
-    supabaseAdmin.from("phase3_context_responses").select("*").eq("team_id", teamId),
-    supabaseAdmin.from("phase3_pulse_checks").select("member_id, read_key, accuracy_rating, comment").eq("team_id", teamId),
-    supabaseAdmin.from("member_behaviors").select("id, member_id, text, bucket").eq("team_id", teamId).order("created_at", { ascending: true }),
-    supabaseAdmin.from("member_stories").select("situation_tag").eq("team_id", teamId),
-    supabaseAdmin
-      .from("member_privacy_acknowledgements")
-      .select("member_id, verbatim_preference")
-      .eq("team_id", teamId),
+  const privacyParticipants = await getCurrentPrivacyParticipants(teamId);
+  const memberIds = currentPrivacyParticipantIds(privacyParticipants);
+  if (memberIds.length === 0) {
+    return NextResponse.json({ context: [], pulse_checks: [], behaviors: [], story_tags: [] });
+  }
+
+  const [contextRes, pulseRes, behaviorRes, storiesRes] = await Promise.all([
+    supabaseAdmin.from("phase3_context_responses").select("*").eq("team_id", teamId).in("member_id", memberIds),
+    supabaseAdmin.from("phase3_pulse_checks").select("member_id, read_key, accuracy_rating, comment").eq("team_id", teamId).in("member_id", memberIds),
+    supabaseAdmin.from("member_behaviors").select("id, member_id, text, bucket").eq("team_id", teamId).in("member_id", memberIds).order("created_at", { ascending: true }),
+    supabaseAdmin.from("member_stories").select("situation_tag").eq("team_id", teamId).in("member_id", memberIds),
   ]);
-  if (contextRes.error || pulseRes.error || behaviorRes.error || storiesRes.error || privacyRes.error) {
+  if (contextRes.error || pulseRes.error || behaviorRes.error || storiesRes.error) {
     return NextResponse.json({ error: "Unable to load Phase 4 data." }, { status: 500 });
   }
   const canQuote = new Set(
-    (privacyRes.data ?? [])
-      .filter((record) => record.verbatim_preference === "verbatim")
-      .map((record) => record.member_id)
+    privacyParticipants
+      .filter((participant) => participant.verbatimPreference === "verbatim")
+      .map((participant) => participant.memberId)
   );
   const withheld = "[Participant chose summaries only.]";
   return NextResponse.json({

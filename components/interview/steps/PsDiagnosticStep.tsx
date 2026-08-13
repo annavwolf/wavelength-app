@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { loadVoices, pickMaleVoice } from "@/lib/speech";
+import { speakText } from "@/lib/speech";
+import { useHostedSpeechAvailable, useVoiceParticipantMemberId } from "@/components/interview/VoiceInputContext";
 import type { Member, PsLabel, PsStatement, Zone } from "@/types/database";
 
 const TITLE =
@@ -121,6 +122,8 @@ export default function PsDiagnosticStep({
   const [error, setError] = useState<string | null>(null);
   const [zoneIndex, setZoneIndex] = useState(0);
   const hasSpokenRef = useRef(false);
+  const hostedSpeechAvailable = useHostedSpeechAvailable();
+  const memberId = useVoiceParticipantMemberId();
 
   const currentZone = ZONE_ORDER[zoneIndex];
   const zoneConfig = ZONE_CONFIG[currentZone];
@@ -132,16 +135,8 @@ export default function PsDiagnosticStep({
     if (!readAloud) return;
     if (hasSpokenRef.current) return;
     hasSpokenRef.current = true;
-    async function speak() {
-      const voices = await loadVoices();
-      const voice = pickMaleVoice(voices);
-      const utt = new SpeechSynthesisUtterance(TITLE);
-      utt.rate = 0.95;
-      if (voice) utt.voice = voice;
-      window.speechSynthesis.speak(utt);
-    }
-    speak();
-  }, [readAloud]);
+    void speakText(TITLE, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
+  }, [readAloud, hostedSpeechAvailable, memberId]);
 
   // Pre-populate saved ratings so a resuming member sees their previous answers.
   useEffect(() => {

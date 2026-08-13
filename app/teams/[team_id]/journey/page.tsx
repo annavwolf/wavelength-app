@@ -11,7 +11,7 @@ const TEAM_ASSESSMENT: { section: string; title: string; body: string }[] = [
   {
     section: "Privacy",
     title: "Beta privacy information",
-    body: "Before the assessment opens, members read the beta privacy notice, choose whether short exact excerpts may be used without their name, choose whether to enable browser voice input, and acknowledge the notice. Text input remains available.",
+    body: "Before the assessment opens, members read the beta privacy notice, choose whether short exact excerpts may be used without their name, choose whether to enable optional enhanced audio, and acknowledge the notice. Text input remains available.",
   },
   {
     section: "Introduction",

@@ -17,6 +17,7 @@ import OtisChatBubble from "@/components/dashboard/OtisChatBubble";
 import WorkshopPanel from "@/components/workshop/WorkshopPanel";
 import ReportReview from "@/components/phase3/ReportReview";
 import Phase4Panel from "@/components/phase4/Phase4Panel";
+import EarlyAccessGate from "@/components/consultant/EarlyAccessGate";
 import type { Phase3ReportJson, Phase4SelfServeJson } from "@/types/database";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -83,6 +84,7 @@ export default function TeamDashboardPage() {
   const [members, setMembers] = useState<MemberWithIdentity[]>([]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [phase3DoneIds, setPhase3DoneIds] = useState<Set<string>>(new Set());
+  const [earlyAccess, setEarlyAccess] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [runningAnalysis, setRunningAnalysis] = useState(false);
@@ -113,6 +115,7 @@ export default function TeamDashboardPage() {
       setTeam(data.team as Team);
       setMembers((data.members as MemberWithIdentity[] | undefined) ?? []);
       setPhase3DoneIds(new Set((data.phase3_done_member_ids as string[] | undefined) ?? []));
+      setEarlyAccess(data.early_access === true);
       const analysisRow = (data.analysis as Analysis | null | undefined) ?? null;
       setAnalysis(analysisRow);
       setInterpretation((analysisRow?.tier2_json as unknown as Tier2Result | null) ?? null);
@@ -255,19 +258,19 @@ export default function TeamDashboardPage() {
   // ── SETUP MODE ────────────────────────────────────────────────────────────
   if (!tier1) {
     return (
-      <main className="flex-1 px-6 py-12">
+      <main className="flex-1 px-4 py-8 sm:px-6 sm:py-12">
         <div className="max-w-6xl mx-auto">
-          <div className="flex items-start justify-between gap-4 mb-10">
-            <div>
-              <h1 className="text-4xl sm:text-5xl leading-tight">
+          <div className="mb-8 flex flex-col items-start gap-5 sm:mb-10 sm:flex-row sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="break-words text-3xl leading-tight sm:text-5xl">
                 {team.team_name} <span className="accent">team.</span>
               </h1>
               {subtitle && <p className="text-sm text-[var(--color-grey)] mt-2">{subtitle}</p>}
-              <div className="flex items-center gap-4 mt-3">
-                <Link href={`/teams/${teamId}/members`} className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <Link href={`/teams/${teamId}/members`} className="inline-flex min-h-11 items-center text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
                   Edit members
                 </Link>
-                <Link href={`/teams/${teamId}/invite`} className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+                <Link href={`/teams/${teamId}/invite`} className="inline-flex min-h-11 items-center text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
                   Invite page
                 </Link>
               </div>
@@ -300,7 +303,7 @@ export default function TeamDashboardPage() {
                 );
               })()}
             </div>
-            <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] whitespace-nowrap mt-2">
+            <Link href="/" className="inline-flex min-h-11 items-center text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] sm:mt-2">
               ← My Teams
             </Link>
           </div>
@@ -308,39 +311,38 @@ export default function TeamDashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Member roster */}
             <div>
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                 <h2 className="text-2xl">Team members</h2>
                 <button type="button" onClick={fetchMembers}
-                  className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+                  className="min-h-11 px-1 text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
                   Refresh
                 </button>
               </div>
 
               <div className="space-y-2">
                 {members.map((m) => (
-                    <div key={m.member_id} className="card flex items-center justify-between gap-4"
-                      style={{ padding: "12px 20px" }}>
-                    <div className="flex items-center gap-3">
+                    <div key={m.member_id} className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-3">
+                    <div className="min-w-0">
                        <div>
-                        <p className="font-medium text-sm">{m.display_name}</p>
+                        <p className="break-words font-medium text-sm">{m.display_name}</p>
                         {m.role && <p className="text-xs text-[var(--color-grey)]">{m.role}</p>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                       {m.email && (m.status === "pending" || m.status === "invited") && (
                         <button type="button"
                           onClick={() => handleSendInvite(m.member_id)}
                           disabled={inviteSending.has(m.member_id)}
-                          className="btn-secondary whitespace-nowrap"
+                          className="btn-secondary min-h-11 whitespace-nowrap"
                           style={{ padding: "4px 12px", fontSize: "12px" }}>
                           {inviteSending.has(m.member_id) ? "Sending..." : m.invited_at ? "Re-send" : "Send invite"}
                         </button>
                       )}
-                      <span className={`text-xs px-3 py-1 rounded-full ${memberStatusCls(m)}`}>
+                      <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs ${memberStatusCls(m)}`}>
                         {memberStatusLabel(m)}
                       </span>
                       <span
-                        className={`text-xs px-3 py-1 rounded-full ${
+                        className={`max-w-full rounded-full px-3 py-1 text-center text-xs ${
                           m.privacy_acknowledged_currently
                             ? "bg-purple-100 text-purple-800"
                             : m.privacy_acknowledged_at
@@ -364,7 +366,7 @@ export default function TeamDashboardPage() {
 
               {inviteError && <p className="mt-3 text-sm text-red-600">{inviteError}</p>}
 
-              <div className="mt-4 flex items-center gap-4">
+              <div className="mt-4 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
                 <p className="text-sm text-[var(--color-grey)]">
                   {completeCount}/{totalCount} completed the assessment
                 </p>
@@ -439,9 +441,9 @@ export default function TeamDashboardPage() {
     <main className="flex-1">
       {/* Sticky header */}
       <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-black/10">
-        <div className="max-w-6xl mx-auto px-6 py-3 flex flex-wrap items-center gap-4 justify-between">
-          <div className="flex items-center gap-4 flex-wrap">
-            <Link href="/" className="text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)]">← My Teams</Link>
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Link href="/" className="inline-flex min-h-11 items-center text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)]">← My Teams</Link>
             <h2 className="text-lg" style={{ fontFamily: "Playfair Display, serif" }}>{team.team_name}</h2>
             <span className="text-sm text-[var(--color-grey)]">{completeCount}/{totalCount} completed the assessment</span>
             <span
@@ -449,7 +451,7 @@ export default function TeamDashboardPage() {
               className={`text-xs px-3 py-1 rounded-full font-medium cursor-help ${participationBadgeCls(completeCount, rosterSize)}`}>
               {participationBadgeLabel(completeCount, rosterSize)}
             </span>
-            <Link href={`/teams/${teamId}/members`} className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
+            <Link href={`/teams/${teamId}/members`} className="inline-flex min-h-11 items-center text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">
               Edit members
             </Link>
           </div>
@@ -457,22 +459,30 @@ export default function TeamDashboardPage() {
           <span className="text-xs text-[var(--color-grey)]">Last analysed {formatDate(tier1.computed_at)}</span>
         </div>
         {runError && (
-          <div className="max-w-6xl mx-auto px-6 pb-2"><p className="text-sm text-red-600">{runError}</p></div>
+          <div className="mx-auto max-w-6xl px-4 pb-2 sm:px-6"><p className="text-sm text-red-600">{runError}</p></div>
         )}
         {/* Tabs */}
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="flex gap-1">
-            {([["analytics", "Analytics & Insights"], ["report", "Report & Activity Release"], ["agreement", "Team Agreement"], ["workshop", "Workshop"]] as const).map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setActiveTab(id)}
-                className={`px-4 py-2.5 text-sm border-b-2 transition-colors ${
-                  activeTab === id
-                    ? "border-[var(--color-navy)] text-[var(--color-ink)] font-medium"
-                    : "border-transparent text-[var(--color-grey)] hover:text-[var(--color-ink)]"
-                }`}>
-                {label}
-              </button>
-            ))}
+        <div className="mx-auto max-w-6xl">
+          <nav className="overflow-x-auto px-4 sm:px-6" aria-label="Team dashboard sections">
+          <div className="flex w-max min-w-full gap-1">
+            {([["analytics", "Analytics", "Analytics & Insights"], ["report", "Activity", "Report & Activity Release"], ["agreement", "Agreement", "Team Agreement"], ["workshop", "Workshop", "Workshop"]] as const).map(([id, shortLabel, label]) => {
+              const locked = !earlyAccess && (id === "agreement" || id === "workshop");
+              return (
+                <button key={id} type="button" onClick={() => setActiveTab(id)}
+                  aria-pressed={activeTab === id}
+                  aria-label={locked ? `${label} — early access required` : label}
+                  className={`min-h-11 shrink-0 border-b-2 px-3 py-2 text-sm transition-colors sm:px-4 ${
+                    activeTab === id
+                      ? "border-[var(--color-navy)] text-[var(--color-ink)] font-medium"
+                      : "border-transparent text-[var(--color-grey)] hover:text-[var(--color-ink)]"
+                  }`}>
+                  <span className="sm:hidden">{shortLabel}{locked ? " · Locked" : ""}</span>
+                  <span className="hidden sm:inline">{label}{locked ? " · Locked" : ""}</span>
+                </button>
+              );
+            })}
           </div>
+          </nav>
         </div>
       </div>
 
@@ -484,19 +494,20 @@ export default function TeamDashboardPage() {
             tier1={tier1}
             tier2={interpretation}
             existingReport={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
+            earlyAccess={earlyAccess}
           />
         </div>
       ) : activeTab === "analytics" ? (
-        <div className="max-w-6xl mx-auto px-6 py-10 space-y-14">
+        <div className="mx-auto max-w-6xl space-y-12 px-4 py-8 sm:space-y-14 sm:px-6 sm:py-10">
           {/* Banner — textless ocean art (the TITLEONLY asset has baked-in zone
               labels that collide with the heading), darkened for legible text. */}
           <section className="relative rounded-2xl overflow-hidden">
             <img src="/ps-ocean.png" alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
             <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(20,32,60,0.9) 0%, rgba(20,32,60,0.7) 60%, rgba(20,32,60,0.5) 100%)" }} />
-            <div className="relative px-8 py-12 sm:py-14 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+            <div className="relative flex flex-col gap-6 px-5 py-9 sm:px-8 sm:py-14 md:flex-row md:items-end md:justify-between">
               <div>
-                <h1 className="text-4xl sm:text-5xl text-white" style={{ fontFamily: "Playfair Display, serif", textShadow: "0 2px 14px rgba(0,0,0,0.45)" }}>
+                <h1 className="text-3xl text-white sm:text-5xl" style={{ fontFamily: "Playfair Display, serif", textShadow: "0 2px 14px rgba(0,0,0,0.45)" }}>
                   Analytics &amp; Insights
                 </h1>
                 <p className="text-base text-white/85 mt-2" style={{ textShadow: "0 1px 8px rgba(0,0,0,0.5)" }}>
@@ -507,15 +518,15 @@ export default function TeamDashboardPage() {
                 </p>
               </div>
               {/* #8a — analysis controls belong to this section */}
-              <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
                 {interpretation && (
                   <button type="button" onClick={handleRunInterpretation} disabled={interpreting}
-                    className="rounded-full border border-white/60 text-white px-4 py-2 text-sm font-medium hover:bg-white/15 transition-colors disabled:opacity-60">
+                    className="min-h-11 w-full rounded-full border border-white/60 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/15 disabled:opacity-60 sm:w-auto">
                     {interpreting ? "Thinking…" : "Re-run read"}
                   </button>
                 )}
                 <button type="button" onClick={handleRunAnalysis} disabled={runningAnalysis}
-                  className="rounded-full bg-white text-[var(--color-navy)] px-4 py-2 text-sm font-semibold hover:bg-white/90 transition-colors disabled:opacity-60">
+                  className="min-h-11 w-full rounded-full bg-white px-4 py-2 text-sm font-semibold text-[var(--color-navy)] transition-colors hover:bg-white/90 disabled:opacity-60 sm:w-auto">
                   {runningAnalysis ? "Running…" : "Re-run analysis"}
                 </button>
               </div>
@@ -545,9 +556,9 @@ export default function TeamDashboardPage() {
 
           {/* Results & Team Agreement Activity completion — visible here so the consultant
               always knows who's in before opening the Team Agreement tab. */}
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-black/10 px-5 py-3" style={{ background: "rgba(20,32,60,0.04)" }}>
-            <div>
-              <span className="text-sm font-medium">Results &amp; Team Agreement Activity: {phase3CompletedCount}/{phase3TotalCount} members finished</span>
+          <div className="flex flex-col items-start gap-3 rounded-xl border border-black/10 px-5 py-3 sm:flex-row sm:items-center sm:justify-between" style={{ background: "rgba(20,32,60,0.04)" }}>
+            <div className="min-w-0">
+              <span className="break-words text-sm font-medium">Results &amp; Team Agreement Activity: {phase3CompletedCount}/{phase3TotalCount} members finished</span>
               {phase3TotalCount > 0 && phase3CompletedCount < phase3TotalCount && (
                 <p className="text-xs text-[var(--color-grey)] mt-0.5">Waiting on: {phase3Outstanding.join(", ")}</p>
               )}
@@ -594,28 +605,40 @@ export default function TeamDashboardPage() {
         </div>
       ) : activeTab === "agreement" ? (
         <div className="space-y-0">
-          <Phase4Panel
-            teamId={teamId}
-            initial={(analysis?.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null}
-            allComplete={phase3AllComplete}
-            completedCount={phase3CompletedCount}
-            totalCount={phase3TotalCount}
-            outstanding={phase3Outstanding}
-            tier1={tier1}
-            tier2={interpretation}
-            report={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
-          />
+          {earlyAccess ? (
+            <Phase4Panel
+              teamId={teamId}
+              initial={(analysis?.phase4_selfserve_json as Phase4SelfServeJson | null) ?? null}
+              allComplete={phase3AllComplete}
+              completedCount={phase3CompletedCount}
+              totalCount={phase3TotalCount}
+              outstanding={phase3Outstanding}
+              tier1={tier1}
+              tier2={interpretation}
+              report={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}
+            />
+          ) : (
+            <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+              <EarlyAccessGate feature="The Team Agreement" />
+            </div>
+          )}
         </div>
       ) : (
         // #11b — the Workshop screen carries the same accent as the "Suggested
         // focus for Team Agreement Activity" card, so the focus reads as its seed.
         <div className="min-h-[60vh]" style={{ background: WORKSHOP_BG }}>
-          <WorkshopPanel
-            teamId={teamId}
-            teamName={team.team_name}
-            members={members}
-            focus={interpretation?.focus_hypothesis}
-          />
+          {earlyAccess ? (
+            <WorkshopPanel
+              teamId={teamId}
+              teamName={team.team_name}
+              members={members}
+              focus={interpretation?.focus_hypothesis}
+            />
+          ) : (
+            <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+              <EarlyAccessGate feature="The facilitated workshop" />
+            </div>
+          )}
         </div>
       )}
 

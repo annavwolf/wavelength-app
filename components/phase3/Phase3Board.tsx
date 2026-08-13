@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import type { MemberBehavior, BehaviorBucket } from "@/types/database";
 import { ITEM_EXAMPLES } from "@/lib/itemExamples";
 import { speakText, cancelSpeech } from "@/lib/speech";
+import { useHostedSpeechAvailable, useVoiceParticipantMemberId } from "@/components/interview/VoiceInputContext";
+import MicButton from "@/components/interview/MicButton";
 
 // Read-aloud-aware wrapper: speaks on mount when `auto` + read-aloud, and is
 // always clickable to (re)read. Used so every box on the board can be heard.
@@ -14,17 +16,19 @@ function Speakable({
   className?: string; style?: React.CSSProperties; children: React.ReactNode;
 }) {
   const spoken = useRef(false);
+  const hostedSpeechAvailable = useHostedSpeechAvailable();
+  const memberId = useVoiceParticipantMemberId();
   useEffect(() => {
     if (!readAloud || !text || !auto) { spoken.current = false; return; }
     if (spoken.current) return;
     spoken.current = true;
-    speakText(text);
-  }, [readAloud, text, auto]);
+    void speakText(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
+  }, [readAloud, text, auto, hostedSpeechAvailable, memberId]);
   return (
     <div
       className={`${className ?? ""} ${readAloud ? "cursor-pointer hover:ring-1 hover:ring-[var(--color-purple)]/30 transition-all" : ""}`}
       style={style}
-      onClick={readAloud ? () => { cancelSpeech(); speakText(text); } : undefined}
+      onClick={readAloud ? () => { cancelSpeech(); void speakText(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId }); } : undefined}
       title={readAloud ? "Click to replay" : undefined}
     >
       {children}
@@ -306,14 +310,24 @@ export default function Phase3Board({ memberId, teamId, statementId, placePhrase
               )}
 
               <div className="flex gap-2 mt-auto">
-                <input
-                  value={drafts[bucket]}
-                  onChange={(e) => setDrafts((prev) => ({ ...prev, [bucket]: e.target.value }))}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void addBehavior(bucket); } }}
-                  placeholder="Add a behaviour…"
-                  className="form-input flex-1 text-sm"
-                  disabled={saving === bucket}
-                />
+                <div className="relative flex-1">
+                  <input
+                    value={drafts[bucket]}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [bucket]: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void addBehavior(bucket); } }}
+                    placeholder="Add a behaviour…"
+                    className="form-input w-full pr-12 text-sm"
+                    disabled={saving === bucket}
+                  />
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                    <MicButton
+                      onResult={(transcript) => setDrafts((prev) => ({
+                        ...prev,
+                        [bucket]: prev[bucket] ? `${prev[bucket]} ${transcript}` : transcript,
+                      }))}
+                    />
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => void addBehavior(bucket)}

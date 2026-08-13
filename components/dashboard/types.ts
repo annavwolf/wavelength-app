@@ -73,6 +73,9 @@ export type FreeTextEntry = { private_code: string; text: string; share_verbatim
 
 export type Tier1Result = {
   computed_at: string;
+  // Present on computations made after the privacy-provenance gate. Optional
+  // for old database JSON, which the server treats as stale.
+  privacy_notice_version?: string;
   participation: {
     n_completed: number;
     roster_size: number | null;
@@ -93,6 +96,10 @@ export type Tier1Result = {
 
 export type Tier2Result = {
   generated_at?: string;
+  // Tier 2 is only reusable when it was generated from this exact current-
+  // consent Tier 1 computation.
+  privacy_notice_version?: string;
+  source_tier1_computed_at?: string;
   ps_read?: { overall_shape?: string; zone1?: string; zone2?: string; zone3?: string };
   shared_purpose_read?: { classification?: string; read?: string };
   focus_hypothesis?: { statement_id?: number; statement_text?: string; zone?: number; hypothesis?: string };

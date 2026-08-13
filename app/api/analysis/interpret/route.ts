@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { PART2_SYSTEM_PROMPT } from "@/prompts/part2_analytics";
 import { MODELS } from "@/lib/models";
 import type { Json } from "@/types/database";
 import { redactTextForExternalProcessing } from "@/lib/privacy";
 import { requireTeamOwner } from "@/lib/requestAuth";
+import {
+  currentTier1Provenance,
+  RECOMPUTE_REQUIRED_MESSAGE,
+  withTier1Provenance,
+} from "@/lib/analysisProvenance";
 
 const MODEL = MODELS.interpret;
 // Zone read + shared-purpose read + focus hypothesis. 6000 tokens is ample.
@@ -41,7 +46,7 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
   }
 
   // ── Analysis row — must already have Tier 1 ─────────────────────────────────
-  const { data: analysisRow, error: analysisError } = await supabase
+  const { data: analysisRow, error: analysisError } = await supabaseAdmin
     .from("analysis")
     .select("*")
     .eq("team_id", teamId)
@@ -53,9 +58,16 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
   if (!analysisRow || !analysisRow.tier1_json) {
     return NextResponse.json({ error: "Run Tier 1 analysis first" }, { status: 400 });
   }
+  const tier1Provenance = currentTier1Provenance(analysisRow.tier1_json);
+  if (!tier1Provenance) {
+    return NextResponse.json(
+      { error: RECOMPUTE_REQUIRED_MESSAGE, code: "analysis_recompute_required" },
+      { status: 409 }
+    );
+  }
 
   // ── Team context (only thing not already inside tier1_json) ─────────────────
-  const { data: team, error: teamError } = await supabase
+  const { data: team, error: teamError } = await supabaseAdmin
     .from("teams")
     .select("*")
     .eq("team_id", teamId)
@@ -138,14 +150,15 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
   }
 
   interpretation.generated_at = new Date().toISOString();
+  const versionedInterpretation = withTier1Provenance(interpretation, tier1Provenance);
 
   // ── Save to analysis table ──────────────────────────────────────────────────
   // tier2_json is the single source of truth for the interpretation: the PS zone
   // read, shared-purpose read, focus hypothesis, and the member-facing draft.
-  const { error: updateError } = await supabase
+  const { error: updateError } = await supabaseAdmin
     .from("analysis")
     .update({
-      tier2_json: interpretation as unknown as Json,
+      tier2_json: versionedInterpretation as unknown as Json,
       updated_at: new Date().toISOString(),
     })
     .eq("team_id", teamId);
@@ -155,10 +168,10 @@ async function runInterpret(teamId: string): Promise<NextResponse> {
     // The interpretation succeeded — return it so the consultant still sees the read,
     // with a flag that persistence failed (most likely the tier2_json column is missing).
     return NextResponse.json(
-      { ...interpretation, _save_warning: updateError.message },
+      { ...versionedInterpretation, _save_warning: updateError.message },
       { status: 200 }
     );
   }
 
-  return NextResponse.json(interpretation);
+  return NextResponse.json(versionedInterpretation);
 }

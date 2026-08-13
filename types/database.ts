@@ -470,6 +470,10 @@ export type FocusCandidate = {
 };
 
 export type Phase3ReportJson = {
+  // Provenance is optional for legacy JSON. Routes treat an absent or
+  // mismatched marker as stale and require a fresh compute/read before release.
+  privacy_notice_version?: string;
+  source_tier1_computed_at?: string;
   ps_read_overall: string;
   ps_read_zone1: string;
   ps_read_zone2: string;
@@ -970,6 +974,10 @@ export type Phase4Artifact = {
 };
 
 export type Phase4SelfServeJson = {
+  // Provenance is optional for legacy JSON. Routes treat an absent or
+  // mismatched marker as stale and require a fresh compute before release.
+  privacy_notice_version?: string;
+  source_tier1_computed_at?: string;
   behaviour_board: Phase4BehaviourGroup[];
   agreement: Phase4Agreement;
   clarity: Phase4Clarity;
@@ -1110,6 +1118,81 @@ export type MemberLoginTokenInsert = {
 
 export type MemberLoginTokenUpdate = Partial<MemberLoginTokenInsert>;
 
+// Short-lived, opaque counters for passwordless member sign-in abuse control.
+// key_hash is an HMAC generated server-side from an email and optionally a
+// client address; this table intentionally never stores either raw value.
+export type MemberLoginRequestRateWindow = {
+  scope: "combination_15m" | "email_1h";
+  key_hash: string;
+  window_started_at: string;
+  request_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MemberLoginRequestRateWindowInsert = {
+  scope: "combination_15m" | "email_1h";
+  key_hash: string;
+  window_started_at: string;
+  request_count?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MemberLoginRequestRateWindowUpdate =
+  Partial<MemberLoginRequestRateWindowInsert>;
+
+// A long-lived, revocable capability for one participant's Phase 1 interview.
+// Like member_login_tokens, the database contains only a SHA-256 hash; the raw
+// bearer token exists only in the invite URL and is never returned by an API.
+export type MemberInterviewToken = {
+  id: string;
+  member_id: string;
+  token_hash: string;
+  expires_at: string;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+};
+
+export type MemberInterviewTokenInsert = {
+  id?: string;
+  member_id: string;
+  token_hash: string;
+  expires_at: string;
+  revoked_at?: string | null;
+  last_used_at?: string | null;
+  created_at?: string;
+};
+
+export type MemberInterviewTokenUpdate = Partial<MemberInterviewTokenInsert>;
+
+// Short-lived operational counters for the optional hosted-audio service.
+// This intentionally carries no recording, transcript, or spoken text.
+export type MemberAudioUsageWindow = {
+  member_id: string;
+  window_started_at: string;
+  synthesis_requests: number;
+  synthesis_characters: number;
+  transcription_requests: number;
+  transcription_duration_ms: number;
+  transcription_bytes: number;
+  created_at: string;
+};
+
+export type MemberAudioUsageWindowInsert = {
+  member_id: string;
+  window_started_at: string;
+  synthesis_requests?: number;
+  synthesis_characters?: number;
+  transcription_requests?: number;
+  transcription_duration_ms?: number;
+  transcription_bytes?: number;
+  created_at?: string;
+};
+
+export type MemberAudioUsageWindowUpdate = Partial<MemberAudioUsageWindowInsert>;
+
 // One coded label from the Phase 2 coding pass (Coding Spec §4). Input to
 // clustering; carries member_id + statement_id so clustering can count member
 // convergence and stay item-anchored. Embeddings are computed in-request, not
@@ -1201,6 +1284,24 @@ export type Database = {
         Row: MemberLoginToken;
         Insert: MemberLoginTokenInsert;
         Update: MemberLoginTokenUpdate;
+        Relationships: [];
+      };
+      member_login_request_rate_windows: {
+        Row: MemberLoginRequestRateWindow;
+        Insert: MemberLoginRequestRateWindowInsert;
+        Update: MemberLoginRequestRateWindowUpdate;
+        Relationships: [];
+      };
+      member_interview_tokens: {
+        Row: MemberInterviewToken;
+        Insert: MemberInterviewTokenInsert;
+        Update: MemberInterviewTokenUpdate;
+        Relationships: [];
+      };
+      member_audio_usage_windows: {
+        Row: MemberAudioUsageWindow;
+        Insert: MemberAudioUsageWindowInsert;
+        Update: MemberAudioUsageWindowUpdate;
         Relationships: [];
       };
       interview_labels: {
@@ -1352,7 +1453,36 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      consume_member_audio_quota: {
+        Args: {
+          p_member_id: string;
+          p_capability: string;
+          p_tts_characters?: number;
+          p_stt_duration_ms?: number;
+          p_stt_bytes?: number;
+          p_tts_request_limit?: number;
+          p_tts_character_limit?: number;
+          p_stt_request_limit?: number;
+          p_stt_duration_limit_ms?: number;
+          p_stt_byte_limit?: number;
+        };
+        Returns: {
+          allowed: boolean;
+          retry_after_seconds: number;
+        }[];
+      };
+      consume_member_login_request_rate_limit: {
+        Args: {
+          p_combination_key_hash: string;
+          p_email_key_hash: string;
+          p_combination_limit?: number;
+          p_email_limit?: number;
+        };
+        Returns: {
+          allowed: boolean;
+          retry_after_seconds: number;
+        }[];
+      };
     };
     Enums: {
       [_ in never]: never;

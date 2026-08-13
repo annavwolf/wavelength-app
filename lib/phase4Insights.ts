@@ -10,6 +10,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
 import { MODELS } from "@/lib/models";
 import { classifyTeamBehaviours } from "@/lib/behaviourClassification";
+import {
+  currentPrivacyParticipantIds,
+  getCurrentPrivacyParticipants,
+  type CurrentPrivacyParticipant,
+} from "@/lib/currentPrivacyParticipants";
 import { renderAgreementSentence } from "@/lib/agreementText";
 import { buildArtifacts } from "@/lib/phase4Artifacts";
 import { ACTION_PHRASES } from "@/prompts/phase3_conversation";
@@ -243,12 +248,22 @@ export async function generatePhase4Insights(
   teamId: string,
   focusStatementId: number,
   focusStatementText: string,
-  networks: Networks | null
+  networks: Networks | null,
+  suppliedPrivacyParticipants?: CurrentPrivacyParticipant[]
 ): Promise<GeneratedInsights> {
+  // A Phase 4 agreement is a new aggregate. It must be calculated only from
+  // people who have acknowledged the notice currently in force, rather than
+  // merely hiding their exact words at display time.
+  const privacyParticipants = suppliedPrivacyParticipants ?? await getCurrentPrivacyParticipants(teamId);
+  const memberIds = currentPrivacyParticipantIds(privacyParticipants);
+  if (memberIds.length === 0) {
+    throw new Error("No participants have acknowledged the current privacy notice.");
+  }
+
   const [{ groups, unbucketed, memberCount }, storiesRes, contextRes] = await Promise.all([
-    classifyTeamBehaviours(teamId),
-    supabaseAdmin.from("member_stories").select("member_id, situation_tag").eq("team_id", teamId),
-    supabaseAdmin.from("phase3_context_responses").select("*").eq("team_id", teamId),
+    classifyTeamBehaviours(teamId, privacyParticipants),
+    supabaseAdmin.from("member_stories").select("member_id, situation_tag").eq("team_id", teamId).in("member_id", memberIds),
+    supabaseAdmin.from("phase3_context_responses").select("*").eq("team_id", teamId).in("member_id", memberIds),
   ]);
 
   // Situation convergence from story tags (distinct members per tag).

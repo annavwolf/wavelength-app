@@ -5,6 +5,7 @@ import ChatBubble from "@/components/interview/ChatBubble";
 import MemberBubble from "@/components/interview/MemberBubble";
 import VoiceTextarea from "@/components/interview/VoiceTextarea";
 import type { Member } from "@/types/database";
+import type { InterviewRosterMember } from "@/components/interview/types";
 
 function isThin(text: string): boolean {
   const t = text.trim().toLowerCase();
@@ -26,7 +27,7 @@ export default function PurposeStep({
   onAdvance,
 }: {
   member: Member;
-  allMembers: Member[];
+  allMembers: InterviewRosterMember[];
   readAloud: boolean;
   text: string;
   editing?: boolean;
@@ -97,10 +98,10 @@ export default function PurposeStep({
       {/* Roster pinned at top throughout this screen */}
       <div className="space-y-2 mb-6">
         {allMembers.map((m) => (
-          <div key={m.member_id} className="card flex items-center py-3">
+          <div key={m.roster_key} className="card flex items-center py-3">
             <p className="font-medium">
               {m.display_name}
-              {m.member_id === member.member_id && (
+              {m.is_self && (
                 <span className="text-sm text-[var(--color-grey)]"> (you)</span>
               )}
             </p>

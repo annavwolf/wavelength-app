@@ -42,17 +42,17 @@ export default function ConsultantCheckInPage() {
 
   return (
     <main className="flex-1">
-      <div className="w-full max-w-2xl mx-auto px-6 pt-8 pb-20">
-        <div className="flex items-center justify-between gap-4 mb-6 print:hidden">
-          <Link href={`/teams/${teamId}`} className="text-sm text-[var(--color-grey)] underline">← Back to dashboard</Link>
-          <div className="flex items-center gap-3">
+      <div className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6 sm:px-6 sm:pt-8">
+        <div className="mb-6 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden">
+          <Link href={`/teams/${teamId}`} className="inline-flex min-h-11 items-center self-start text-sm text-[var(--color-grey)] underline">← Back to dashboard</Link>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800">Consultant preview</span>
-            <button type="button" onClick={() => window.print()} className="btn-secondary" style={{ padding: "8px 16px", fontSize: "13px" }}>
+            <button type="button" onClick={() => window.print()} className="btn-secondary min-h-11 flex-1 sm:flex-none" style={{ padding: "8px 16px", fontSize: "13px" }}>
               Print / Save as PDF
             </button>
           </div>
         </div>
-        <article className="card" style={{ padding: "32px" }}>
+        <article className="card p-5 sm:p-8">
           <Markdown content={content} />
         </article>
       </div>

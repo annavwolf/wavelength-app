@@ -1,3 +1,12 @@
+// The public Phase 1 roster is intentionally a minimal projection. `roster_key`
+// is the team-scoped pseudonymous code used only for coordination ratings; it
+// is not a member UUID and never authorizes access to another participant.
+export type InterviewRosterMember = {
+  roster_key: string;
+  display_name: string;
+  is_self: boolean;
+};
+
 export type InterviewStep =
   | "privacy"
   | "landing"

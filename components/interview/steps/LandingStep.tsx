@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
+import { cancelSpeech } from "@/lib/speech";
 
 const BUBBLES = [
   "Hello — I'm Otis. My purpose is to help teams understand what's getting in the way of working well together — and to open up honest conversations about how to change that.",
@@ -28,22 +29,20 @@ export default function LandingStep({
     if (chunk < LAST_CHUNK) {
       // The initial “Yes” click primes speech in the browser. Do not cancel
       // that tiny warm-up utterance before the first Otis message mounts.
-      if (chunk > 0) cancelSpeech();
+      if (chunk > 0) cancelOtisSpeech();
       setChunk((c) => c + 1);
     }
   }
 
   function back() {
     if (chunk > 0) {
-      cancelSpeech();
+      cancelOtisSpeech();
       setChunk((c) => c - 1);
     }
   }
 
-  function cancelSpeech() {
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
+  function cancelOtisSpeech() {
+    cancelSpeech();
   }
 
   return (

@@ -4,8 +4,6 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const PENDING_CODE_KEY = "otis.pendingEarlyAccessCode";
-
 type AccessState = "loading" | "signed_out" | "locked" | "granted";
 
 export default function EarlyAccessPage() {
@@ -38,19 +36,7 @@ export default function EarlyAccessPage() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    if (state !== "locked" || submitting) return;
-    const pendingCode = window.sessionStorage.getItem(PENDING_CODE_KEY);
-    if (!pendingCode) return;
-    window.sessionStorage.removeItem(PENDING_CODE_KEY);
-    setCode(pendingCode);
-    void redeem(pendingCode, true);
-    // redeem is intentionally omitted: it is defined per render but consumes
-    // only the provided code and stable setters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
-
-  async function redeem(submittedCode: string, automatic = false) {
+  async function redeem(submittedCode: string) {
     setSubmitting(true);
     setMessage(null);
     try {
@@ -66,7 +52,7 @@ export default function EarlyAccessPage() {
       }
       setState("granted");
       setCode("");
-      setMessage(automatic ? "Early access has been applied to your new account." : "Early access granted.");
+      setMessage("Early access granted.");
     } catch {
       setMessage("Unable to grant early access. Check your connection and try again.");
     } finally {

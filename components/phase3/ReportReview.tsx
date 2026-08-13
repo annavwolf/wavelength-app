@@ -14,12 +14,14 @@ import { ZONE_NAME, ZONE_BADGE, ZONE_SHORT } from "@/components/dashboard/types"
 import { PLACE_PHRASES } from "@/prompts/phase3_conversation";
 import { sharedPurposeClassificationLabel } from "@/lib/phase3Copy";
 import { SECTION_COLOR, PreviewBubble, EditableBubble } from "@/components/phase3/Phase3ReleasePreview";
+import EarlyAccessGate from "@/components/consultant/EarlyAccessGate";
 
 type Props = {
   teamId: string;
   tier1: Tier1Result;
   tier2: Tier2Result | null;
   existingReport: Phase3ReportJson | null;
+  earlyAccess: boolean;
 };
 
 const FLAGGED_CLASSIFICATIONS = ["fuzzy", "bifurcated", "fragmented"];
@@ -62,7 +64,7 @@ function seedReport(tier2: Tier2Result | null, existing: Phase3ReportJson | null
   };
 }
 
-export default function ReportReview({ teamId, tier1, tier2, existingReport }: Props) {
+export default function ReportReview({ teamId, tier1, tier2, existingReport, earlyAccess }: Props) {
   const [report, setReport] = useState<Phase3ReportJson>(() => seedReport(tier2, existingReport));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -313,6 +315,15 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
       </div>
 
       {/* ── Actions ────────────────────────────────────────────────────────── */}
+      {!earlyAccess && (
+        <div className="mt-7">
+          <EarlyAccessGate
+            compact
+            feature="Releasing the Results & Team Agreement Activity"
+            detail="You can keep refining and saving this private draft. Releasing it to participants is an early-access beta feature."
+          />
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-6 mt-6 border-t border-black/10">
         <div className="space-y-1">
           {savedAt && !busy && <p className="text-xs text-[var(--color-grey)]">Draft saved at {savedAt}</p>}
@@ -328,6 +339,8 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
           <button type="button" onClick={() => void save(true)} disabled={busy} className="btn-secondary" style={{ padding: "8px 18px", fontSize: "13px" }}>
             {busy ? "Saving…" : "Save draft"}
           </button>
+          {earlyAccess && (
+            <>
           {!confirmRelease ? (
             <button type="button" onClick={() => setConfirmRelease(true)} disabled={busy || !report.focus_statement_id} className="btn-primary" style={{ padding: "8px 20px", fontSize: "13px" }}>
               {releasedAt ? "Re-release to team" : "Release to team"}
@@ -349,6 +362,8 @@ export default function ReportReview({ teamId, tier1, tier2, existingReport }: P
             ) : (
               <button type="button" onClick={() => setConfirmResendAll(true)} disabled={busy} className="text-xs text-[var(--color-grey)] hover:text-[var(--color-ink)] underline">Re-send to all</button>
             )
+          )}
+            </>
           )}
         </div>
       </div>

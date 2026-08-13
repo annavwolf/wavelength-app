@@ -4,6 +4,13 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { logIdentityLookups } from "@/lib/auditLog";
 import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import type { Phase3ReportJson } from "@/types/database";
+import {
+  artifactMatchesTier1,
+  currentTier1Provenance,
+  RECOMPUTE_REQUIRED_MESSAGE,
+  REINTERPRET_REQUIRED_MESSAGE,
+  withTier1Provenance,
+} from "@/lib/analysisProvenance";
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -35,12 +42,19 @@ export async function POST(req: NextRequest) {
 
   const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")
-    .select("id, phase3_report_json")
+    .select("id, tier1_json, tier2_json, phase3_report_json")
     .eq("team_id", team_id)
     .maybeSingle();
 
   if (aErr || !analysis) {
     return NextResponse.json({ error: "Analysis not found for this team" }, { status: 404 });
+  }
+  const tier1Provenance = currentTier1Provenance(analysis.tier1_json);
+  if (!tier1Provenance) {
+    return NextResponse.json({ error: RECOMPUTE_REQUIRED_MESSAGE, code: "analysis_recompute_required" }, { status: 409 });
+  }
+  if (!artifactMatchesTier1(analysis.tier2_json, tier1Provenance)) {
+    return NextResponse.json({ error: REINTERPRET_REQUIRED_MESSAGE, code: "analysis_reinterpret_required" }, { status: 409 });
   }
 
   const existing = (analysis.phase3_report_json as Phase3ReportJson | null) ?? null;
@@ -120,11 +134,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const updatedReport: Phase3ReportJson = {
+  const updatedReport = withTier1Provenance({
     ...(report as Phase3ReportJson),
     sent_member_ids: newSentIds,
     released_at: dry_run ? (existing?.released_at ?? null) : now,
-  };
+  }, tier1Provenance);
 
   const { error: saveErr } = await supabaseAdmin
     .from("analysis")

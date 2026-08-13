@@ -64,18 +64,18 @@ export default function ConsultantGamePlanPage() {
 
   return (
     <main className="flex-1">
-      <div className="w-full max-w-2xl mx-auto px-6 pt-8 pb-20">
-        <div className="flex items-center justify-between gap-4 mb-6 print:hidden">
-          <Link href={`/teams/${teamId}`} className="text-sm text-[var(--color-grey)] underline">← Back to dashboard</Link>
-          <div className="flex items-center gap-3">
+      <div className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6 sm:px-6 sm:pt-8">
+        <div className="mb-6 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden">
+          <Link href={`/teams/${teamId}`} className="inline-flex min-h-11 items-center self-start text-sm text-[var(--color-grey)] underline">← Back to dashboard</Link>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800">Consultant preview</span>
-            <button type="button" onClick={() => window.print()} className="btn-secondary" style={{ padding: "8px 16px", fontSize: "13px" }}>
+            <button type="button" onClick={() => window.print()} className="btn-secondary min-h-11 flex-1 sm:flex-none" style={{ padding: "8px 16px", fontSize: "13px" }}>
               Print / Save as PDF
             </button>
           </div>
         </div>
 
-        <article className="card space-y-6" style={{ padding: "32px" }}>
+        <article className="card space-y-6 p-5 sm:p-8">
           <header>
             <h1 className="text-2xl" style={{ fontFamily: "Playfair Display, serif" }}>Your Team&apos;s 30-Day Game Plan</h1>
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-[var(--color-grey)] mt-2">
@@ -169,7 +169,7 @@ export default function ConsultantGamePlanPage() {
 function Fill({ defaultValue = "", w = 160 }: { defaultValue?: string; w?: number }) {
   return (
     <input type="text" defaultValue={defaultValue} style={{ width: w, maxWidth: "100%" }}
-      className="border-b border-black/30 focus:border-[var(--color-navy)] outline-none bg-transparent px-1 text-[var(--color-ink)]" />
+      className="max-w-full border-b border-black/30 bg-transparent px-1 text-[var(--color-ink)] outline-none focus:border-[var(--color-navy)]" />
   );
 }
 
@@ -177,9 +177,9 @@ function NumberedFills({ prefill, count }: { prefill: string[]; count: number })
   return (
     <ol className="space-y-1.5">
       {Array.from({ length: count }).map((_, i) => (
-        <li key={i} className="flex items-center gap-2 text-sm">
+        <li key={i} className="flex min-w-0 items-center gap-2 text-sm">
           <span className="text-[var(--color-grey)]">{i + 1}.</span>
-          <Fill defaultValue={prefill[i] ?? ""} w={360} />
+          <span className="min-w-0 flex-1"><Fill defaultValue={prefill[i] ?? ""} w={360} /></span>
         </li>
       ))}
     </ol>
@@ -188,8 +188,8 @@ function NumberedFills({ prefill, count }: { prefill: string[]; count: number })
 
 function Check({ label }: { label: React.ReactNode }) {
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input type="checkbox" className="accent-[var(--color-navy)] mt-1 flex-shrink-0" />
+    <label className="flex min-h-11 items-start gap-2 py-1 text-sm">
+      <input type="checkbox" className="mt-1 h-5 w-5 flex-shrink-0 accent-[var(--color-navy)]" />
       <span className="leading-snug">{label}</span>
     </label>
   );

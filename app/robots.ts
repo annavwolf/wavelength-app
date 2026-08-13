@@ -25,11 +25,12 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: "*",
         allow: "/",
         // Keep private/functional areas out of indexes without blocking crawlers.
-        disallow: ["/api/", "/teams/", "/interview/", "/login"],
+        disallow: ["/api/", "/teams/", "/interview/", "/i/", "/login"],
       },
       ...ALLOWED_AI_CRAWLERS.map((userAgent) => ({
         userAgent,
         allow: "/",
+        disallow: ["/api/", "/teams/", "/interview/", "/i/", "/login"],
       })),
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,

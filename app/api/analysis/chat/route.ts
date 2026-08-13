@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
 import { PART2_SYSTEM_PROMPT } from "@/prompts/part2_analytics";
-import { redactTextForExternalProcessing } from "@/lib/privacy";
+import { PRIVACY_NOTICE_VERSION, redactTextForExternalProcessing } from "@/lib/privacy";
 import { requireTeamOwner } from "@/lib/requestAuth";
+import {
+  artifactMatchesTier1,
+  currentTier1Provenance,
+  RECOMPUTE_REQUIRED_MESSAGE,
+} from "@/lib/analysisProvenance";
 
 const MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 1024;
@@ -66,6 +71,13 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   if (!analysisRow || !analysisRow.tier1_json) {
     return NextResponse.json({ error: "Run Tier 1 analysis first" }, { status: 400 });
   }
+  const tier1Provenance = currentTier1Provenance(analysisRow.tier1_json);
+  if (!tier1Provenance) {
+    return NextResponse.json(
+      { error: RECOMPUTE_REQUIRED_MESSAGE, code: "analysis_recompute_required" },
+      { status: 409 }
+    );
+  }
 
   // ── Team context ────────────────────────────────────────────────────────────
   const { data: team, error: teamError } = await supabaseAdmin
@@ -85,16 +97,31 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   };
 
   // ── Members (for private_code + privacy flag) ───────────────────────────────
-  const { data: members, error: membersError } = await supabaseAdmin
-    .from("members")
-    .select("*")
-    .eq("team_id", teamId);
+  const [membersResult, privacyResult] = await Promise.all([
+    supabaseAdmin
+      .from("members")
+      .select("*")
+      .eq("team_id", teamId)
+      .eq("status", "complete"),
+    supabaseAdmin
+      .from("member_privacy_acknowledgements")
+      .select("member_id, verbatim_preference")
+      .eq("team_id", teamId)
+      .eq("privacy_notice_version", PRIVACY_NOTICE_VERSION)
+      .not("acknowledged_at", "is", null),
+  ]);
 
-  if (membersError) {
-    return NextResponse.json({ error: "db_error", detail: membersError.message }, { status: 500 });
+  if (membersResult.error || privacyResult.error) {
+    return NextResponse.json(
+      { error: "db_error", detail: membersResult.error?.message ?? privacyResult.error?.message },
+      { status: 500 }
+    );
   }
 
-  const memberById = new Map((members ?? []).map((m) => [m.member_id, m]));
+  const privacyByMemberId = new Map((privacyResult.data ?? []).map((record) => [record.member_id, record]));
+  const members = (membersResult.data ?? []).filter((member) => privacyByMemberId.has(member.member_id));
+  const memberIds = members.map((member) => member.member_id);
+  const memberById = new Map(members.map((member) => [member.member_id, member]));
 
   // ── Qualitative material + per-item PS detail ───────────────────────────────
   // Phase 2 is quantitative-only: the interview coding/clustering pipeline was
@@ -102,9 +129,9 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
   // the per-statement PS detail (below), the purpose statements, and the Tier 1
   // metrics inside tier1_json. No fish_responses, no interview clusters.
   const [purposeRes, stmtRes, psRes] = await Promise.all([
-    supabaseAdmin.from("purpose_responses").select("*").eq("team_id", teamId),
+    supabaseAdmin.from("purpose_responses").select("*").eq("team_id", teamId).in("member_id", memberIds),
     supabaseAdmin.from("ps_statements").select("*").order("statement_id", { ascending: true }),
-    supabaseAdmin.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1),
+    supabaseAdmin.from("ps_responses").select("*").eq("team_id", teamId).eq("round", 1).in("member_id", memberIds),
   ]);
 
   if (purposeRes.error) {
@@ -119,10 +146,11 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
 
   const purposeStatements = (purposeRes.data ?? []).map((r) => {
     const m = memberById.get(r.member_id);
+    const shareVerbatim = privacyByMemberId.get(r.member_id)?.verbatim_preference === "verbatim";
     return {
       private_code: m?.private_code ?? "unknown",
-      kept_private: !(m?.share_verbatim_with_team ?? false),
-      purpose_text: r.purpose_text,
+      kept_private: !shareVerbatim,
+      purpose_text: shareVerbatim ? r.purpose_text : "[Participant chose summaries only.]",
     };
   });
 
@@ -155,7 +183,11 @@ async function runChat(teamId: string, messages: ChatMessage[]): Promise<NextRes
     qualitative_material: {
       purpose_statements: purposeStatements,
     },
-    proposed_interpretation_tier2: analysisRow.tier2_json ?? null,
+    // An earlier Tier 2 read can remain stored for retention, but it must not
+    // be sent back to a model once a new current-consent computation exists.
+    proposed_interpretation_tier2: artifactMatchesTier1(analysisRow.tier2_json, tier1Provenance)
+      ? analysisRow.tier2_json
+      : null,
   };
 
   const { data: identities } = await supabaseAdmin

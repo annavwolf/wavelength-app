@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, isValidElement } from "react";
 import type { ReactNode } from "react";
-import { speakText, cancelSpeech, loadVoices, pickMaleVoice } from "@/lib/speech";
+import { speakText, cancelSpeech } from "@/lib/speech";
+import { useHostedSpeechAvailable, useVoiceParticipantMemberId } from "@/components/interview/VoiceInputContext";
 
 // Recursively pull the readable text out of arbitrary children so bubbles that
 // contain interpolation ({name}) or markup (<strong>, <br/>) still auto-play
@@ -35,6 +36,8 @@ export default function ChatBubble({
   // example, from a question to "Nice to meet you"). Track the text rather
   // than just a boolean so each distinct line is read once.
   const lastSpokenTextRef = useRef<string | null>(null);
+  const hostedSpeechAvailable = useHostedSpeechAvailable();
+  const memberId = useVoiceParticipantMemberId();
   const extracted = extractText(children).trim();
   const text = speakTextProp ?? (extracted || null);
 
@@ -49,19 +52,14 @@ export default function ChatBubble({
     }
     if (lastSpokenTextRef.current === text) return;
     lastSpokenTextRef.current = text;
-    void speakText(text);
+    void speakText(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readAloud, text]);
+  }, [hostedSpeechAvailable, memberId, readAloud, text]);
 
   async function handleClick() {
     if (!readAloud || !text) return;
     cancelSpeech();
-    const voices = await loadVoices();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    const voice = pickMaleVoice(voices);
-    if (voice) utterance.voice = voice;
-    window.speechSynthesis.speak(utterance);
+    await speakText(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
   }
 
   return (

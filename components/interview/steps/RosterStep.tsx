@@ -1,18 +1,17 @@
 "use client";
 
 import ChatBubble from "@/components/interview/ChatBubble";
-import type { Member, Team } from "@/types/database";
+import type { Team } from "@/types/database";
+import type { InterviewRosterMember } from "@/components/interview/types";
 
 export default function RosterStep({
-  member,
   team,
   allMembers,
   onAdvance,
   readAloud,
 }: {
-  member: Member;
   team: Team;
-  allMembers: Member[];
+  allMembers: InterviewRosterMember[];
   readAloud: boolean;
   onAdvance: () => void;
 }) {
@@ -28,10 +27,10 @@ export default function RosterStep({
       {/* Roster — names only */}
       <div className="space-y-2 mt-6 mb-6">
         {allMembers.map((m) => (
-          <div key={m.member_id} className="card flex items-center py-3">
+          <div key={m.roster_key} className="card flex items-center py-3">
             <p className="font-medium">
               {m.display_name}
-              {m.member_id === member.member_id && (
+              {m.is_self && (
                 <span className="text-sm text-[var(--color-grey)]"> (you)</span>
               )}
             </p>

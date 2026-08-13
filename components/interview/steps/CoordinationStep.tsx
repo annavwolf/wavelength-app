@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import ChatBubble from "@/components/interview/ChatBubble";
 import type { CoordinationFrequency, Member } from "@/types/database";
+import type { InterviewRosterMember } from "@/components/interview/types";
 
 const OPTIONS: { value: CoordinationFrequency; label: string }[] = [
   { value: "daily", label: "Daily" },
@@ -20,7 +21,7 @@ export default function CoordinationStep({
   onAdvance,
 }: {
   member: Member;
-  otherMembers: Member[];
+  otherMembers: InterviewRosterMember[];
   readAloud: boolean;
   ratings: Record<string, CoordinationFrequency>;
   onRatingsChange: (ratings: Record<string, CoordinationFrequency>) => void;
@@ -38,18 +39,18 @@ export default function CoordinationStep({
         if (!response.ok || !Array.isArray(data.ratings) || data.ratings.length === 0) return;
         const populated: Record<string, CoordinationFrequency> = {};
         for (const row of data.ratings) {
-          const match = row.target_member_id
-            ? otherMembers.find((member) => member.member_id === row.target_member_id)
+          const match = row.target_roster_key
+            ? otherMembers.find((member) => member.roster_key === row.target_roster_key)
             : otherMembers.find((member) => member.display_name.toLowerCase() === row.target_member_name.toLowerCase());
-          if (match) populated[match.member_id] = row.frequency as CoordinationFrequency;
+          if (match) populated[match.roster_key] = row.frequency as CoordinationFrequency;
         }
         if (Object.keys(populated).length > 0) onRatingsChange(populated);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function selectFrequency(target: Member, frequency: CoordinationFrequency) {
-    setSavingId(target.member_id);
+  async function selectFrequency(target: InterviewRosterMember, frequency: CoordinationFrequency) {
+    setSavingId(target.roster_key);
     setError(null);
 
     const response = await fetch("/api/interview/responses", {
@@ -58,7 +59,7 @@ export default function CoordinationStep({
       body: JSON.stringify({
         member_id: member.member_id,
         kind: "coordination",
-        target_member_id: target.member_id,
+        target_roster_key: target.roster_key,
         frequency,
       }),
     });
@@ -68,11 +69,11 @@ export default function CoordinationStep({
       return;
     }
 
-    onRatingsChange({ ...ratings, [target.member_id]: frequency });
+    onRatingsChange({ ...ratings, [target.roster_key]: frequency });
     setSavingId(null);
   }
 
-  const allRated = otherMembers.every((m) => ratings[m.member_id]);
+  const allRated = otherMembers.every((m) => ratings[m.roster_key]);
 
   return (
     <div>
@@ -84,7 +85,7 @@ export default function CoordinationStep({
 
       <div className="space-y-4 mt-6 mb-6">
         {otherMembers.map((m) => (
-          <div key={m.member_id} className="card">
+          <div key={m.roster_key} className="card">
             <p className="font-medium mb-3">
               {m.display_name}
             </p>
@@ -93,10 +94,10 @@ export default function CoordinationStep({
                 <button
                   key={opt.value}
                   type="button"
-                  disabled={savingId === m.member_id}
+                  disabled={savingId === m.roster_key}
                   onClick={() => selectFrequency(m, opt.value)}
                   className={`text-sm px-4 py-2 rounded-full border transition-colors ${
-                    ratings[m.member_id] === opt.value
+                    ratings[m.roster_key] === opt.value
                       ? "bg-[var(--color-navy)] text-white border-[var(--color-navy)]"
                       : "border-black/15 text-[var(--color-ink)]"
                   }`}

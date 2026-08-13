@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   createBrowserClient as createSSRBrowserClient,
   createServerClient as createSSRServerClient,
@@ -34,8 +34,19 @@ export const supabaseAdmin = createClient<Database>(supabaseUrl, serviceRoleKey,
 // consultant's identity (needed for auth.uid() checks like consultant_id).
 // Required (instead of the plain client above) for the new sb_publishable_...
 // key format, which @supabase/auth-helpers-nextjs doesn't support.
+// Keep one GoTrue client per browser bundle. AuthGate, Login, and dashboard
+// components can coexist during navigation; independent clients sharing the
+// same storage key can race each other's auth-state handling.
+let browserSupabaseClient: SupabaseClient<Database> | undefined;
+
 export function createBrowserClient() {
-  return createSSRBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
+  if (typeof window === "undefined") {
+    return createSSRBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
+  }
+  if (!browserSupabaseClient) {
+    browserSupabaseClient = createSSRBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
+  }
+  return browserSupabaseClient;
 }
 
 // Session-aware server client for route handlers. Route handlers deliberately

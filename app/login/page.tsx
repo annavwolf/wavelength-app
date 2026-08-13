@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 
 type Mode = "signin" | "signup" | "forgot";
-const PENDING_EARLY_ACCESS_CODE_KEY = "otis.pendingEarlyAccessCode";
 
 function safeLocalPath(value: string | null): string {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) {
@@ -78,6 +77,34 @@ function LoginForm() {
 
     const requestedEarlyAccess = earlyAccessCode.trim();
     const confirmationDestination = requestedEarlyAccess ? "/early-access" : "/";
+
+    if (requestedEarlyAccess) {
+      try {
+        const pending = await fetch("/api/early-access/pending", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: requestedEarlyAccess }),
+        });
+        if (!pending.ok) {
+          // The public endpoint intentionally does not reveal whether the
+          // code itself was valid. Network, capacity, and rate-limit failures
+          // all use this same safe message before an account is created.
+          setErrorMessage(
+            "We couldn't prepare early access right now. Please try again, or create your account and redeem the code after signing in."
+          );
+          setSubmitting(false);
+          return;
+        }
+      } catch {
+        setErrorMessage(
+          "We couldn't prepare early access right now. Please check your connection and try again."
+        );
+        setSubmitting(false);
+        return;
+      }
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -102,16 +129,11 @@ function LoginForm() {
       return;
     }
 
-    // This is a short-lived convenience for a person who verifies their new
-    // account in the same browser. The code is never placed in a URL or saved
-    // server-side; if the browser session is unavailable after verification,
-    // /early-access still provides the normal manual entry route.
-    if (requestedEarlyAccess) {
-      window.sessionStorage.setItem(PENDING_EARLY_ACCESS_CODE_KEY, requestedEarlyAccess);
-    }
-
     if (data.session && requestedEarlyAccess) {
-      router.push("/early-access");
+      // When email confirmation is disabled, force one server-side callback
+      // hop so it consumes the HttpOnly pending claim exactly like an email
+      // confirmation would. This does not put a raw code in the URL.
+      window.location.assign("/auth/callback?next=%2Fearly-access");
       return;
     }
 
@@ -160,7 +182,7 @@ function LoginForm() {
             <button
               type="button"
               onClick={() => switchMode("signin")}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              className={`min-h-11 flex-1 py-2 text-sm font-medium transition-colors ${
                 mode === "signin"
                   ? "bg-[var(--color-purple)] text-white"
                   : "text-[var(--color-grey)] hover:text-[var(--color-text)]"
@@ -171,7 +193,7 @@ function LoginForm() {
             <button
               type="button"
               onClick={() => switchMode("signup")}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              className={`min-h-11 flex-1 py-2 text-sm font-medium transition-colors ${
                 mode === "signup"
                   ? "bg-[var(--color-purple)] text-white"
                   : "text-[var(--color-grey)] hover:text-[var(--color-text)]"
@@ -256,7 +278,7 @@ function LoginForm() {
               <button
                 type="button"
                 onClick={() => switchMode("forgot")}
-                className="text-xs text-[var(--color-grey)] underline"
+                className="inline-flex min-h-11 items-center text-sm text-[var(--color-grey)] underline"
               >
                 Forgot your password?
               </button>

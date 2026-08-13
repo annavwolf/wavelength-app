@@ -14,6 +14,11 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
+import {
+  currentPrivacyParticipantIds,
+  getCurrentPrivacyParticipants,
+  type CurrentPrivacyParticipant,
+} from "@/lib/currentPrivacyParticipants";
 import { ITEM_EXAMPLES } from "@/lib/itemExamples";
 import { MODELS } from "@/lib/models";
 import { redactTextForExternalProcessing } from "@/lib/privacy";
@@ -241,11 +246,21 @@ reason: ${r.pass1_reason}`;
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 
-export async function classifyTeamBehaviours(teamId: string): Promise<ClassificationResult> {
+export async function classifyTeamBehaviours(
+  teamId: string,
+  currentPrivacyParticipants?: CurrentPrivacyParticipant[]
+): Promise<ClassificationResult> {
+  const privacyParticipants = currentPrivacyParticipants ?? await getCurrentPrivacyParticipants(teamId);
+  const currentMemberIds = currentPrivacyParticipantIds(privacyParticipants);
+  if (currentMemberIds.length === 0) {
+    return { groups: [], unbucketed: [], trajectories: [], memberCount: 0 };
+  }
+
   const { data, error } = await supabaseAdmin
     .from("member_behaviors")
     .select("*")
     .eq("team_id", teamId)
+    .in("member_id", currentMemberIds)
     .order("created_at", { ascending: true });
   if (error) throw new Error(`member_behaviors load failed: ${error.message}`);
 
@@ -253,15 +268,10 @@ export async function classifyTeamBehaviours(teamId: string): Promise<Classifica
   const memberCount = new Set(behaviours.map((b) => b.member_id)).size;
   if (behaviours.length === 0) return { groups: [], unbucketed: [], trajectories: [], memberCount };
 
-  const { data: privacyRows, error: privacyError } = await supabaseAdmin
-    .from("member_privacy_acknowledgements")
-    .select("member_id, verbatim_preference")
-    .eq("team_id", teamId);
-  if (privacyError) throw new Error(`privacy preference load failed: ${privacyError.message}`);
   const canShareVerbatim = new Set(
-    (privacyRows ?? [])
-      .filter((row) => row.verbatim_preference === "verbatim")
-      .map((row) => row.member_id)
+    privacyParticipants
+      .filter((participant) => participant.verbatimPreference === "verbatim")
+      .map((participant) => participant.memberId)
   );
   const anonymousMemberIds = new Map(
     Array.from(new Set(behaviours.map((behavior) => behavior.member_id))).map((memberId, index) => [memberId, `participant-${index + 1}`])

@@ -11,13 +11,25 @@ import { SignJWT, jwtVerify } from "jose";
 
 export const SESSION_COOKIE = "otis_member_session";
 export const PRESESSION_COOKIE = "otis_member_presession";
+// A narrowly scoped, short-lived session created when a participant redeems a
+// personal assessment link. It is intentionally NOT accepted by /me: an
+// emailed assessment link should never unlock the full member profile.
+export const INTERVIEW_SESSION_COOKIE = "otis_interview_session";
 
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const INTERVIEW_SESSION_MAX_AGE = 60 * 60 * 24; // 24 hours
 const PRESESSION_MAX_AGE = 60 * 30; // 30 min — just long enough to pick a team
 
 export type MemberSession = {
   member_id: string;
   team_id: string;
+};
+
+export type InterviewSession = MemberSession & {
+  // Present when this session came from an emailed invite. It lets the server
+  // check that the originating invite has not since been revoked, without ever
+  // putting the raw invite token in a cookie or database row.
+  token_id?: string;
 };
 
 // A candidate shown in the "which team?" chooser when one email is on members
@@ -64,8 +76,50 @@ export async function verifySession(
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, getSecret());
+    // An interview session is signed with the same key but is a distinct
+    // credential. Reject it here so copying an HttpOnly interview cookie into
+    // the member-cookie slot can never grant access to /me.
+    if (payload.interview_access === true) return null;
     if (typeof payload.member_id === "string" && typeof payload.team_id === "string") {
       return { member_id: payload.member_id, team_id: payload.team_id };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function signInterviewSession(payload: InterviewSession): Promise<string> {
+  return new SignJWT({
+    member_id: payload.member_id,
+    team_id: payload.team_id,
+    interview_access: true,
+    ...(payload.token_id ? { token_id: payload.token_id } : {}),
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(payload.member_id)
+    .setIssuedAt()
+    .setExpirationTime(`${INTERVIEW_SESSION_MAX_AGE}s`)
+    .sign(getSecret());
+}
+
+export async function verifyInterviewSession(
+  token: string | undefined | null
+): Promise<InterviewSession | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, getSecret());
+    if (
+      payload.interview_access === true &&
+      typeof payload.member_id === "string" &&
+      typeof payload.team_id === "string" &&
+      (typeof payload.token_id === "string" || typeof payload.token_id === "undefined")
+    ) {
+      return {
+        member_id: payload.member_id,
+        team_id: payload.team_id,
+        ...(typeof payload.token_id === "string" ? { token_id: payload.token_id } : {}),
+      };
     }
     return null;
   } catch {
@@ -117,3 +171,4 @@ export function sessionCookieOptions(maxAge: number) {
 
 export const SESSION_COOKIE_MAX_AGE = SESSION_MAX_AGE;
 export const PRESESSION_COOKIE_MAX_AGE = PRESESSION_MAX_AGE;
+export const INTERVIEW_SESSION_COOKIE_MAX_AGE = INTERVIEW_SESSION_MAX_AGE;

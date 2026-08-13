@@ -22,12 +22,23 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 html, body {
   min-height: 100vh;
   font-family: 'DM Sans', sans-serif;
   background: linear-gradient(180deg, var(--color-bg-start) 0%, var(--color-bg-end) 100%);
   background-attachment: fixed;
   color: var(--color-ink);
+}
+
+body {
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3 {
@@ -83,6 +94,15 @@ h1, h2, h3 {
   background: #E0D6F3;
   border-color: var(--color-purple);
   box-shadow: 0 2px 7px rgba(107, 78, 168, 0.18);
+}
+
+/* Keep tap interactions deliberate on phone browsers. Form controls retain a
+   16px minimum below so iOS does not zoom the page when a participant answers. */
+button:not(:disabled) { touch-action: manipulation; }
+
+:focus-visible {
+  outline: 3px solid rgba(107, 78, 168, 0.7);
+  outline-offset: 3px;
 }
 
 /* Shared "clickable choice" look for option buttons throughout the survey.
@@ -168,4 +188,29 @@ h1, h2, h3 {
 }
 .otis-float {
   animation: otis-float 4s ease-in-out infinite;
+}
+
+@media (max-width: 640px) {
+  html, body { background-attachment: scroll; }
+
+  .card { padding: 20px; }
+
+  .btn-primary,
+  .btn-secondary {
+    min-height: 44px;
+    padding: 11px 20px;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select { font-size: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

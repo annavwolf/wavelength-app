@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateLoginToken, hashLoginToken } from "@/lib/memberTokens";
+import { memberLoginRateLimitKeys } from "@/lib/memberLoginRateLimit";
 import { logIdentityLookup } from "@/lib/auditLog";
 
 function escapeHtml(value: string) {
@@ -17,16 +18,69 @@ function escapeHtml(value: string) {
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const rawEmail: unknown = body?.email;
-  const email = typeof rawEmail === "string" ? rawEmail.trim() : "";
+  const email = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
 
-  // Same response in every branch (no enumeration). Real failures are logged.
+  const noStoreHeaders = { "Cache-Control": "no-store, private" };
+  // Same success response for every membership result. Real failures are
+  // logged server-side; callers never learn whether an email has a member.
   const genericOk = NextResponse.json({
     ok: true,
     message: "If that email is on a team, we've sent a sign-in link.",
-  });
+  }, { headers: noStoreHeaders });
 
   if (!email || !email.includes("@")) {
-    return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "A valid email is required." },
+      { status: 400, headers: noStoreHeaders }
+    );
+  }
+
+  // This must run before the membership lookup so unknown emails cannot evade
+  // the durable limiter or become an oracle. The database receives HMACed
+  // keys only, never the raw email or client IP.
+  let rateLimitKeys;
+  try {
+    rateLimitKeys = memberLoginRateLimitKeys(req, email);
+  } catch (error) {
+    // A missing/invalid server secret is an operational failure. Fail closed
+    // by not minting or emailing a token, while preserving the generic reply.
+    console.error("[member/auth/request] rate-limit key creation failed:", error);
+    return genericOk;
+  }
+
+  const { data: rateLimitData, error: rateLimitError } = await supabaseAdmin.rpc(
+    "consume_member_login_request_rate_limit",
+    {
+      p_combination_key_hash: rateLimitKeys.combinationKeyHash,
+      p_email_key_hash: rateLimitKeys.emailKeyHash,
+    }
+  );
+  const rateLimit = rateLimitData?.[0];
+  if (rateLimitError || !rateLimit || typeof rateLimit.allowed !== "boolean") {
+    // The limiter is an abuse boundary, so a database fault must not fall
+    // through to token creation. A generic 200 keeps this failure
+    // non-enumerating just like an unknown email address.
+    console.error(
+      "[member/auth/request] durable rate limit failed:",
+      rateLimitError?.message ?? "empty or malformed RPC response"
+    );
+    return genericOk;
+  }
+  if (!rateLimit.allowed) {
+    const retryAfterSeconds = Math.max(1, rateLimit.retry_after_seconds ?? 60);
+    return NextResponse.json(
+      {
+        ok: false,
+        message: "Too many sign-in requests. Please wait a few minutes and try again.",
+      },
+      {
+        status: 429,
+        headers: {
+          ...noStoreHeaders,
+          "Retry-After": String(retryAfterSeconds),
+        },
+      }
+    );
   }
 
   // 1) Is this email on any member? Query member_identity (identity table).
@@ -85,7 +139,7 @@ export async function POST(req: NextRequest) {
       // This is deliberately returned only by localhost development mode.
       // Production retains the non-enumerating email-only response.
       dev_login_url: loginUrl,
-    });
+    }, { headers: noStoreHeaders });
   }
 
   // 3) Email the magic link. This is the ONLY step that needs Resend; if the

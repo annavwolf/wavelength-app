@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { effectiveValue } from "@/lib/psSelection";
 import { embedTexts, cosineSim } from "@/lib/embeddings";
+import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
 import { requireTeamOwner } from "@/lib/requestAuth";
 import type {
   CoordinationFrequency,
@@ -90,11 +91,13 @@ async function runCompute(teamId: string): Promise<NextResponse> {
     .from("member_privacy_acknowledgements")
     .select("member_id, verbatim_preference")
     .eq("team_id", teamId)
+    .eq("privacy_notice_version", PRIVACY_NOTICE_VERSION)
+    .not("acknowledged_at", "is", null)
     .in("member_id", completed.map((member) => member.member_id));
   if (privacyError) return NextResponse.json({ error: "db_error", detail: privacyError.message }, { status: 500 });
   const privacyById = new Map((privacyRows ?? []).map((record) => [record.member_id, record]));
-  // A completed row from before the beta notice is not analysed until the
-  // participant has read and acknowledged the current privacy information.
+  // A completed row from before the current beta notice is not analysed until
+  // the participant has read and acknowledged the current privacy information.
   const members = completed.filter((member) => privacyById.has(member.member_id));
   const nCompleted = members.length;
   // Hard gate (unchanged): < 3 completed members → insufficient.
@@ -392,6 +395,9 @@ async function runCompute(teamId: string): Promise<NextResponse> {
   // ── Assemble tier1_json ──────────────────────────────────────────────────────
   const result = {
     computed_at: new Date().toISOString(),
+    // Every downstream analysis artifact is tied to this acknowledgement
+    // version. Old JSON has no marker and is therefore intentionally stale.
+    privacy_notice_version: PRIVACY_NOTICE_VERSION,
     participation: { n_completed: nCompleted, roster_size: rosterSize, confidence },
     ps_zones: zoneScores,
     ps_statements: statementScores,

@@ -94,7 +94,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const privacyById = new Map((privacyRes.data ?? []).map((privacy) => [privacy.member_id, privacy]));
   const verbatimMemberIds = new Set(
     (privacyRes.data ?? [])
-      .filter((privacy) => privacy.verbatim_preference === "verbatim")
+      .filter((privacy) =>
+        privacy.acknowledged_at &&
+        privacy.privacy_notice_version === PRIVACY_NOTICE_VERSION &&
+        privacy.verbatim_preference === "verbatim"
+      )
       .map((privacy) => privacy.member_id)
   );
   const members: MemberWithIdentity[] = (membersRes.data ?? []).map((member) => {
