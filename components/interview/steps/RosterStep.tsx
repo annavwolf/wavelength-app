@@ -20,9 +20,6 @@ export default function RosterStep({
       <ChatBubble readAloud={readAloud}>
         I also have some information about <strong>{team.team_name}</strong>. This is the team we&apos;ll talk about today.
       </ChatBubble>
-      <ChatBubble readAloud={readAloud}>
-        I see a team as people with complementary skills who depend on one another to reach common goals. Here&apos;s the roster I have on file.
-      </ChatBubble>
 
       {/* Roster — names only */}
       <div className="space-y-2 mt-6 mb-6">

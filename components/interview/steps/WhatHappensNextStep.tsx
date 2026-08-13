@@ -23,7 +23,7 @@ export default function WhatHappensNextStep({
 
       <div className="w-full max-w-xl">
         <ChatBubble readAloud={readAloud} hideAvatar centered>
-          {`Thanks, ${firstName}, that's all I need! Here's what happens next. I'm going to speak with everyone on your team and run some analyses. The next time we meet, we'll discuss the results — to pinpoint where psychological safety is lacking, and how to build it up.`}
+          {`Thanks, ${firstName}, that's all I need! Here's what happens next. I'm going to speak with everyone on your team and run some analysis. The next time we meet, we'll discuss the results — to pinpoint where psychological safety is lacking, and how to build it up.`}
         </ChatBubble>
 
         <div className="flex justify-center mt-8">

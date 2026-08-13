@@ -43,6 +43,9 @@ export async function POST(request: NextRequest) {
   if (text.length > OTIS_AUDIO_LIMITS.maxSynthesisCharacters) {
     return NextResponse.json({ error: "Message is too long to read aloud." }, { status: 413 });
   }
+  // The client requests raw PCM only when it can play it progressively through
+  // a running Web Audio context; otherwise it asks for a self-contained MP3.
+  const format = body?.format === "pcm" ? "pcm" : "mp3";
   const allowance = await consumeHostedAudioAllowance(auth.memberId, {
     capability: "synthesis",
     synthesisCharacters: text.length,
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
   if (allowance) return allowance;
 
   try {
-    const upstream = await synthesizeWithDeepgram(text);
+    const upstream = await synthesizeWithDeepgram(text, format);
     return new NextResponse(upstream.body, {
       status: 200,
       headers: {

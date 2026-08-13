@@ -8,12 +8,12 @@ const SECTIONS: { label: string; steps: InterviewStep[]; color: string }[] = [
   },
   {
     label: "Personal & team info",
-    steps: ["profile", "roster", "profile_details", "purpose", "team_name", "own_role", "coordination"],
+    steps: ["profile", "roster", "profile_details", "purpose", "team_name", "own_role", "coordination", "faq"],
     color: "#A05A46",   // terracotta — matches rgba(160, 90, 70) section tint
   },
   {
     label: "Psychological safety",
-    steps: ["ps_why", "faq", "ps_descent", "ps_diagnostic", "ps_importance"],
+    steps: ["ps_why", "ps_descent", "ps_diagnostic", "ps_importance"],
     color: "#1A5A6E",   // ocean teal — matches rgba(26, 90, 110) section tint
   },
   {

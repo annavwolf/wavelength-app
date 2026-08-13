@@ -1,14 +1,48 @@
 import "server-only";
 
+import crypto from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { OTIS_AUDIO_LIMITS, type HostedAudioCapabilities } from "@/lib/otisAudio";
 import { consumePilotAudioAllowance } from "@/lib/audioPilotQuota";
 import { requireInterviewAccess } from "@/lib/interviewAccess";
+import { SESSION_COOKIE, INTERVIEW_SESSION_COOKIE } from "@/lib/memberSession";
 import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const DEEPGRAM_API_BASE = "https://api.deepgram.com/v1";
 const PROVIDER_TIMEOUT_MS = 25_000;
+
+// Short-lived in-process cache for voice authorization results.
+// Each TTS/STT request would otherwise chain 3-4 sequential Supabase queries
+// (token validity → member status → privacy acknowledgement) before Deepgram
+// is even contacted. Caching the "this participant is authorized" verdict for
+// 30 seconds removes that overhead on the hot path. Quota enforcement is NOT
+// cached — it still runs on every request as the per-minute spend gate.
+const _AUTH_CACHE_TTL_MS = 30_000;
+type AuthCacheEntry = { memberId: string; expiresAt: number };
+const _authCache = new Map<string, AuthCacheEntry>();
+
+function _authCacheKey(request: NextRequest): string {
+  const a = request.cookies.get(SESSION_COOKIE)?.value ?? "";
+  const b = request.cookies.get(INTERVIEW_SESSION_COOKIE)?.value ?? "";
+  return crypto.createHash("sha256").update(`${a}:${b}`).digest("hex");
+}
+
+function _getCachedAuth(key: string): string | null {
+  const entry = _authCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) { _authCache.delete(key); return null; }
+  return entry.memberId;
+}
+
+function _setCachedAuth(key: string, memberId: string): void {
+  // Evict stale entries to prevent unbounded growth in long-running processes.
+  if (_authCache.size > 500) {
+    const now = Date.now();
+    _authCache.forEach((v, k) => { if (v.expiresAt < now) _authCache.delete(k); });
+  }
+  _authCache.set(key, { memberId, expiresAt: Date.now() + _AUTH_CACHE_TTL_MS });
+}
 
 type VoiceParticipantAuthorization =
   | { ok: true; memberId: string }
@@ -94,6 +128,11 @@ function getDeepgramConfig(): DeepgramConfig | null {
   return {
     apiKey,
     transcriptionModel: process.env.OTIS_DEEPGRAM_STT_MODEL?.trim() || "nova-3",
+    // aura-2-* are the higher-quality voices. They take ~3.3s to fully generate
+    // a short prompt at the REST /speak endpoint, but the first audio bytes
+    // arrive in ~1s. We request raw PCM (see synthesizeWithDeepgram) so the
+    // client can start playback progressively instead of waiting for the whole
+    // file — keeping aura-2 quality without the full-generation delay.
     synthesisModel: process.env.OTIS_DEEPGRAM_TTS_MODEL?.trim() || "aura-2-arcas-en",
   };
 }
@@ -117,6 +156,10 @@ export function getHostedAudioCapabilities(): HostedAudioCapabilities {
  * the current notice and have explicitly enabled voice input.
  */
 export async function authorizeVoiceParticipant(request: NextRequest): Promise<VoiceParticipantAuthorization> {
+  const cacheKey = _authCacheKey(request);
+  const cachedMemberId = _getCachedAuth(cacheKey);
+  if (cachedMemberId) return { ok: true, memberId: cachedMemberId };
+
   const requestedMemberId = request.nextUrl.searchParams.get("member_id");
   const access = await requireInterviewAccess(request, {
     ...(requestedMemberId ? { memberId: requestedMemberId } : {}),
@@ -174,6 +217,7 @@ export async function authorizeVoiceParticipant(request: NextRequest): Promise<V
     };
   }
 
+  _setCachedAuth(cacheKey, memberId);
   return { ok: true, memberId };
 }
 
@@ -322,17 +366,35 @@ export async function transcribeWithDeepgram({
  * Generate spoken audio for an Otis message. The caller proxies the stream
  * straight to the participant; the generated audio is never stored by Otis.
  */
-export async function synthesizeWithDeepgram(text: string): Promise<Response> {
+/** Raw-PCM sample rate for the streaming path. Kept in sync with the client. */
+export const OTIS_PCM_SAMPLE_RATE = 24_000;
+
+export async function synthesizeWithDeepgram(
+  text: string,
+  format: "pcm" | "mp3" = "mp3"
+): Promise<Response> {
   const config = getDeepgramConfig();
   if (!config) throw new HostedAudioConfigurationError("synthesis");
 
   const url = new URL(`${DEEPGRAM_API_BASE}/speak`);
   url.searchParams.set("model", config.synthesisModel);
-  // MP3 is broadly supported by Safari, Android, and desktop browsers. The
-  // modest 48 kbit/s setting avoids an unnecessary mobile-data penalty while
-  // remaining clear for short spoken prompts.
-  url.searchParams.set("encoding", "mp3");
-  url.searchParams.set("bit_rate", "48000");
+  if (format === "pcm") {
+    // Raw signed 16-bit PCM streams out of Deepgram in chunked transfer with no
+    // container framing, so the browser can start playing the first chunk via
+    // the Web Audio API before the full clip is generated. This is what lets a
+    // higher-quality aura-2 voice feel responsive despite ~3s full-generation.
+    url.searchParams.set("encoding", "linear16");
+    url.searchParams.set("sample_rate", String(OTIS_PCM_SAMPLE_RATE));
+    url.searchParams.set("container", "none");
+  } else {
+    // MP3 is broadly supported by Safari, Android, and desktop browsers. The
+    // modest 48 kbit/s setting avoids an unnecessary mobile-data penalty while
+    // remaining clear for short spoken prompts. Used when the client cannot
+    // start a Web Audio context (no user gesture yet) and must buffer a whole
+    // playable file instead.
+    url.searchParams.set("encoding", "mp3");
+    url.searchParams.set("bit_rate", "48000");
+  }
   url.searchParams.set("mip_opt_out", "true");
 
   const request = providerAbortController();
@@ -342,7 +404,7 @@ export async function synthesizeWithDeepgram(text: string): Promise<Response> {
       headers: {
         Authorization: `Token ${config.apiKey}`,
         "Content-Type": "application/json",
-        Accept: "audio/mpeg",
+        Accept: format === "pcm" ? "audio/l16" : "audio/mpeg",
       },
       body: JSON.stringify({ text }),
       cache: "no-store",
@@ -353,6 +415,7 @@ export async function synthesizeWithDeepgram(text: string): Promise<Response> {
     }
 
     const contentType = response.headers.get("content-type") || "";
+    // Deepgram returns "audio/mpeg" for mp3 and "audio/l16;rate=24000" for PCM.
     if (!contentType.toLowerCase().startsWith("audio/")) {
       throw new HostedAudioProviderError("synthesis", 502);
     }

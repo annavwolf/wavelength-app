@@ -27,8 +27,30 @@ let _activeAudio: HTMLAudioElement | null = null;
 let _activeAudioUrl: string | null = null;
 let _audioContext: AudioContext | null = null;
 let _activeAudioSource: AudioBufferSourceNode | null = null;
+// Streaming PCM playback schedules many short buffers back-to-back; hold them
+// all so cancelSpeech can stop the ones that have not finished playing yet.
+let _activePcmSources: Set<AudioBufferSourceNode> | null = null;
 let _activeFetch: AbortController | null = null;
 let _speechRequestId = 0;
+
+// Auto-read queue. Several ChatBubbles can mount together (e.g. an intro line
+// plus a question); each enqueues its text and they are spoken one after
+// another instead of each canceling the previous. Click-to-replay uses
+// speakText, which clears the queue and speaks a single line immediately.
+type QueueItem = { text: string; rate: number; options: SpeechOptions };
+let _speechQueue: QueueItem[] = [];
+let _queueRunning = false;
+let _currentDrainId = 0;
+
+// Resolve when `isDone()` returns true, or bail early if this request has been
+// superseded (cancelSpeech / a newer line bumps _speechRequestId). This keeps
+// the queue cancellation-safe without relying on onended, which we null during
+// teardown. Polling at 60ms is inaudible for gapless scheduling.
+async function waitForPlayback(requestId: number, isDone: () => boolean): Promise<void> {
+  while (requestId === _speechRequestId && !isDone()) {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  }
+}
 
 export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   if (typeof window === "undefined" || !window.speechSynthesis) {
@@ -76,6 +98,18 @@ function clearHostedAudio() {
     _activeAudioSource.disconnect();
     _activeAudioSource = null;
   }
+  if (_activePcmSources) {
+    _activePcmSources.forEach((source) => {
+      source.onended = null;
+      try {
+        source.stop();
+      } catch {
+        // Already ended.
+      }
+      source.disconnect();
+    });
+    _activePcmSources = null;
+  }
   if (_activeAudio) {
     _activeAudio.onended = null;
     _activeAudio.onerror = null;
@@ -105,11 +139,104 @@ function getAudioContext(): AudioContext | null {
   }
 }
 
+/**
+ * Play raw signed-16-bit PCM as it streams in, so a higher-quality voice can
+ * start speaking about a second after the request instead of after the whole
+ * clip is generated. Each network chunk becomes a short AudioBuffer scheduled
+ * immediately after the previous one, giving gapless playback. Requires a
+ * running AudioContext (primed by the read-aloud gesture); returns false if it
+ * cannot start, so the caller can fall back to a buffered MP3.
+ */
+async function streamPcmAudio(
+  stream: ReadableStream<Uint8Array>,
+  sampleRate: number,
+  requestId: number
+): Promise<boolean> {
+  const context = getAudioContext();
+  if (!context || context.state !== "running") return false;
+
+  const sources = new Set<AudioBufferSourceNode>();
+  _activePcmSources = sources;
+
+  const reader = stream.getReader();
+  let nextStartTime = 0;
+  let started = false;
+  // PCM samples are 2 bytes; a chunk can end mid-sample, so carry the odd byte.
+  let leftover: Uint8Array | null = null;
+
+  try {
+    while (true) {
+      if (requestId !== _speechRequestId) {
+        reader.cancel().catch(() => {});
+        return started;
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.length === 0) continue;
+
+      let bytes = value;
+      if (leftover) {
+        const merged = new Uint8Array(leftover.length + bytes.length);
+        merged.set(leftover);
+        merged.set(bytes, leftover.length);
+        bytes = merged;
+        leftover = null;
+      }
+      const usableLength = bytes.length - (bytes.length % 2);
+      if (usableLength < bytes.length) leftover = bytes.slice(usableLength);
+      if (usableLength === 0) continue;
+
+      const sampleCount = usableLength / 2;
+      const audioBuffer = context.createBuffer(1, sampleCount, sampleRate);
+      const channel = audioBuffer.getChannelData(0);
+      const view = new DataView(bytes.buffer, bytes.byteOffset, usableLength);
+      for (let i = 0; i < sampleCount; i++) {
+        channel[i] = view.getInt16(i * 2, true) / 0x8000;
+      }
+
+      if (requestId !== _speechRequestId) {
+        reader.cancel().catch(() => {});
+        return started;
+      }
+
+      const source = context.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(context.destination);
+      source.onended = () => {
+        sources.delete(source);
+        source.disconnect();
+      };
+
+      // A small lead-in absorbs scheduling jitter on the first chunk. If the
+      // network ever falls behind playback, clamp to "now" to avoid overlap.
+      if (!started) {
+        nextStartTime = context.currentTime + 0.12;
+        started = true;
+      }
+      const startAt = Math.max(nextStartTime, context.currentTime);
+      source.start(startAt);
+      nextStartTime = startAt + audioBuffer.duration;
+      sources.add(source);
+    }
+    // Download and scheduling are done; wait out the remaining playback so the
+    // queue does not start the next line while this one is still speaking.
+    if (started) {
+      await waitForPlayback(requestId, () => context.currentTime >= nextStartTime - 0.02);
+    }
+    return started;
+  } catch {
+    return started;
+  }
+}
+
 async function playHostedAudio(blob: Blob, requestId: number): Promise<boolean> {
   const context = getAudioContext();
-  // `primeSpeech` resumes this context within the participant's deliberate
-  // read-aloud gesture. AudioContext playback then stays permitted when a TTS
-  // response arrives asynchronously — especially important on iOS Safari.
+  // The context may have been suspended after idle time even though it was
+  // running when the fetch started. Try to resume it now; if it succeeds the
+  // AudioContext decode path below gives better gapless queue behaviour.
+  if (context?.state === "suspended") {
+    try { await context.resume(); } catch { /* ignore */ }
+  }
   if (context?.state === "running") {
     try {
       const buffer = await context.decodeAudioData(await blob.arrayBuffer());
@@ -124,7 +251,9 @@ async function playHostedAudio(blob: Blob, requestId: number): Promise<boolean> 
         }
       };
       _activeAudioSource = source;
+      const endTime = context.currentTime + buffer.duration;
       source.start();
+      await waitForPlayback(requestId, () => context.currentTime >= endTime - 0.02);
       return true;
     } catch {
       // Some older browsers cannot decode a given output codec. Fall through
@@ -136,10 +265,13 @@ async function playHostedAudio(blob: Blob, requestId: number): Promise<boolean> 
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
   audio.preload = "auto";
+  let ended = false;
   audio.onended = () => {
+    ended = true;
     if (_activeAudio === audio) clearHostedAudio();
   };
   audio.onerror = () => {
+    ended = true;
     if (_activeAudio === audio) clearHostedAudio();
   };
 
@@ -147,6 +279,7 @@ async function playHostedAudio(blob: Blob, requestId: number): Promise<boolean> 
   _activeAudioUrl = url;
   try {
     await audio.play();
+    await waitForPlayback(requestId, () => ended);
     return true;
   } catch {
     if (_activeAudio === audio) clearHostedAudio();
@@ -154,15 +287,28 @@ async function playHostedAudio(blob: Blob, requestId: number): Promise<boolean> 
   }
 }
 
-async function speakWithBrowser(text: string, rate: number): Promise<void> {
+async function speakWithBrowser(text: string, rate: number, requestId: number): Promise<void> {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
   const voices = await loadVoices();
+  if (requestId !== _speechRequestId) return;
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = rate;
   utterance.pitch = 1;
   const voice = pickMaleVoice(voices);
   if (voice) utterance.voice = voice;
+  let ended = false;
+  utterance.onend = () => { ended = true; };
+  utterance.onerror = () => { ended = true; };
   window.speechSynthesis.speak(utterance);
+  await waitForPlayback(requestId, () => ended);
+}
+
+function parsePcmSampleRate(contentType: string): number | null {
+  // Deepgram returns "audio/l16;rate=24000" for raw PCM.
+  if (!/\baudio\/l16\b/i.test(contentType)) return null;
+  const match = /rate=(\d+)/i.exec(contentType);
+  const rate = match ? Number(match[1]) : NaN;
+  return Number.isInteger(rate) && rate > 0 ? rate : 24_000;
 }
 
 async function speakWithHostedVoice(
@@ -171,18 +317,43 @@ async function speakWithHostedVoice(
 ): Promise<boolean> {
   if (typeof window === "undefined") return false;
 
+  // Prefer the progressive PCM path, but only if a running Web Audio context is
+  // available to play it. Resume the context first (it was primed by the
+  // read-aloud gesture); if it will not run, ask the server for a self-contained
+  // MP3 we can buffer and play through an <audio> element instead.
+  const context = getAudioContext();
+  if (context?.state === "suspended") {
+    try {
+      await context.resume();
+    } catch {
+      // Ignore; state check below decides the format.
+    }
+  }
+  const canStreamPcm = context?.state === "running";
+  const format = canStreamPcm ? "pcm" : "mp3";
+
   const controller = new AbortController();
   _activeFetch = controller;
   try {
     const response = await fetch("/api/audio/synthesize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, format }),
       cache: "no-store",
       signal: controller.signal,
     });
     if (!response.ok || requestId !== _speechRequestId) return false;
 
+    const sampleRate = parsePcmSampleRate(response.headers.get("content-type") || "");
+    if (canStreamPcm && sampleRate && response.body) {
+      // Committed to the streaming path: the body is raw PCM, so it cannot be
+      // replayed as an <audio> blob. The fetch controller stays referenced so
+      // cancelSpeech can abort mid-playback; a false result (nothing ever
+      // scheduled) surfaces to the browser-voice fallback in speakText.
+      return streamPcmAudio(response.body, sampleRate, requestId);
+    }
+
+    // MP3 (or any non-PCM) response: buffer and play through the decoder.
     const blob = await response.blob();
     if (!blob.size || requestId !== _speechRequestId) return false;
 
@@ -195,9 +366,61 @@ async function speakWithHostedVoice(
   }
 }
 
+// Speak a single line and resolve only once it has finished playing (or been
+// superseded). Shared by the queue and by click-to-replay.
+async function playOne(text: string, rate: number, options: SpeechOptions): Promise<void> {
+  const requestId = ++_speechRequestId;
+
+  // `allowHosted` is supplied only by components inside VoiceInputProvider.
+  // Do not infer consent from read-aloud alone.
+  if (options.allowHosted) {
+    const played = await speakWithHostedVoice(text, requestId);
+    if (played || requestId !== _speechRequestId) return;
+    // Do not silently make a Deepgram failure look like success. We still
+    // provide the device voice as a resilient fallback, but the UI can now
+    // clearly tell the participant which one is being used.
+    reportHostedSpeechUnavailable();
+  }
+
+  if (requestId === _speechRequestId) await speakWithBrowser(text, rate, requestId);
+}
+
+async function drainQueue(drainId: number): Promise<void> {
+  try {
+    while (_speechQueue.length > 0) {
+      // A new drainQueue call (from queueSpeech after cancelSpeech) replaced us.
+      if (drainId !== _currentDrainId) return;
+      const item = _speechQueue.shift()!;
+      await playOne(item.text, item.rate, item.options);
+    }
+  } finally {
+    if (drainId === _currentDrainId) _queueRunning = false;
+  }
+}
+
 /**
- * Read a message aloud. Hosted speech is deliberately opt-in per invocation:
- * callers without VoiceInputContext permission always remain in the browser.
+ * Enqueue a message to be read after any already-queued lines. Use this for
+ * automatic read-aloud, so a screen that shows several bubbles at once speaks
+ * them in order instead of only the last one. Hosted speech is opt-in per call.
+ */
+export function queueSpeech(
+  text: string,
+  rate = 0.95,
+  options: SpeechOptions = {}
+): void {
+  const message = text.trim();
+  if (!message || typeof window === "undefined") return;
+  _speechQueue.push({ text: message, rate, options });
+  if (!_queueRunning) {
+    _queueRunning = true;
+    const drainId = ++_currentDrainId;
+    void drainQueue(drainId);
+  }
+}
+
+/**
+ * Read a single message aloud immediately, cancelling anything queued or
+ * playing first. Use this for a deliberate replay (e.g. clicking a bubble).
  */
 export async function speakText(
   text: string,
@@ -208,20 +431,7 @@ export async function speakText(
   if (!message || typeof window === "undefined") return;
 
   cancelSpeech();
-  const requestId = ++_speechRequestId;
-
-  // `allowHosted` is supplied only by components inside VoiceInputProvider.
-  // Do not infer consent from read-aloud alone.
-  if (options.allowHosted) {
-    const played = await speakWithHostedVoice(message, requestId);
-    if (played || requestId !== _speechRequestId) return;
-    // Do not silently make a Deepgram failure look like success. We still
-    // provide the device voice as a resilient fallback, but the UI can now
-    // clearly tell the participant which one is being used.
-    reportHostedSpeechUnavailable();
-  }
-
-  if (requestId === _speechRequestId) await speakWithBrowser(message, rate);
+  await playOne(message, rate, options);
 }
 
 // Call this synchronously inside the click/tap that turns read-aloud ON. Some
@@ -248,6 +458,8 @@ export function primeSpeech(): void {
 }
 
 export function cancelSpeech(): void {
+  _speechQueue = [];
+  _queueRunning = false;
   _speechRequestId += 1;
   _activeFetch?.abort();
   _activeFetch = null;

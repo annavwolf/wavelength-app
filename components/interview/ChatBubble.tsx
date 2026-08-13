@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, isValidElement } from "react";
 import type { ReactNode } from "react";
-import { speakText, cancelSpeech } from "@/lib/speech";
+import { speakText, queueSpeech } from "@/lib/speech";
 import {
   useHostedAudioLoading,
   useHostedSpeechAvailable,
@@ -62,13 +62,15 @@ export default function ChatBubble({
     if (hostedAudioLoading) return;
     if (lastSpokenTextRef.current === text) return;
     lastSpokenTextRef.current = text;
-    void speakText(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
+    // Enqueue rather than speak-and-cancel, so sibling bubbles that mount in the
+    // same step are read in order instead of only the last one being heard.
+    queueSpeech(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostedAudioLoading, hostedSpeechAvailable, memberId, readAloud, text]);
 
   async function handleClick() {
     if (!readAloud || !text || hostedAudioLoading) return;
-    cancelSpeech();
+    // A deliberate replay interrupts the queue and reads just this bubble.
     await speakText(text, 0.95, { allowHosted: hostedSpeechAvailable, memberId });
   }
 

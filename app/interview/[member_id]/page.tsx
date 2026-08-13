@@ -47,8 +47,8 @@ const STEP_ORDER: InterviewStep[] = [
   "team_name",
   "own_role",
   "coordination",
-  "ps_why",
   "faq",
+  "ps_why",
   "ps_descent",
   "ps_diagnostic",
   "ps_importance",
@@ -364,9 +364,9 @@ export default function InterviewPage() {
   }
 
   function goToStep(next: InterviewStep, options?: { returnToReview?: boolean }) {
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
+    // Stop any queued/playing read-aloud (browser voice and hosted audio) so a
+    // previous step's lines never bleed into the next one.
+    cancelSpeech();
     const returnToReview = options?.returnToReview ?? reviewEditRef.current;
     setStep(next);
     visibleStepRef.current = next;

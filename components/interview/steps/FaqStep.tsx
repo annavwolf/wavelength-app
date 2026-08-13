@@ -118,7 +118,7 @@ export default function FaqStep({
 
   return (
     <div>
-      <ChatBubble readAloud={readAloud}>Got it. Do you have any questions for me at this point?</ChatBubble>
+      <ChatBubble readAloud={readAloud}>Before we move on to the assessment, do you have any questions for me? Feel free to read these FAQs.</ChatBubble>
       <p className="text-base text-[var(--color-grey)] mt-6 mb-3">Here are a few practical questions. Your privacy and participation choices are already covered in the privacy information you acknowledged.</p>
       <div className="space-y-2 mb-8">
         {FAQ_ITEMS.map((item, index) => (
