@@ -5,6 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 
 type Mode = "signin" | "signup" | "forgot";
+const PENDING_EARLY_ACCESS_CODE_KEY = "otis.pendingEarlyAccessCode";
+
+function safeLocalPath(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) {
+    return "/";
+  }
+  return value;
+}
 
 function LoginForm() {
   const router = useRouter();
@@ -15,6 +23,7 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [earlyAccessCode, setEarlyAccessCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -56,7 +65,7 @@ function LoginForm() {
         setSubmitting(false);
         return;
       }
-      router.push("/");
+      router.push(safeLocalPath(searchParams.get("next")));
       return;
     }
 
@@ -67,7 +76,15 @@ function LoginForm() {
       return;
     }
 
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const requestedEarlyAccess = earlyAccessCode.trim();
+    const confirmationDestination = requestedEarlyAccess ? "/early-access" : "/";
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(confirmationDestination)}`,
+      },
+    });
     if (error) {
       setErrorMessage(error.message);
       setSubmitting(false);
@@ -85,6 +102,19 @@ function LoginForm() {
       return;
     }
 
+    // This is a short-lived convenience for a person who verifies their new
+    // account in the same browser. The code is never placed in a URL or saved
+    // server-side; if the browser session is unavailable after verification,
+    // /early-access still provides the normal manual entry route.
+    if (requestedEarlyAccess) {
+      window.sessionStorage.setItem(PENDING_EARLY_ACCESS_CODE_KEY, requestedEarlyAccess);
+    }
+
+    if (data.session && requestedEarlyAccess) {
+      router.push("/early-access");
+      return;
+    }
+
     setInfoMessage(
       "Check your email for a confirmation link — check your spam folder too."
     );
@@ -97,6 +127,7 @@ function LoginForm() {
     setInfoMessage(null);
     setPassword("");
     setConfirmPassword("");
+    setEarlyAccessCode("");
   }
 
   return (
@@ -193,16 +224,31 @@ function LoginForm() {
           )}
 
           {mode === "signup" && (
-            <div>
-              <label className="form-label">Confirm password</label>
-              <input
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="form-input"
-              />
-            </div>
+            <>
+              <div>
+                <label className="form-label">Confirm password</label>
+                <input
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="form-input"
+                />
+              </div>
+              <div>
+                <label className="form-label">Early-access code <span className="font-normal text-[var(--color-grey)]">(optional)</span></label>
+                <input
+                  type="text"
+                  autoComplete="one-time-code"
+                  value={earlyAccessCode}
+                  onChange={(e) => setEarlyAccessCode(e.target.value)}
+                  className="form-input"
+                />
+                <p className="mt-1.5 text-xs text-[var(--color-grey)]">
+                  This unlocks beta-only agreement and workshop features after you verify your email.
+                </p>
+              </div>
+            </>
           )}
 
           {mode !== "forgot" && (

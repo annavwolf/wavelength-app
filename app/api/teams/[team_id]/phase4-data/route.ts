@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamOwner } from "@/lib/requestAuth";
+import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 
 // Consultant-only supporting data for the Phase 4 screen. Free-text fields are
@@ -9,6 +9,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { team_id: teamId } = await params;
   const auth = await requireTeamOwner(request, teamId);
   if (!auth.ok) return auth.response;
+  const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
+  if (!earlyAccess.ok) return earlyAccess.response;
 
   const [contextRes, pulseRes, behaviorRes, storiesRes, privacyRes] = await Promise.all([
     supabaseAdmin.from("phase3_context_responses").select("*").eq("team_id", teamId),

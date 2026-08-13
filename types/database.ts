@@ -1069,6 +1069,10 @@ export type Consultant = {
   consultant_id: string;
   email: string | null;
   name: string | null;
+  // The entitlement is granted after an authenticated consultant redeems a
+  // server-validated early-access code (migration 0027), never by the client.
+  early_access_granted_at: string | null;
+  early_access_grant_source: "code" | "manual" | null;
   created_at: string;
 }
 
@@ -1076,6 +1080,8 @@ export type ConsultantInsert = {
   consultant_id: string;
   email?: string | null;
   name?: string | null;
+  early_access_granted_at?: string | null;
+  early_access_grant_source?: "code" | "manual" | null;
   created_at?: string;
 }
 

@@ -38,6 +38,7 @@ file — it's already covered by `.gitignore`):
 | `VOYAGE_API_KEY`                | Voyage key used for embeddings, when analysis uses embeddings.  |
 | `RESEND_API_KEY`                | Resend API key used for invitations and member magic links.     |
 | `RESEND_FROM_EMAIL`             | A verified sender, e.g. `Otis <otis@wavelength.team>`.          |
+| `EARLY_ACCESS_CODE_HASHES`      | Server-only comma-separated SHA-256 hashes for beta early-access codes. |
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
@@ -49,11 +50,34 @@ ANTHROPIC_API_KEY=your-anthropic-api-key
 VOYAGE_API_KEY=your-voyage-api-key
 RESEND_API_KEY=your-resend-api-key
 RESEND_FROM_EMAIL="Otis <otis@your-verified-domain.com>"
+EARLY_ACCESS_CODE_HASHES=sha256-hash-of-your-long-code
 ```
 
 `NEXT_PUBLIC_*` variables are inlined into the client bundle at **build
 time**, so when deploying, make sure they're set before the first build runs
 (or trigger a redeploy after adding/changing them).
+
+### Beta early access
+
+Standard consultant accounts can create teams, invite participants, collect
+assessments, and view the standard analysis. Releasing the Results & Team
+Agreement Activity, generating/releasing the Team Agreement, and using the
+facilitated workshop require early access.
+
+Create a long, unique code in a password manager, then set its SHA-256 hash in
+the server-only `EARLY_ACCESS_CODE_HASHES` variable (multiple comma-separated
+hashes are supported):
+
+```bash
+node -e "console.log(require('crypto').createHash('sha256').update('replace-with-a-long-unique-code').digest('hex'))"
+```
+
+Never put the raw code in a `NEXT_PUBLIC_*` variable, the repository, or a URL.
+Consultants can redeem it at `/early-access`; new consultants can optionally
+enter it during account creation, and it will be applied after email
+verification when they continue in the same browser. To grant access manually,
+set `early_access_granted_at` and `early_access_grant_source = 'manual'` on
+their `public.consultants` row.
 
 ## Routes
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerAuthClient, supabaseAdmin } from "@/lib/supabase";
 import { SESSION_COOKIE, verifySession, type MemberSession } from "@/lib/memberSession";
 import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
+import { EARLY_ACCESS_SUPPORT_EMAIL, getEarlyAccessEntitlement } from "@/lib/earlyAccess";
 
 type AuthorizedConsultant = { userId: string };
 type AuthorizedMember = { session: MemberSession };
@@ -58,6 +59,37 @@ export async function requireTeamOwner(
     };
   }
   return consultant;
+}
+
+/**
+ * Require an already-authenticated consultant to hold the beta early-access
+ * entitlement. Routes should call requireTeamOwner first, then this helper,
+ * so no feature gate can be bypassed by calling an API directly.
+ */
+export async function requireEarlyAccessConsultant(
+  consultantId: string
+): Promise<AuthResult<AuthorizedConsultant>> {
+  const { entitlement, error } = await getEarlyAccessEntitlement(consultantId);
+  if (error) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Unable to verify early-access status." }, { status: 500 }),
+    };
+  }
+  if (!entitlement.granted) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error: "Early access is required for this beta feature.",
+          code: "early_access_required",
+          contact: EARLY_ACCESS_SUPPORT_EMAIL,
+        },
+        { status: 403 }
+      ),
+    };
+  }
+  return { ok: true, value: { userId: consultantId } };
 }
 
 /** Verify the signed member cookie and, when supplied, its member/team scope. */

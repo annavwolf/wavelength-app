@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase";
 import { logIdentityLookups } from "@/lib/auditLog";
-import { requireTeamOwner } from "@/lib/requestAuth";
+import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import type { Phase3ReportJson } from "@/types/database";
 
 function escapeHtml(value: string) {
@@ -25,6 +25,13 @@ export async function POST(req: NextRequest) {
 
   const auth = await requireTeamOwner(req, team_id);
   if (!auth.ok) return auth.response;
+
+  // Consultants may still save and refine their private draft. Sending the
+  // Results & Team Agreement Activity to participants is beta early access.
+  if (!dry_run) {
+    const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
+    if (!earlyAccess.ok) return earlyAccess.response;
+  }
 
   const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")

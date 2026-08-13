@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { generatePhase4Insights } from "@/lib/phase4Insights";
 import { MODELS } from "@/lib/models";
 import { redactTextForExternalProcessing } from "@/lib/privacy";
-import { requireTeamOwner } from "@/lib/requestAuth";
+import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import type { Json, Phase3ReportJson, Phase4SelfServeJson, SituationTag } from "@/types/database";
 import type { Tier1Result, Tier2Result, Networks } from "@/components/dashboard/types";
 
@@ -70,6 +70,8 @@ export async function POST(req: NextRequest) {
 
   const auth = await requireTeamOwner(req, teamId);
   if (!auth.ok) return auth.response;
+  const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
+  if (!earlyAccess.ok) return earlyAccess.response;
 
   // Phase 3 completion signal: a member has submitted at least one behavior to
   // the team's behavior board. This is the core deliverable of the Phase 3

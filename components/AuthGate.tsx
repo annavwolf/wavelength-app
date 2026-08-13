@@ -42,6 +42,11 @@ export default function AuthGate({
   // AuthGate must leave those alone rather than bounce a member to /login.
   const isPublicRoute =
     pathname === "/login" ||
+    // This page intentionally renders its own signed-out state, which sends
+    // a consultant to /login with a safe return path. Treating it as public
+    // lets someone follow an email-confirmation redirect and redeem their
+    // code without being bounced to the generic login route first.
+    pathname === "/early-access" ||
     pathname === "/privacy" ||
     pathname.startsWith("/interview/") ||
     pathname.startsWith("/me") ||

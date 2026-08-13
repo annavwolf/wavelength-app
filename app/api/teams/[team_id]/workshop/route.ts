@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamOwner } from "@/lib/requestAuth";
+import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { WorkshopSessionInsert, WorkshopSessionUpdate } from "@/types/database";
 
@@ -9,6 +9,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { team_id: teamId } = await params;
   const auth = await requireTeamOwner(request, teamId);
   if (!auth.ok) return auth.response;
+  const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
+  if (!earlyAccess.ok) return earlyAccess.response;
   const { data: session, error } = await supabaseAdmin
     .from("workshop_sessions")
     .select("*")
@@ -29,6 +31,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { team_id: teamId } = await params;
   const auth = await requireTeamOwner(request, teamId);
   if (!auth.ok) return auth.response;
+  const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
+  if (!earlyAccess.ok) return earlyAccess.response;
   const body = await request.json().catch(() => null);
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("workshop_sessions")
@@ -63,6 +67,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { team_id: teamId } = await params;
   const auth = await requireTeamOwner(request, teamId);
   if (!auth.ok) return auth.response;
+  const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
+  if (!earlyAccess.ok) return earlyAccess.response;
   const body = await request.json().catch(() => null);
   const sessionId = body?.session_id;
   const update = body?.update;

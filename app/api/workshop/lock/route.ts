@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { requireTeamOwner } from "@/lib/requestAuth";
+import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import type { Zone } from "@/types/database";
 
 // Phase 4 §7.4 — Lock. The facilitator has read the assembled agreement aloud,
@@ -30,6 +30,8 @@ export async function POST(req: NextRequest) {
 
   const auth = await requireTeamOwner(req, teamId);
   if (!auth.ok) return auth.response;
+  const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
+  if (!earlyAccess.ok) return earlyAccess.response;
 
   // Session must exist and be at the agreement movement.
   const { data: session, error: sessErr } = await supabaseAdmin

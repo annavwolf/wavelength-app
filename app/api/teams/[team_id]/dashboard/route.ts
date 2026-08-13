@@ -117,11 +117,26 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     };
   });
 
+  const { data: consultant, error: consultantError } = await supabaseAdmin
+    .from("consultants")
+    .select("early_access_granted_at")
+    .eq("consultant_id", auth.value.userId)
+    .maybeSingle();
+  if (consultantError) {
+    return NextResponse.json({ error: "Unable to load early-access status." }, { status: 500 });
+  }
+  const earlyAccess = Boolean(consultant?.early_access_granted_at);
+
   const analysis = analysisRes.data
     ? {
         ...analysisRes.data,
         phase3_report_json: anonymizePhase3Report(analysisRes.data.phase3_report_json),
-        phase4_selfserve_json: anonymizePhase4Payload(analysisRes.data.phase4_selfserve_json, verbatimMemberIds),
+        // The draft agreement contains the beta-only pre-agreement material;
+        // do not ship it to a non-entitled consultant merely because a prior
+        // account owner generated it.
+        phase4_selfserve_json: earlyAccess
+          ? anonymizePhase4Payload(analysisRes.data.phase4_selfserve_json, verbatimMemberIds)
+          : null,
       }
     : null;
 
@@ -131,5 +146,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     analysis,
     missing_flags: missingRes.data ?? [],
     phase3_done_member_ids: Array.from(new Set((phase3DoneRes.data ?? []).map((row) => row.member_id))),
+    early_access: earlyAccess,
   });
 }
