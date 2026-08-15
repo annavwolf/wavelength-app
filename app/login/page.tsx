@@ -25,6 +25,7 @@ function LoginForm() {
   const [earlyAccessCode, setEarlyAccessCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [resendingConfirmation, setResendingConfirmation] = useState(false);
+  const [canResendConfirmation, setCanResendConfirmation] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
@@ -39,6 +40,7 @@ function LoginForm() {
     setSubmitting(true);
     setErrorMessage(null);
     setInfoMessage(null);
+    setCanResendConfirmation(false);
 
     if (mode === "forgot") {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -124,8 +126,9 @@ function LoginForm() {
     // a magic link to the existing address instead of a confirmation.
     if (data.user?.identities?.length === 0) {
       setErrorMessage(
-        "An account with this email already exists. Try signing in, or reset your password."
+        "An account with this email already exists. Try signing in, reset your password, or request another confirmation email below."
       );
+      setCanResendConfirmation(true);
       setSubmitting(false);
       return;
     }
@@ -141,6 +144,7 @@ function LoginForm() {
     setInfoMessage(
       "Check your email for a confirmation link — check your spam folder too."
     );
+    setCanResendConfirmation(true);
     setSubmitting(false);
   }
 
@@ -177,6 +181,7 @@ function LoginForm() {
     setPassword("");
     setConfirmPassword("");
     setEarlyAccessCode("");
+    setCanResendConfirmation(false);
   }
 
   return (
@@ -317,19 +322,18 @@ function LoginForm() {
           )}
 
           {infoMessage && (
-            <div className="space-y-2">
-              <p className="text-sm text-green-600">{infoMessage}</p>
-              {mode === "signup" && (
-                <button
-                  type="button"
-                  onClick={handleResendConfirmation}
-                  disabled={resendingConfirmation}
-                  className="inline-flex min-h-11 items-center text-sm text-[var(--color-purple)] underline disabled:opacity-60"
-                >
-                  {resendingConfirmation ? "Sending confirmation…" : "Resend confirmation email"}
-                </button>
-              )}
-            </div>
+            <p className="text-sm text-green-600">{infoMessage}</p>
+          )}
+
+          {mode === "signup" && canResendConfirmation && (
+            <button
+              type="button"
+              onClick={handleResendConfirmation}
+              disabled={resendingConfirmation}
+              className="inline-flex min-h-11 items-center text-sm text-[var(--color-purple)] underline disabled:opacity-60"
+            >
+              {resendingConfirmation ? "Sending confirmation…" : "Resend confirmation email"}
+            </button>
           )}
 
           <button
