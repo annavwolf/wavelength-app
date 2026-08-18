@@ -84,12 +84,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 1) Is this email on any member? Query member_identity (identity table).
-  //    Works the same for 1 or many matches — token is keyed to the email.
-  const { data: identities, error: lookupError } = await supabaseAdmin
-    .from("member_identity")
-    .select("member_id, display_name")
-    .ilike("email", email);
+  // 1) Is this email on any member? Match on the canonical form so a roster
+  //    address that differs only by case, stray whitespace, or a Gmail dot/"+tag"
+  //    variant still resolves. The previous `.ilike("email", email)` needed a
+  //    byte-identical match and silently matched nothing when the stored address
+  //    wasn't exact — the caller then got the generic "link sent" reply with no
+  //    token minted and no email delivered. Works the same for 1 or many matches
+  //    — the token is keyed to the email.
+  const { data: identities, error: lookupError } = await supabaseAdmin.rpc(
+    "find_member_identities_by_email",
+    { p_email: email }
+  );
 
   if (lookupError) {
     console.error("[member/auth/request] identity lookup failed:", lookupError);

@@ -52,11 +52,13 @@ export async function GET(req: NextRequest) {
     return fail("server");
   }
 
-  // Resolve the member(s) for this email via member_identity.
-  const { data: identities, error: identityError } = await supabaseAdmin
-    .from("member_identity")
-    .select("member_id, team_id, display_name")
-    .ilike("email", row.email);
+  // Resolve the member(s) for this email. Use the same canonical matching as the
+  // request route so a token minted for a case / whitespace / Gmail-alias variant
+  // of the roster address still resolves to its member(s) at verify time.
+  const { data: identities, error: identityError } = await supabaseAdmin.rpc(
+    "find_member_identities_by_email",
+    { p_email: row.email }
+  );
 
   if (identityError) {
     console.error("[member/auth/verify] identity lookup failed:", identityError);

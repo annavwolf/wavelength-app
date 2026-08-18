@@ -1525,6 +1525,19 @@ export type Database = {
           retry_after_seconds: number;
         }[];
       };
+      // Canonical (whitespace/case + Gmail-alias tolerant) roster lookup used by
+      // the member magic-link request + verify routes. See migration 0032.
+      find_member_identities_by_email: {
+        Args: {
+          p_email: string;
+        };
+        Returns: {
+          member_id: string;
+          team_id: string;
+          email: string | null;
+          display_name: string;
+        }[];
+      };
     };
     Enums: {
       [_ in never]: never;
