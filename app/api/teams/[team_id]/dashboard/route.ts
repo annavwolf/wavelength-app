@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
+import { missingPhase3SubmissionFields } from "@/lib/phase3Submission";
 import { requireTeamOwner } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
-import type { MemberWithIdentity } from "@/types/database";
+import type { MemberWithIdentity, Phase3ReportJson } from "@/types/database";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -99,10 +100,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // Completion itself comes only from members.phase3_completed_at, which is
     // written by the explicit Finish & Submit action.
     supabaseAdmin.from("member_stories").select("member_id").eq("team_id", teamId),
-    supabaseAdmin.from("member_behaviors").select("member_id").eq("team_id", teamId),
-    supabaseAdmin.from("phase3_context_responses").select("member_id").eq("team_id", teamId),
-    supabaseAdmin.from("phase3_pulse_checks").select("member_id").eq("team_id", teamId),
-    supabaseAdmin.from("phase3_conversation_messages").select("member_id").eq("team_id", teamId),
+    supabaseAdmin.from("member_behaviors").select("member_id, bucket").eq("team_id", teamId),
+    supabaseAdmin.from("phase3_context_responses").select("member_id, frequency, commitment, synchronicity").eq("team_id", teamId),
+    supabaseAdmin.from("phase3_pulse_checks").select("member_id, read_key").eq("team_id", teamId),
+    supabaseAdmin.from("phase3_conversation_messages").select("member_id, kind, state").eq("team_id", teamId),
   ]);
   if (!teamRes.data) return NextResponse.json({ error: "Team not found." }, { status: 404 });
   if (
@@ -177,8 +178,23 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       ...(phase3ConversationRes.data ?? []),
     ].map((row) => row.member_id)
   );
+  const report = (analysisRes.data?.phase3_report_json as Phase3ReportJson | null) ?? null;
   const phase3DoneMemberIds = (membersRes.data ?? [])
-    .filter((member) => Boolean(member.phase3_completed_at))
+    .filter((member) => {
+      if (!member.phase3_completed_at || !report) return false;
+      return missingPhase3SubmissionFields({
+        includeStories: report.include_stories !== false,
+        includePurpose: report.include_shared_purpose === true,
+        behaviorBuckets: (phase3BehaviorsRes.data ?? [])
+          .filter((row) => row.member_id === member.member_id)
+          .map((row) => row.bucket),
+        context: (phase3ContextRes.data ?? []).find((row) => row.member_id === member.member_id) ?? null,
+        conversations: (phase3ConversationRes.data ?? []).filter((row) => row.member_id === member.member_id),
+        pulseKeys: (phase3PulseRes.data ?? [])
+          .filter((row) => row.member_id === member.member_id)
+          .map((row) => row.read_key),
+      }).length === 0;
+    })
     .map((member) => member.member_id);
 
   return NextResponse.json({

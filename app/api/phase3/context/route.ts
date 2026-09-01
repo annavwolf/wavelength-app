@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { requirePhase3Member } from "@/lib/requestAuth";
 import type { Phase3ContextResponseInsert } from "@/types/database";
+
+const VALID_FREQUENCIES = new Set([
+  "Several times a day",
+  "Several times a week",
+  "Several times a month",
+  "Several times a year",
+]);
+const VALID_COMMITMENTS = new Set(["Yes", "It depends", "I don't think so"]);
+const VALID_SYNCHRONICITY = new Set([
+  "Easily, we do it regularly",
+  "Pretty easily, we do it occasionally",
+  "Not so easy, we do it sometimes",
+  "Difficult, we rarely meet all together",
+  "It's easier with some people but not others",
+]);
 
 // Phase 3 context questions (post-rework):
 //   phase "context"    → frequency only (§ Team Stories). The impact answer is a
@@ -18,7 +33,7 @@ export async function GET(req: NextRequest) {
   const teamId = searchParams.get("team_id");
   if (!memberId || !teamId) return NextResponse.json({ error: "member_id and team_id required" }, { status: 400 });
 
-  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  const auth = await requirePhase3Member(req, { memberId, teamId }, { allowCompleted: true });
   if (!auth.ok) return auth.response;
 
   const { data, error } = await supabaseAdmin
@@ -49,22 +64,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "member_id, team_id, phase required" }, { status: 400 });
   }
 
-  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  const auth = await requirePhase3Member(req, { memberId, teamId });
   if (!auth.ok) return auth.response;
 
   const now = new Date().toISOString();
   const update: Phase3ContextResponseInsert = { member_id: memberId, team_id: teamId, updated_at: now };
 
   if (phase === "context") {
-    update.frequency = (body.frequency as Phase3ContextResponseInsert["frequency"]) ?? null;
+    if (body.frequency !== undefined && body.frequency !== null && !VALID_FREQUENCIES.has(String(body.frequency))) {
+      return NextResponse.json({ error: "Invalid frequency choice." }, { status: 400 });
+    }
+    if (body.frequency !== undefined) {
+      update.frequency = (body.frequency as Phase3ContextResponseInsert["frequency"]) ?? null;
+    }
     // impact_text may still be passed (e.g. an edit from the review screen).
     if (typeof body.impact_text === "string") {
+      if (body.impact_text.length > 4000) {
+        return NextResponse.json({ error: "Please keep your impact response under 4,000 characters." }, { status: 400 });
+      }
       update.impact_text = body.impact_text.trim() || null;
     }
   } else {
     // Only include each field when the body explicitly provides it.
     // If a field is absent from the request, leave it untouched in the DB.
     // (Without this guard, CommitAsk wipes synchronicity and SyncStep wipes commitment.)
+    if (body.commitment !== undefined && body.commitment !== null && !VALID_COMMITMENTS.has(String(body.commitment))) {
+      return NextResponse.json({ error: "Invalid commitment choice." }, { status: 400 });
+    }
+    if (body.synchronicity !== undefined && body.synchronicity !== null && !VALID_SYNCHRONICITY.has(String(body.synchronicity))) {
+      return NextResponse.json({ error: "Invalid meeting choice." }, { status: 400 });
+    }
+    if (typeof body.commitment_result === "string" && body.commitment_result.length > 4000) {
+      return NextResponse.json({ error: "Please keep your response under 4,000 characters." }, { status: 400 });
+    }
     if (body.commitment !== undefined)
       update.commitment = (body.commitment as Phase3ContextResponseInsert["commitment"]) ?? null;
     if (body.commitment_result !== undefined)

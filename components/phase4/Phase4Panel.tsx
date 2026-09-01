@@ -53,6 +53,15 @@ type PulseCheckRow = {
 type PrivacySafeContextRow = {
   frequency: string | null;
   impact_text: string | null;
+  commitment: string | null;
+  commitment_result: string | null;
+  synchronicity: string | null;
+  verbatim_allowed: boolean;
+};
+
+type PrivacySafeStoryRow = {
+  situation_tag: string | null;
+  story_text: string | null;
   verbatim_allowed: boolean;
 };
 
@@ -63,6 +72,7 @@ type Props = {
   completedCount: number;
   totalCount: number;
   outstanding: string[];
+  finished: string[];
   inProgress: string[];
   notStarted: string[];
   tier1: Tier1Result | null;
@@ -380,7 +390,7 @@ function FormattedAgreement({ a }: { a: Phase4Agreement }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Phase4Panel({
-  teamId, initial, allComplete, completedCount, totalCount, outstanding, inProgress, notStarted,
+  teamId, initial, allComplete, completedCount, totalCount, outstanding, finished, inProgress, notStarted,
   tier1, tier2, report,
 }: Props) {
   const [json, setJson] = useState<Phase4SelfServeJson | null>(initial);
@@ -402,6 +412,7 @@ export default function Phase4Panel({
   const [rawBehaviors, setRawBehaviors] = useState<Array<{ id: string; text: string; bucket: string }>>([]);
   const [storyTags, setStoryTags] = useState<Record<string, number>>({});
   const [storyCount, setStoryCount] = useState(0);
+  const [storyRows, setStoryRows] = useState<PrivacySafeStoryRow[]>([]);
 
   // Verbatim flags — use behavior verbatim for the agreement section
   useEffect(() => {
@@ -419,7 +430,8 @@ export default function Phase4Panel({
     setContextRows((data.context as PrivacySafeContextRow[] | undefined) ?? []);
     setPulseChecks((data.pulse_checks as PulseCheckRow[] | undefined) ?? []);
     setRawBehaviors((data.behaviors as Array<{ id: string; text: string; bucket: string }> | undefined) ?? []);
-    const stories = (data.story_tags as Array<{ situation_tag: string | null }> | undefined) ?? [];
+    const stories = (data.stories as PrivacySafeStoryRow[] | undefined) ?? [];
+    setStoryRows(stories);
     setStoryCount(stories.length);
     const counts: Record<string, number> = {};
     for (const s of stories) {
@@ -531,6 +543,7 @@ export default function Phase4Panel({
             <div className="h-2.5 rounded-full bg-black/10 overflow-hidden">
               <div className="h-full rounded-full" style={{ width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`, background: NAVY }} />
             </div>
+            {finished.length > 0 && <p className="mt-2 text-left text-xs text-green-700">Finished: {finished.join(", ")}</p>}
             {!allComplete && outstanding.length > 0 && (
               <div className="mt-2 space-y-1 text-left">
                 {inProgress.length > 0 && <p className="text-xs text-amber-700">In progress: {inProgress.join(", ")}</p>}
@@ -718,6 +731,30 @@ export default function Phase4Panel({
                   {impactRows.map((r, i) => (
                     <p key={i} className="text-sm leading-relaxed">{r.impact_text}</p>
                   ))}
+                </div>
+              )}
+            </DetailAccordion>
+          </div>
+        );
+      })()}
+
+      {(() => {
+        const submittedStories = storyRows.filter((row) => row.story_text?.trim());
+        if (submittedStories.length === 0) return null;
+        const canShowStories = submittedStories.length >= MIN_N && submittedStories.every((row) => row.verbatim_allowed);
+        return (
+          <div className="mt-4">
+            <DetailAccordion title={`Stories shared (${submittedStories.length})`}>
+              <p className="text-xs text-[var(--color-grey)] mb-3">Exact stories are shown without names only when every contributor allowed short excerpts to be used.</p>
+              {!canShowStories ? (
+                <p className="text-sm text-[var(--color-grey)] italic">
+                  {submittedStories.length < MIN_N
+                    ? "Individual stories are not shown for groups fewer than 5 to protect anonymity."
+                    : "Individual stories are not shown — not all contributors opted in to sharing their exact words."}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {submittedStories.map((row, index) => <p key={index} className="text-sm leading-relaxed">{row.story_text}</p>)}
                 </div>
               )}
             </DetailAccordion>
@@ -1004,6 +1041,27 @@ export default function Phase4Panel({
               <p className="text-xs text-amber-800">{json.low_commitment_note}</p>
             </div>
           )}
+          {(() => {
+            const resultRows = contextRows.filter((row) => row.commitment_result?.trim());
+            if (resultRows.length === 0) return null;
+            const canShowResults = resultRows.length >= MIN_N && resultRows.every((row) => row.verbatim_allowed);
+            return (
+              <div className="mt-3 border-t border-black/8 pt-3">
+                <p className="text-xs font-medium mb-2">Expected results ({resultRows.length})</p>
+                {!canShowResults ? (
+                  <p className="text-xs text-[var(--color-grey)] italic">
+                    {resultRows.length < MIN_N
+                      ? "Individual answers are hidden for groups fewer than 5."
+                      : "Individual answers are hidden because not every contributor permitted exact excerpts."}
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {resultRows.map((row, index) => <li key={index} className="text-xs text-[var(--color-grey)]">· {row.commitment_result}</li>)}
+                  </ul>
+                )}
+              </div>
+            );
+          })()}
         </Card>
         <Card>
           <h3 className="text-sm font-semibold mb-3">Meeting synchronously</h3>

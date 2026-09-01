@@ -7,6 +7,7 @@ import ChatBubble from "@/components/interview/ChatBubble";
 
 type WithdrawScope = "stories" | "behaviors" | "everything";
 type WithdrawalStage = "idle" | "choose" | "confirm";
+type SubmitResult = { ok: boolean; error?: string };
 const BUCKET_LABEL: Record<BehaviorBucket, string> = { always: "ALWAYS", sometimes: "SOMETIMES", never: "NEVER" };
 const BUCKET_COLOR: Record<BehaviorBucket, string> = { always: "#2D7A4F", sometimes: "#C4860A", never: "#B94040" };
 
@@ -35,7 +36,7 @@ type Props = {
   includeStories?: boolean;
   onEditStep: (step: Phase3Step) => void;
   onConsentChange: (fields: { phase3_story_verbatim?: boolean; phase3_behavior_verbatim?: boolean }) => void;
-  onSubmit: () => Promise<boolean>;
+  onSubmit: () => Promise<SubmitResult>;
   onWithdrawn: () => void;
 };
 
@@ -179,13 +180,21 @@ export default function Phase3ReviewStep({
       );
       return;
     }
+    if (includeStories && !context?.frequency) {
+      setError("Please complete the frequency question before submitting.");
+      return;
+    }
+    if (!context?.commitment || !context?.synchronicity) {
+      setError("Please complete the 30-day commitment and meeting-together questions before submitting.");
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
     try {
-      const completed = await onSubmit();
-      if (!completed) {
-        setError("We could not save that you completed this activity. Please try again.");
+      const result = await onSubmit();
+      if (!result.ok) {
+        setError(result.error ?? "We could not save that you completed this activity. Please try again.");
       }
     } catch {
       setError("We could not save that you completed this activity. Please try again.");

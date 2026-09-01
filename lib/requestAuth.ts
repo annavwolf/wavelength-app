@@ -6,6 +6,10 @@ import { EARLY_ACCESS_SUPPORT_EMAIL, getEarlyAccessEntitlement } from "@/lib/ear
 
 type AuthorizedConsultant = { userId: string };
 type AuthorizedMember = { session: MemberSession };
+type AuthorizedPhase3Member = AuthorizedMember & {
+  phase3CompletedAt: string | null;
+  phase3Report: Record<string, unknown>;
+};
 
 type AuthResult<T> =
   | { ok: true; value: T }
@@ -145,4 +149,79 @@ export async function requireAcknowledgedMember(
     };
   }
   return member;
+}
+
+/**
+ * Verify the complete Phase 3 participation boundary. Phase 3 is available
+ * only after Phase 1 is complete and the consultant has explicitly released
+ * the activity. Mutating endpoints also lock once Finish & Submit succeeds.
+ */
+export async function requirePhase3Member(
+  request: NextRequest,
+  expected?: { memberId?: string; teamId?: string },
+  options: { allowCompleted?: boolean } = {}
+): Promise<AuthResult<AuthorizedPhase3Member>> {
+  const member = await requireAcknowledgedMember(request, expected);
+  if (!member.ok) return member;
+
+  const { member_id: memberId, team_id: teamId } = member.value.session;
+  const [memberRes, analysisRes] = await Promise.all([
+    supabaseAdmin
+      .from("members")
+      .select("status, phase3_completed_at")
+      .eq("member_id", memberId)
+      .eq("team_id", teamId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("analysis")
+      .select("phase3_report_json")
+      .eq("team_id", teamId)
+      .maybeSingle(),
+  ]);
+
+  if (memberRes.error || analysisRes.error) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Unable to verify activity access." }, { status: 500 }),
+    };
+  }
+  if (!memberRes.data || memberRes.data.status !== "complete") {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Please finish the team assessment before starting this activity." },
+        { status: 409 }
+      ),
+    };
+  }
+
+  const report = analysisRes.data?.phase3_report_json;
+  if (!report || typeof report !== "object" || Array.isArray(report) || !(report as Record<string, unknown>).released_at) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "This activity has not been released by your consultant yet." },
+        { status: 409 }
+      ),
+    };
+  }
+
+  if (memberRes.data.phase3_completed_at && !options.allowCompleted) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "This activity has already been submitted. Contact Wavelength support if you need help changing it." },
+        { status: 409 }
+      ),
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      session: member.value.session,
+      phase3CompletedAt: memberRes.data.phase3_completed_at,
+      phase3Report: report as Record<string, unknown>,
+    },
+  };
 }

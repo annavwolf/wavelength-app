@@ -1,30 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { requirePhase3Member } from "@/lib/requestAuth";
+import { missingPhase3SubmissionFields } from "@/lib/phase3Submission";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAcknowledgedMember(request);
+  const auth = await requirePhase3Member(request, undefined, { allowCompleted: true });
   if (!auth.ok) return auth.response;
   const { member_id: memberId, team_id: teamId } = auth.value.session;
 
-  // The client board requires at least two ALWAYS and two NEVER behaviours.
-  // Recheck that invariant here so a completion marker can never be written
-  // for an empty, partially saved, or directly scripted submission.
-  const { data: behaviors, error: behaviorError } = await supabaseAdmin
-    .from("member_behaviors")
-    .select("bucket")
-    .eq("member_id", memberId)
-    .eq("team_id", teamId);
-  if (behaviorError) {
-    return NextResponse.json({ error: "Unable to verify the saved behaviours." }, { status: 500 });
+  // Treat retries as idempotent. The member may have lost the final response
+  // after the completion marker was committed.
+  if (auth.value.phase3CompletedAt) {
+    return NextResponse.json({ ok: true, completed_at: auth.value.phase3CompletedAt });
   }
-  const alwaysCount = (behaviors ?? []).filter((behavior) => behavior.bucket === "always").length;
-  const neverCount = (behaviors ?? []).filter((behavior) => behavior.bucket === "never").length;
-  if (alwaysCount < 2 || neverCount < 2) {
+
+  const [behaviorRes, contextRes, conversationRes, pulseRes] = await Promise.all([
+    supabaseAdmin.from("member_behaviors").select("bucket").eq("member_id", memberId).eq("team_id", teamId),
+    supabaseAdmin.from("phase3_context_responses").select("frequency, commitment, synchronicity").eq("member_id", memberId).eq("team_id", teamId).maybeSingle(),
+    supabaseAdmin.from("phase3_conversation_messages").select("kind, state").eq("member_id", memberId).eq("team_id", teamId),
+    supabaseAdmin.from("phase3_pulse_checks").select("read_key").eq("member_id", memberId).eq("team_id", teamId),
+  ]);
+  if (behaviorRes.error || contextRes.error || conversationRes.error || pulseRes.error) {
+    return NextResponse.json({ error: "Unable to verify all saved activity responses." }, { status: 500 });
+  }
+
+  const report = auth.value.phase3Report;
+  const missing = missingPhase3SubmissionFields({
+    includeStories: report.include_stories !== false,
+    includePurpose: report.include_shared_purpose === true,
+    behaviorBuckets: (behaviorRes.data ?? []).map((behavior) => behavior.bucket),
+    context: contextRes.data,
+    conversations: conversationRes.data ?? [],
+    pulseKeys: (pulseRes.data ?? []).map((row) => row.read_key),
+  });
+
+  if (missing.length > 0) {
     return NextResponse.json(
       {
-        error: "Please save at least two ALWAYS and two NEVER behaviours before submitting.",
-        code: "phase3_behaviors_incomplete",
+        error: `Please finish and save ${missing.join(", ")} before submitting.`,
+        code: "phase3_incomplete",
+        missing,
       },
       { status: 409 }
     );

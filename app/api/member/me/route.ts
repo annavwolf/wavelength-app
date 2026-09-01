@@ -71,20 +71,12 @@ export async function GET(req: NextRequest) {
     : null;
   void logIdentityLookup(member_id, "member_me", "member viewing own profile");
 
-  const [{ data: team }, { data: analysisRow }, { data: phase3Ctx }] = await Promise.all([
+  const [{ data: team }, { data: analysisRow }] = await Promise.all([
     supabaseAdmin.from("teams").select("team_id, team_name").eq("team_id", member.team_id).maybeSingle(),
     supabaseAdmin
       .from("analysis")
       .select("phase3_report_json, phase4_selfserve_json")
       .eq("team_id", member.team_id)
-      .maybeSingle(),
-    // Phase 3 completion: member has submitted at least one behavior (core deliverable).
-    supabaseAdmin
-      .from("member_behaviors")
-      .select("id")
-      .eq("member_id", member_id)
-      .eq("team_id", member.team_id)
-      .limit(1)
       .maybeSingle(),
   ]);
 
@@ -125,7 +117,7 @@ export async function GET(req: NextRequest) {
     },
     team: team ?? null,
     phase3_released: phase3Released,
-    phase3_complete: !!phase3Ctx,   // member has finished the Results & Team Agreement Activity
+    phase3_complete: Boolean(member.phase3_completed_at),
     phase4_released: phase4Released,
     phase4: phase4,
     statements: statementsRes.data ?? [],

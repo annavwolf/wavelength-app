@@ -33,6 +33,10 @@ export async function POST(request: NextRequest) {
     // activity. Preserve commitments and meeting preferences in the same row.
     jobs.push(supabaseAdmin.from("phase3_conversation_messages").delete().eq("member_id", memberId).eq("team_id", teamId).eq("kind", "impact"));
     jobs.push(supabaseAdmin.from("phase3_context_responses").update({ impact_text: null, frequency: null }).eq("member_id", memberId).eq("team_id", teamId));
+    // Story completion is required whenever the released activity includes
+    // Team Stories. Clear the marker so the profile, dashboard, and submission
+    // validator agree and the participant can repair and resubmit.
+    jobs.push(supabaseAdmin.from("members").update({ phase3_completed_at: null }).eq("member_id", memberId));
   }
   if (scope === "behaviors" || scope === "everything") {
     jobs.push(supabaseAdmin.from("member_behaviors").delete().eq("member_id", memberId).eq("team_id", teamId));

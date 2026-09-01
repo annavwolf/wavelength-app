@@ -112,10 +112,9 @@ export default function Phase3Chat({
           state,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError("Something went wrong. Please try again.");
-        setSending(false);
+        setError(typeof data.error === "string" ? data.error : "Something went wrong. Please try again.");
         return;
       }
 
@@ -207,7 +206,14 @@ export default function Phase3Chat({
         </div>
       )}
 
-      {error && <p className="text-sm text-[var(--color-grey)]">{error}</p>}
+      {error && (
+        <div className="flex flex-wrap items-center gap-3" role="alert">
+          <p className="text-sm text-red-600">{error}</p>
+          <button type="button" onClick={() => void callConversation(messages)} disabled={sending} className="btn-secondary">
+            Try again
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { requirePhase3Member } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
 
 // Returns only the signed-in participant's Phase 3 contribution for the review
 // screen and download. It is intentionally not a team-wide story/behaviour API.
 export async function GET(request: NextRequest) {
-  const auth = await requireAcknowledgedMember(request);
+  const auth = await requirePhase3Member(request, undefined, { allowCompleted: true });
   if (!auth.ok) return auth.response;
   const { member_id: memberId, team_id: teamId } = auth.value.session;
 

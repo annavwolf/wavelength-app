@@ -3,6 +3,10 @@ import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase";
 import { logIdentityLookups } from "@/lib/auditLog";
 import { buildArtifacts } from "@/lib/phase4Artifacts";
+import {
+  currentPrivacyParticipantIds,
+  getCurrentPrivacyParticipants,
+} from "@/lib/currentPrivacyParticipants";
 import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import type { Json, Phase4SelfServeJson } from "@/types/database";
 import {
@@ -93,14 +97,23 @@ export async function POST(req: NextRequest) {
 
   if (!dry_run) {
     const apiKey = process.env.RESEND_API_KEY;
+    let eligibleMemberIds: Set<string>;
+    try {
+      eligibleMemberIds = new Set(currentPrivacyParticipantIds(await getCurrentPrivacyParticipants(team_id)));
+    } catch {
+      return NextResponse.json({ error: "Unable to verify eligible results recipients." }, { status: 500 });
+    }
 
     const [identityRes, teamRes] = await Promise.all([
       supabaseAdmin.from("member_identity").select("member_id, display_name, email").eq("team_id", team_id),
       supabaseAdmin.from("teams").select("team_name").eq("team_id", team_id).single(),
     ]);
+    if (identityRes.error || teamRes.error) {
+      return NextResponse.json({ error: "Unable to load eligible results recipients." }, { status: 500 });
+    }
 
     const teamName = teamRes.data?.team_name ?? "your team";
-    const allMembers = identityRes.data ?? [];
+    const allMembers = (identityRes.data ?? []).filter((member) => eligibleMemberIds.has(member.member_id));
     void logIdentityLookups(allMembers.map((m) => m.member_id), "phase4_release", "sending Phase 4 agreement");
     const noEmail = allMembers.filter((m) => !m.email).length;
     skippedAlreadySent = resend_all ? 0 :
@@ -112,6 +125,9 @@ export async function POST(req: NextRequest) {
       console.warn(`[phase4/release] ${noEmail} member(s) have no email address — skipped.`);
     }
 
+    if (!apiKey && toSend.length > 0) {
+      return NextResponse.json({ error: "Email delivery is not configured. Add RESEND_API_KEY before releasing." }, { status: 503 });
+    }
     if (apiKey && toSend.length > 0) {
       const resend = new Resend(apiKey);
       const loginUrl = `${appUrl!}/member-login`;

@@ -34,6 +34,7 @@ export default function Phase3SharedPurposeReview({
   const [rating, setRating] = useState<PulseCheckRating | null>(null);
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -48,14 +49,35 @@ export default function Phase3SharedPurposeReview({
     void load();
   }, [memberId, teamId]);
 
-  async function save(nextRating: PulseCheckRating, nextComment: string) {
+  async function save(nextRating: PulseCheckRating, nextComment: string): Promise<boolean> {
     setSaving(true);
-    await fetch("/api/phase3/pulse-check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ member_id: memberId, team_id: teamId, read_key: "purpose", accuracy_rating: nextRating, comment: nextComment || null }),
-    });
-    setSaving(false);
+    setError(null);
+    try {
+      const response = await fetch("/api/phase3/pulse-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, team_id: teamId, read_key: "purpose", accuracy_rating: nextRating, comment: nextComment || null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(data.error ?? "That rating was not saved. Please try again.");
+        return false;
+      }
+      return true;
+    } catch {
+      setError("That rating was not saved. Check your connection and try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function continueToNext() {
+    if (!rating) {
+      setError("Choose an answer before continuing. You can choose ‘Decline to answer’. ");
+      return;
+    }
+    if (await save(rating, comment)) onNext();
   }
 
   return (
@@ -94,8 +116,10 @@ export default function Phase3SharedPurposeReview({
         <p className="text-sm text-[var(--color-grey)] mt-1">This stays private to your consultant.</p>
       </div>
 
-      <button type="button" onClick={() => { if (rating) void save(rating, comment); onNext(); }} className="btn-primary">
-        {nextLabel}
+      {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
+
+      <button type="button" onClick={() => void continueToNext()} disabled={!rating || saving} className="btn-primary">
+        {saving ? "Saving…" : nextLabel}
       </button>
     </div>
   );

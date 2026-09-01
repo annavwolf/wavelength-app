@@ -265,6 +265,12 @@ export async function generatePhase4Insights(
     supabaseAdmin.from("member_stories").select("member_id, situation_tag").eq("team_id", teamId).in("member_id", memberIds),
     supabaseAdmin.from("phase3_context_responses").select("*").eq("team_id", teamId).in("member_id", memberIds),
   ]);
+  if (storiesRes.error) {
+    throw new Error(`member_stories load failed: ${storiesRes.error.message}`);
+  }
+  if (contextRes.error) {
+    throw new Error(`phase3_context_responses load failed: ${contextRes.error.message}`);
+  }
 
   // Situation convergence from story tags (distinct members per tag).
   const tagMembers = new Map<SituationTag, Set<string>>();

@@ -7,6 +7,7 @@ import {
   getCurrentPrivacyParticipants,
 } from "@/lib/currentPrivacyParticipants";
 import { MODELS } from "@/lib/models";
+import { missingPhase3SubmissionFields } from "@/lib/phase3Submission";
 import { redactTextForExternalProcessing } from "@/lib/privacy";
 import { requireEarlyAccessConsultant, requireTeamOwner } from "@/lib/requestAuth";
 import {
@@ -106,10 +107,47 @@ export async function POST(req: NextRequest) {
   const currentMemberIdSet = new Set(currentMemberIds);
   const currentMembers = members.filter((member) => currentMemberIdSet.has(member.member_id));
 
+  const { data: analysis, error: aErr } = await supabaseAdmin
+    .from("analysis")
+    .select("tier1_json, tier2_json, phase3_report_json, phase4_selfserve_json")
+    .eq("team_id", teamId)
+    .maybeSingle();
+  if (aErr || !analysis) {
+    return NextResponse.json({ error: "Analysis not found for this team" }, { status: 404 });
+  }
+  const report = (analysis.phase3_report_json as Phase3ReportJson | null) ?? null;
+  if (!report) {
+    return NextResponse.json({ error: REPORT_REBUILD_REQUIRED_MESSAGE, code: "report_rebuild_required" }, { status: 409 });
+  }
+
+  const [behaviorRes, contextRes, conversationRes, pulseRes] = await Promise.all([
+    supabaseAdmin.from("member_behaviors").select("member_id, bucket").eq("team_id", teamId).in("member_id", currentMemberIds),
+    supabaseAdmin.from("phase3_context_responses").select("member_id, frequency, commitment, synchronicity").eq("team_id", teamId).in("member_id", currentMemberIds),
+    supabaseAdmin.from("phase3_conversation_messages").select("member_id, kind, state").eq("team_id", teamId).in("member_id", currentMemberIds),
+    supabaseAdmin.from("phase3_pulse_checks").select("member_id, read_key").eq("team_id", teamId).in("member_id", currentMemberIds),
+  ]);
+  if (behaviorRes.error || contextRes.error || conversationRes.error || pulseRes.error) {
+    return NextResponse.json({ error: "Unable to verify the saved Phase 3 submissions." }, { status: 500 });
+  }
+
   const participants = currentMembers.filter((m) => m.status === "complete");
   const phase3CompletedIds = new Set(
     currentMembers
-      .filter((member) => Boolean(member.phase3_completed_at))
+      .filter((member) => {
+        if (!member.phase3_completed_at) return false;
+        return missingPhase3SubmissionFields({
+          includeStories: report.include_stories !== false,
+          includePurpose: report.include_shared_purpose === true,
+          behaviorBuckets: (behaviorRes.data ?? [])
+            .filter((row) => row.member_id === member.member_id)
+            .map((row) => row.bucket),
+          context: (contextRes.data ?? []).find((row) => row.member_id === member.member_id) ?? null,
+          conversations: (conversationRes.data ?? []).filter((row) => row.member_id === member.member_id),
+          pulseKeys: (pulseRes.data ?? [])
+            .filter((row) => row.member_id === member.member_id)
+            .map((row) => row.read_key),
+        }).length === 0;
+      })
       .map((member) => member.member_id)
   );
   const completedCount = participants.length > 0
@@ -129,21 +167,12 @@ export async function POST(req: NextRequest) {
   );
   const completedMemberIds = currentPrivacyParticipantIds(completedPrivacyParticipants);
 
-  const { data: analysis, error: aErr } = await supabaseAdmin
-    .from("analysis")
-    .select("tier1_json, tier2_json, phase3_report_json, phase4_selfserve_json")
-    .eq("team_id", teamId)
-    .maybeSingle();
-  if (aErr || !analysis) {
-    return NextResponse.json({ error: "Analysis not found for this team" }, { status: 404 });
-  }
   const tier1Provenance = currentTier1Provenance(analysis.tier1_json);
   if (!tier1Provenance) {
     return NextResponse.json({ error: RECOMPUTE_REQUIRED_MESSAGE, code: "analysis_recompute_required" }, { status: 409 });
   }
 
   // Resolve the focus item: phase3_report_json wins, then tier2 focus_hypothesis.
-  const report = (analysis.phase3_report_json as Phase3ReportJson | null) ?? null;
   const tier2 = (analysis.tier2_json as unknown as Tier2Result | null) ?? null;
   if (!artifactMatchesTier1(tier2, tier1Provenance)) {
     return NextResponse.json({ error: REINTERPRET_REQUIRED_MESSAGE, code: "analysis_reinterpret_required" }, { status: 409 });

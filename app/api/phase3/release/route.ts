@@ -33,6 +33,12 @@ export async function POST(req: NextRequest) {
   if (!team_id || !report) {
     return NextResponse.json({ error: "team_id and report required" }, { status: 400 });
   }
+  if (
+    typeof report !== "object" || Array.isArray(report) ||
+    !Number.isInteger((report as Phase3ReportJson).focus_statement_id)
+  ) {
+    return NextResponse.json({ error: "Select a valid focus item before releasing the activity." }, { status: 400 });
+  }
 
   const auth = await requireTeamOwner(req, team_id);
   if (!auth.ok) return auth.response;
@@ -85,13 +91,18 @@ export async function POST(req: NextRequest) {
   if (!dry_run) {
     const apiKey = process.env.RESEND_API_KEY;
 
-    const [identityRes, teamRes] = await Promise.all([
+    const [identityRes, memberRes, teamRes] = await Promise.all([
       supabaseAdmin.from("member_identity").select("member_id, display_name, email").eq("team_id", team_id),
+      supabaseAdmin.from("members").select("member_id").eq("team_id", team_id).eq("status", "complete"),
       supabaseAdmin.from("teams").select("team_name").eq("team_id", team_id).single(),
     ]);
+    if (identityRes.error || memberRes.error || teamRes.error) {
+      return NextResponse.json({ error: "Unable to load eligible activity recipients." }, { status: 500 });
+    }
 
     const teamName = teamRes.data?.team_name ?? "your team";
-    const allMembers = identityRes.data ?? [];
+    const eligibleMemberIds = new Set((memberRes.data ?? []).map((member) => member.member_id));
+    const allMembers = (identityRes.data ?? []).filter((member) => eligibleMemberIds.has(member.member_id));
     void logIdentityLookups(allMembers.map((m) => m.member_id), "phase3_release", "sending Phase 3 report");
     const noEmail = allMembers.filter((m) => !m.email).length;
     skippedAlreadySent = resend_all ? 0 :
@@ -106,6 +117,9 @@ export async function POST(req: NextRequest) {
       console.log(`[phase3/release] ${skippedAlreadySent} already sent — skipped. Use resend_all=true to override.`);
     }
 
+    if (!apiKey && toSend.length > 0) {
+      return NextResponse.json({ error: "Email delivery is not configured. Add RESEND_API_KEY before releasing." }, { status: 503 });
+    }
     if (apiKey && toSend.length > 0) {
       const resend = new Resend(apiKey);
       const loginUrl = `${appUrl!}/member-login`;

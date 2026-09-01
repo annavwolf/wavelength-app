@@ -38,14 +38,20 @@ export default function Phase3CommitAskStep({ memberId, teamId, readAloud = fals
 
   async function saveChoice(c: ContextCommitment) {
     setSaving(true);
+    setError(null);
     try {
-      await fetch("/api/phase3/context", {
+      const response = await fetch("/api/phase3/context", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ member_id: memberId, team_id: teamId, phase: "commitment", commitment: c }),
       });
-    } catch { /* non-blocking */ }
-    setSaving(false);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) setError(data.error ?? "That choice was not saved. Please try again.");
+    } catch {
+      setError("That choice was not saved. Check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function submit() {
@@ -61,7 +67,8 @@ export default function Phase3CommitAskStep({ memberId, teamId, readAloud = fals
           commitment, commitment_result: result.trim(),
         }),
       });
-      if (!res.ok) { setError("Something went wrong. Please try again."); setBusy(false); return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(data.error ?? "Something went wrong. Please try again."); setBusy(false); return; }
       onComplete();
     } catch {
       setError("Something went wrong. Please try again.");

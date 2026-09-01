@@ -40,6 +40,7 @@ export default function Phase3ZoneReview({
   const [rating, setRating] = useState<PulseCheckRating | null>(null);
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Restore any prior answer for this zone.
   useEffect(() => {
@@ -58,20 +59,33 @@ export default function Phase3ZoneReview({
     void load();
   }, [memberId, teamId, readKey]);
 
-  async function save(nextRating: PulseCheckRating, nextComment: string) {
+  async function save(nextRating: PulseCheckRating, nextComment: string): Promise<boolean> {
     setSaving(true);
-    await fetch("/api/phase3/pulse-check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        member_id: memberId,
-        team_id: teamId,
-        read_key: readKey,
-        accuracy_rating: nextRating,
-        comment: nextComment || null,
-      }),
-    });
-    setSaving(false);
+    setError(null);
+    try {
+      const response = await fetch("/api/phase3/pulse-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          member_id: memberId,
+          team_id: teamId,
+          read_key: readKey,
+          accuracy_rating: nextRating,
+          comment: nextComment || null,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(data.error ?? "That rating was not saved. Please try again.");
+        return false;
+      }
+      return true;
+    } catch {
+      setError("That rating was not saved. Check your connection and try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
   }
 
   function chooseRating(r: PulseCheckRating) {
@@ -79,9 +93,12 @@ export default function Phase3ZoneReview({
     void save(r, comment);
   }
 
-  function saveComment() {
-    // The endpoint needs a rating; only persist the comment once one is chosen.
-    if (rating) void save(rating, comment);
+  async function continueToNext() {
+    if (!rating) {
+      setError("Choose an answer before continuing. You can choose ‘Decline to answer’. ");
+      return;
+    }
+    if (await save(rating, comment)) onNext();
   }
 
   return (
@@ -115,8 +132,10 @@ export default function Phase3ZoneReview({
         <p className="text-sm text-[var(--color-grey)] mt-1">This stays private to your consultant.</p>
       </div>
 
-      <button type="button" onClick={() => { saveComment(); onNext(); }} className="btn-primary">
-        {nextLabel}
+      {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
+
+      <button type="button" onClick={() => void continueToNext()} disabled={!rating || saving} className="btn-primary">
+        {saving ? "Saving…" : nextLabel}
       </button>
     </div>
   );

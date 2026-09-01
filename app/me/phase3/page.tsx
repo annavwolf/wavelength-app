@@ -22,6 +22,7 @@ import Phase3ProgressBar, { type Phase3Step, phase3SectionOverlay } from "@/comp
 import { ITEM_EXAMPLES } from "@/lib/itemExamples";
 import { ACTION_PHRASES, PLACE_PHRASES } from "@/prompts/phase3_conversation";
 import { SHARED_PURPOSE_INTRO } from "@/lib/phase3Copy";
+import { isPhase3StepId } from "@/lib/phase3Progress";
 import MemberNav from "@/components/member/MemberNav";
 import { primeSpeech, speakText, cancelSpeech } from "@/lib/speech";
 import {
@@ -30,7 +31,13 @@ import {
   useVoiceParticipantMemberId,
 } from "@/components/interview/VoiceInputContext";
 
-type SessionMember = { member_id: string; display_name: string; phase3_completed_at?: string | null };
+type SessionMember = {
+  member_id: string;
+  display_name: string;
+  phase3_completed_at?: string | null;
+  phase3_resume_step?: string | null;
+  phase3_reached_step?: string | null;
+};
 type PageState = "loading" | "not_ready" | "done" | "withdrawn" | Phase3Step;
 
 // Full linear order of all possible steps. The actual order for a member is
@@ -125,6 +132,10 @@ export default function MemberPhase3Page() {
   // True while the member has jumped back to a step from the review summary.
   // Shows a "Return to summary" button so they don't have to step through everything.
   const [editingFromReview, setEditingFromReview] = useState(false);
+  const [progressWarning, setProgressWarning] = useState<string | null>(null);
+  // Keep page checkpoints ordered even when someone moves quickly through
+  // several informational screens and the network responses arrive slowly.
+  const progressWriteRef = useRef<Promise<void>>(Promise.resolve());
 
   // Release toggles drive which sections the member sees. Stories default ON
   // for older reports (undefined); shared purpose defaults OFF.
@@ -185,14 +196,23 @@ export default function MemberPhase3Page() {
       const ctx = data.context as { frequency?: string | null; impact_text?: string | null; commitment?: string | null; synchronicity?: string | null } | null;
 
       const localIncludeStories = report?.include_stories !== false;
+      const localStepOrder = buildStepOrder(!!report?.include_shared_purpose, localIncludeStories);
       let target: Phase3Step = "intro";
       if (behaviorCount > 0 || ctx?.commitment || ctx?.synchronicity) target = "board";
       else if (localIncludeStories && ctx?.frequency) target = "story_consent";
       else if (localIncludeStories && ctx?.impact_text) target = "frequency";
       else if (localIncludeStories && storyCount > 0) target = "impact";
 
+      if (isPhase3StepId(me.phase3_resume_step) && localStepOrder.includes(me.phase3_resume_step)) {
+        target = me.phase3_resume_step;
+      }
+      const savedReached = isPhase3StepId(me.phase3_reached_step) && localStepOrder.includes(me.phase3_reached_step)
+        ? me.phase3_reached_step
+        : target;
+      const reached = localStepOrder.indexOf(savedReached) >= localStepOrder.indexOf(target) ? savedReached : target;
+
       setPageState(target);
-      setReachedStep(target);
+      setReachedStep(reached);
     } catch {
       setPageState("not_ready");
     }
@@ -203,12 +223,42 @@ export default function MemberPhase3Page() {
     cancelSpeech();
   }
 
+  function persistProgress(step: Phase3Step, reached: Phase3Step): Promise<void> {
+    const write = progressWriteRef.current.then(async () => {
+      try {
+        const response = await fetch("/api/member/phase3/progress", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ step, reached_step: reached }),
+          keepalive: true,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 409) return;
+          // Migration 0033 is deliberately rollout-safe; don't alarm a member
+          // while the old schema is still serving an otherwise working flow.
+          if (data.code !== "42703" && data.code !== "PGRST204") {
+            setProgressWarning("Your answers are saved, but Otis could not save this exact page. Please keep this tab open and try again.");
+          }
+          return;
+        }
+        setProgressWarning(null);
+      } catch {
+        setProgressWarning("Your answers are saved, but Otis could not save this exact page. Check your connection before leaving.");
+      }
+    });
+    progressWriteRef.current = write;
+    return write;
+  }
+
   function goToStep(next: Phase3Step) {
     stopSpeech();
     setChatBusy(false);
     setEditingFromReview(false);
     setPageState(next);
-    setReachedStep((prev) => (stepOrder.indexOf(next) > stepOrder.indexOf(prev) ? next : prev));
+    const nextReached = stepOrder.indexOf(next) > stepOrder.indexOf(reachedStep) ? next : reachedStep;
+    setReachedStep(nextReached);
+    void persistProgress(next, nextReached);
   }
 
   // Called by Phase3ReviewStep's Edit buttons — jumps to a step but remembers
@@ -218,6 +268,7 @@ export default function MemberPhase3Page() {
     setChatBusy(false);
     setEditingFromReview(true);
     setPageState(next);
+    void persistProgress(next, reachedStep);
   }
 
   // Advance to the next active step after `from` (robust to toggled-out steps).
@@ -696,10 +747,18 @@ export default function MemberPhase3Page() {
               // before showing the terminal state. A failed save must remain
               // retryable rather than looking like a finished submission.
               const response = await fetch("/api/member/phase3/complete", { method: "POST" });
-              if (!response.ok) return false;
+              const result = await response.json().catch(() => ({}));
+              if (!response.ok) {
+                return {
+                  ok: false,
+                  error: typeof result.error === "string"
+                    ? result.error
+                    : "We could not save that you completed this activity. Please try again.",
+                };
+              }
               stopSpeech();
               setPageState("done");
-              return true;
+              return { ok: true };
             }}
             onWithdrawn={() => { stopSpeech(); setPageState("withdrawn"); }}
           />
@@ -761,6 +820,7 @@ export default function MemberPhase3Page() {
           <ReadAloudToggle enabled={readAloud} onToggle={toggleReadAloud} />
         </div>
         <Phase3ProgressBar step={barStep} reachedStep={reachedStep} complete={isTerminal} onSectionClick={goToStep} activeSteps={stepOrder} />
+        {progressWarning && <p className="mt-2 text-sm text-amber-700" role="status">{progressWarning}</p>}
       </div>
 
       <div className="w-full relative z-10">{renderContent()}</div>

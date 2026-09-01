@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { requirePhase3Member } from "@/lib/requestAuth";
 import type { PulseCheckKey, PulseCheckRating } from "@/types/database";
 
 const VALID_KEYS: PulseCheckKey[] = ["zone1", "zone2", "zone3", "purpose"];
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "member_id and team_id required" }, { status: 400 });
   }
 
-  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  const auth = await requirePhase3Member(req, { memberId, teamId }, { allowCompleted: true });
   if (!auth.ok) return auth.response;
 
   const { data, error } = await supabaseAdmin
@@ -63,7 +63,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  if (comment && comment.length > 4000) {
+    return NextResponse.json({ error: "Please keep your comment under 4,000 characters." }, { status: 400 });
+  }
+
+  const auth = await requirePhase3Member(req, { memberId, teamId });
   if (!auth.ok) return auth.response;
 
   const now = new Date().toISOString();

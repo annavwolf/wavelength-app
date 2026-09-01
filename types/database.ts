@@ -135,6 +135,8 @@ export type Member = {
   // Set when the member submits the Results & Team Agreement Activity (migration
   // 0018). NULL = not finished. Distinct from status/completed_at (Phase 1).
   phase3_completed_at: string | null;
+  phase3_resume_step: string | null;
+  phase3_reached_step: string | null;
   created_at: string;
 }
 
@@ -171,6 +173,8 @@ export type MemberInsert = {
   invited_at?: string | null;
   completed_at?: string | null;
   phase3_completed_at?: string | null;
+  phase3_resume_step?: string | null;
+  phase3_reached_step?: string | null;
   created_at?: string;
 }
 

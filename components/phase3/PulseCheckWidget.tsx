@@ -26,6 +26,7 @@ export default function PulseCheckWidget({ memberId, teamId, readKey }: Props) {
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
   const [commentSaved, setCommentSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Restore prior answer on mount.
   useEffect(() => {
@@ -47,25 +48,44 @@ export default function PulseCheckWidget({ memberId, teamId, readKey }: Props) {
   async function saveRating(r: PulseCheckRating) {
     setRating(r);
     setSaving(true);
-    await fetch("/api/phase3/pulse-check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ member_id: memberId, team_id: teamId, read_key: readKey, accuracy_rating: r, comment: comment || null }),
-    });
-    setSaving(false);
+    setError(null);
+    try {
+      const response = await fetch("/api/phase3/pulse-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, team_id: teamId, read_key: readKey, accuracy_rating: r, comment: comment || null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) setError(data.error ?? "That rating was not saved. Please try again.");
+    } catch {
+      setError("That rating was not saved. Check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveComment() {
     if (!rating) return;
     setSaving(true);
-    await fetch("/api/phase3/pulse-check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ member_id: memberId, team_id: teamId, read_key: readKey, accuracy_rating: rating, comment: comment || null }),
-    });
-    setSaving(false);
-    setCommentSaved(true);
-    setTimeout(() => setCommentSaved(false), 2000);
+    setError(null);
+    try {
+      const response = await fetch("/api/phase3/pulse-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, team_id: teamId, read_key: readKey, accuracy_rating: rating, comment: comment || null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(data.error ?? "That comment was not saved. Please try again.");
+        return;
+      }
+      setCommentSaved(true);
+      setTimeout(() => setCommentSaved(false), 2000);
+    } catch {
+      setError("That comment was not saved. Check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -121,6 +141,7 @@ export default function PulseCheckWidget({ memberId, teamId, readKey }: Props) {
           </button>
         </div>
       </details>
+      {error && <p className="text-xs text-red-600" role="alert">{error}</p>}
     </div>
   );
 }

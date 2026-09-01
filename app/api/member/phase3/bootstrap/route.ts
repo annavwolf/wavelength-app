@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { requirePhase3Member } from "@/lib/requestAuth";
 import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { Phase3ReportJson, PsStatement } from "@/types/database";
@@ -9,12 +9,15 @@ import type { Tier1Result, Tier2Result } from "@/components/dashboard/types";
 // scoped server route avoids exposing the team's full analysis row in the
 // browser merely to resume a participant's own activity.
 export async function GET(request: NextRequest) {
-  const auth = await requireAcknowledgedMember(request);
+  const auth = await requirePhase3Member(request, undefined, { allowCompleted: true });
   if (!auth.ok) return auth.response;
   const { member_id: memberId, team_id: teamId } = auth.value.session;
 
-  const [memberRes, identityRes, analysisRes, contextRes, storiesRes, behaviorsRes, rosterRes, privacyRes] = await Promise.all([
+  const [memberRes, progressRes, identityRes, analysisRes, contextRes, storiesRes, behaviorsRes, rosterRes, privacyRes] = await Promise.all([
     supabaseAdmin.from("members").select("member_id, team_id, status, phase3_completed_at").eq("member_id", memberId).maybeSingle(),
+    // Kept separate from the required member query so deployment remains
+    // backwards-compatible until migration 0033 is applied.
+    supabaseAdmin.from("members").select("phase3_resume_step, phase3_reached_step").eq("member_id", memberId).maybeSingle(),
     supabaseAdmin.from("member_identity").select("display_name").eq("member_id", memberId).maybeSingle(),
     supabaseAdmin.from("analysis").select("tier1_json, tier2_json, phase3_report_json").eq("team_id", teamId).maybeSingle(),
     supabaseAdmin
@@ -33,21 +36,27 @@ export async function GET(request: NextRequest) {
       .maybeSingle(),
   ]);
 
-  if (memberRes.error || !memberRes.data || identityRes.error || analysisRes.error) {
+  if (
+    memberRes.error || !memberRes.data || identityRes.error || analysisRes.error ||
+    contextRes.error || storiesRes.error || behaviorsRes.error || rosterRes.error || privacyRes.error
+  ) {
     return NextResponse.json({ error: "Unable to load the Results & Team Agreement Activity." }, { status: 500 });
   }
 
   const tier1 = (analysisRes.data?.tier1_json ?? null) as Tier1Result | null;
   const tier2 = (analysisRes.data?.tier2_json ?? null) as Tier2Result | null;
-  const report = (analysisRes.data?.phase3_report_json ?? null) as Phase3ReportJson | null;
+  const report = auth.value.phase3Report as Phase3ReportJson;
   const focusStatementId = report?.focus_statement_id ?? tier2?.focus_hypothesis?.statement_id ?? null;
   let focusStatement: PsStatement | null = null;
   if (focusStatementId) {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("ps_statements")
       .select("*")
       .eq("statement_id", focusStatementId)
       .maybeSingle();
+    if (error) {
+      return NextResponse.json({ error: "Unable to load the activity focus." }, { status: 500 });
+    }
     focusStatement = data;
   }
 
@@ -57,6 +66,8 @@ export async function GET(request: NextRequest) {
       display_name: identityRes.data?.display_name ?? "",
       status: memberRes.data.status,
       phase3_completed_at: memberRes.data.phase3_completed_at,
+      phase3_resume_step: progressRes.data?.phase3_resume_step ?? null,
+      phase3_reached_step: progressRes.data?.phase3_reached_step ?? null,
     },
     privacy_acknowledgement:
       privacyRes.data?.acknowledged_at &&

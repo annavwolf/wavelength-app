@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
-import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { requirePhase3Member } from "@/lib/requestAuth";
 import { redactTextForExternalProcessing } from "@/lib/privacy";
 import {
   buildPhase3SystemPrompt,
@@ -45,6 +45,18 @@ function emptyState(): ConvState {
   };
 }
 
+function safeState(value: unknown): ConvState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return emptyState();
+  const input = value as Partial<ConvState>;
+  return {
+    story_complete: input.story_complete === true,
+    bridge_complete: input.bridge_complete === true,
+    story_text: typeof input.story_text === "string" ? input.story_text.slice(0, 8000) : "",
+    impact_complete: input.impact_complete === true,
+    impact_text: typeof input.impact_text === "string" ? input.impact_text.slice(0, 4000) : "",
+  };
+}
+
 const STORY_TOOL: Anthropic.Tool = {
   name: "record_turn",
   description: "Record what you say this turn, the accumulated story, and your completion flag. Call every turn.",
@@ -84,7 +96,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "member_id and team_id required" }, { status: 400 });
   }
 
-  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  const auth = await requirePhase3Member(req, { memberId, teamId }, { allowCompleted: true });
   if (!auth.ok) return auth.response;
 
   const { data, error } = await supabaseAdmin
@@ -108,7 +120,7 @@ async function persistTranscript(
   kind: Phase3ConversationKind,
   messages: ChatMessage[],
   state: ConvState
-) {
+): Promise<string | null> {
   const { error } = await supabaseAdmin.from("phase3_conversation_messages").upsert(
     {
       member_id: memberId,
@@ -122,7 +134,9 @@ async function persistTranscript(
   );
   if (error) {
     console.error("[phase3/conversation] transcript persist failed:", error.code, error.message);
+    return error.message;
   }
+  return null;
 }
 
 export async function POST(req: NextRequest) {
@@ -146,16 +160,30 @@ export async function POST(req: NextRequest) {
           .map((message: ChatMessage) => ({ role: message.role, content: message.content.slice(0, 4000) }))
       : [];
     kind = body.kind === "impact" ? "impact" : "story";
-    state = body.state?.story_complete !== undefined ? { ...emptyState(), ...body.state } : emptyState();
-    if (!memberId || !teamId || typeof statementId !== "number") {
+    state = emptyState();
+    if (!memberId || !teamId || !Number.isInteger(statementId)) {
       return NextResponse.json({ error: "member_id, team_id, and statement_id required" }, { status: 400 });
     }
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  const auth = await requirePhase3Member(req, { memberId, teamId });
   if (!auth.ok) return auth.response;
+
+  // Durable state is authoritative. Never trust a browser-provided completion
+  // flag, and keep retries idempotent after a transient response failure.
+  const { data: existingConversation, error: existingConversationError } = await supabaseAdmin
+    .from("phase3_conversation_messages")
+    .select("state")
+    .eq("member_id", memberId)
+    .eq("team_id", teamId)
+    .eq("kind", kind)
+    .maybeSingle();
+  if (existingConversationError) {
+    return NextResponse.json({ error: "Unable to load the saved conversation." }, { status: 500 });
+  }
+  state = safeState(existingConversation?.state);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI service not configured" }, { status: 500 });
@@ -178,7 +206,10 @@ export async function POST(req: NextRequest) {
         : buildPhase3Opening(CONCERN_PHRASES[statementId] ?? "the team isn't always a safe place to work well together");
     const openMessages: ChatMessage[] = [{ role: "assistant", content: opening }];
     const openState = emptyState();
-    await persistTranscript(memberId, teamId, kind, openMessages, openState);
+    const persistError = await persistTranscript(memberId, teamId, kind, openMessages, openState);
+    if (persistError) {
+      return NextResponse.json({ error: "Unable to save the conversation.", detail: persistError }, { status: 500 });
+    }
     return NextResponse.json({
       say: opening,
       state: openState,
@@ -208,6 +239,13 @@ export async function POST(req: NextRequest) {
 
   const anthropic = new Anthropic({ apiKey });
   const tool = kind === "impact" ? IMPACT_TOOL : STORY_TOOL;
+
+  // Save the member's latest turn before calling the AI. If the provider is
+  // unavailable, their words still survive a refresh and the turn can retry.
+  const pendingPersistError = await persistTranscript(memberId, teamId, kind, messages, state);
+  if (pendingPersistError) {
+    return NextResponse.json({ error: "Unable to save your response.", detail: pendingPersistError }, { status: 500 });
+  }
 
   let toolInput: Record<string, unknown>;
   try {
@@ -240,15 +278,20 @@ export async function POST(req: NextRequest) {
       impact_complete: state.impact_complete || complete,
       impact_text: impactText || state.impact_text,
     };
-    await persistTranscript(memberId, teamId, kind, nextMessages, nextState);
-
     // On completion, save the captured impact into the context row.
     if (nextState.impact_complete && nextState.impact_text) {
       const { error: ctxErr } = await supabaseAdmin.from("phase3_context_responses").upsert(
         { member_id: memberId, team_id: teamId, impact_text: nextState.impact_text, updated_at: new Date().toISOString() },
         { onConflict: "member_id,team_id" }
       );
-      if (ctxErr) console.error("[phase3/conversation] impact save failed:", ctxErr.code, ctxErr.message);
+      if (ctxErr) {
+        console.error("[phase3/conversation] impact save failed:", ctxErr.code, ctxErr.message);
+        return NextResponse.json({ error: "Unable to save the impact response.", detail: ctxErr.message }, { status: 500 });
+      }
+    }
+    const transcriptError = await persistTranscript(memberId, teamId, kind, nextMessages, nextState);
+    if (transcriptError) {
+      return NextResponse.json({ error: "Unable to save the conversation.", detail: transcriptError }, { status: 500 });
     }
 
     return NextResponse.json({ say, state: nextState, impact_complete: nextState.impact_complete });
@@ -261,10 +304,10 @@ export async function POST(req: NextRequest) {
     bridge_complete: state.story_complete || !!toolInput.story_complete, // kept for backwards compat
     story_text: (typeof toolInput.story_text === "string" ? toolInput.story_text.trim() : "") || state.story_text,
   };
-  await persistTranscript(memberId, teamId, kind, nextMessages, nextState);
-
   // Auto-save story when complete.
-  if (nextState.story_complete && !state.story_complete && nextState.story_text) {
+  // Repeat the idempotent upsert on retries too: if the story row failed while
+  // the transcript succeeded, the next turn repairs it instead of losing it.
+  if (nextState.story_complete && nextState.story_text) {
     const { error: storyErr } = await supabaseAdmin.from("member_stories").upsert(
       {
         member_id: memberId,
@@ -278,7 +321,12 @@ export async function POST(req: NextRequest) {
     );
     if (storyErr) {
       console.error("[phase3/conversation] story save failed:", storyErr.code, storyErr.message, storyErr.details ?? "");
+      return NextResponse.json({ error: "Unable to save your story.", detail: storyErr.message }, { status: 500 });
     }
+  }
+  const transcriptError = await persistTranscript(memberId, teamId, kind, nextMessages, nextState);
+  if (transcriptError) {
+    return NextResponse.json({ error: "Unable to save the conversation.", detail: transcriptError }, { status: 500 });
   }
 
   return NextResponse.json({

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
-import { requireAcknowledgedMember } from "@/lib/requestAuth";
+import { requirePhase3Member } from "@/lib/requestAuth";
 import { redactTextForExternalProcessing } from "@/lib/privacy";
 import { MODELS } from "@/lib/models";
 import type { BehaviorBucket } from "@/types/database";
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
   const teamId = searchParams.get("team_id");
   if (!memberId || !teamId) return NextResponse.json({ error: "member_id and team_id required" }, { status: 400 });
 
-  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  const auth = await requirePhase3Member(req, { memberId, teamId }, { allowCompleted: true });
   if (!auth.ok) return auth.response;
 
   const { data, error } = await supabaseAdmin
@@ -130,8 +130,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const auth = await requireAcknowledgedMember(req, { memberId, teamId });
+  const auth = await requirePhase3Member(req, { memberId, teamId });
   if (!auth.ok) return auth.response;
+
+  if (text.length > 1000) {
+    return NextResponse.json({ error: "Please keep each behaviour under 1,000 characters." }, { status: 400 });
+  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI service not configured" }, { status: 500 });
@@ -179,7 +183,7 @@ export async function DELETE(req: NextRequest) {
   const memberId = searchParams.get("member_id");
   if (!id || !memberId) return NextResponse.json({ error: "id and member_id required" }, { status: 400 });
 
-  const auth = await requireAcknowledgedMember(req, { memberId });
+  const auth = await requirePhase3Member(req, { memberId });
   if (!auth.ok) return auth.response;
 
   const { error } = await supabaseAdmin

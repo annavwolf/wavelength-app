@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Analysis, MemberWithIdentity, Team } from "@/types/database";
@@ -97,22 +97,39 @@ export default function TeamDashboardPage() {
   const [interpreting, setInterpreting] = useState(false);
   const [interpretError, setInterpretError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"analytics" | "report" | "agreement" | "workshop">("analytics");
+  const [dashboardRefreshError, setDashboardRefreshError] = useState<string | null>(null);
+  const loadRequestRef = useRef(0);
 
   useEffect(() => { load(); }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const interval = window.setInterval(() => { void load(true); }, 30000);
     return () => window.clearInterval(interval);
   }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void load(true);
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [teamId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load(silent = false) {
+    const requestId = ++loadRequestRef.current;
     if (!silent) setLoading(true);
     try {
       const response = await fetch(`/api/teams/${teamId}/dashboard`);
       const data = await response.json().catch(() => ({}));
+      if (requestId !== loadRequestRef.current) return;
       if (!response.ok) {
-        setTeam(null);
+        if (!silent) setTeam(null);
+        else setDashboardRefreshError("Status refresh failed. The dashboard is showing the last saved status.");
         return;
       }
+      setDashboardRefreshError(null);
       setTeam(data.team as Team);
       setMembers((data.members as MemberWithIdentity[] | undefined) ?? []);
       setPhase3DoneIds(new Set((data.phase3_done_member_ids as string[] | undefined) ?? []));
@@ -121,8 +138,12 @@ export default function TeamDashboardPage() {
       const analysisRow = (data.analysis as Analysis | null | undefined) ?? null;
       setAnalysis(analysisRow);
       setInterpretation((analysisRow?.tier2_json as unknown as Tier2Result | null) ?? null);
+    } catch {
+      if (requestId !== loadRequestRef.current) return;
+      if (!silent) setTeam(null);
+      else setDashboardRefreshError("Status refresh failed. The dashboard is showing the last saved status.");
     } finally {
-      if (!silent) setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
   }
 
@@ -438,6 +459,7 @@ export default function TeamDashboardPage() {
   const phase3TotalCount = phase3Participants.length;
   const phase3AllComplete = phase3TotalCount > 0 && phase3CompletedCount === phase3TotalCount;
   const phase3Outstanding = phase3Participants.filter((m) => !phase3DoneIds.has(m.member_id)).map((m) => m.display_name);
+  const phase3Finished = phase3Participants.filter((m) => phase3DoneIds.has(m.member_id)).map((m) => m.display_name);
   const phase3InProgress = phase3Participants
     .filter((m) => !phase3DoneIds.has(m.member_id) && phase3StartedIds.has(m.member_id))
     .map((m) => m.display_name);
@@ -567,13 +589,20 @@ export default function TeamDashboardPage() {
           <div className="flex flex-col items-start gap-3 rounded-xl border border-black/10 px-5 py-3 sm:flex-row sm:items-center sm:justify-between" style={{ background: "rgba(20,32,60,0.04)" }}>
             <div className="min-w-0">
               <span className="break-words text-sm font-medium">Results &amp; Team Agreement Activity: {phase3CompletedCount}/{phase3TotalCount} members finished</span>
+              {phase3Finished.length > 0 && <p className="text-xs text-green-700 mt-0.5">Finished: {phase3Finished.join(", ")}</p>}
               {phase3InProgress.length > 0 && <p className="text-xs text-amber-700 mt-0.5">In progress: {phase3InProgress.join(", ")}</p>}
               {phase3NotStarted.length > 0 && <p className="text-xs text-[var(--color-grey)] mt-0.5">Not started: {phase3NotStarted.join(", ")}</p>}
             </div>
-            <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap flex-shrink-0 ${phase3AllComplete ? "bg-green-100 text-green-800" : phase3CompletedCount > 0 ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-600"}`}>
-              {phase3AllComplete ? "All finished" : phase3CompletedCount > 0 || phase3InProgress.length > 0 ? "In progress" : "Not started"}
-            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap flex-shrink-0 ${phase3AllComplete ? "bg-green-100 text-green-800" : phase3CompletedCount > 0 || phase3InProgress.length > 0 ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-600"}`}>
+                {phase3AllComplete ? "All finished" : phase3CompletedCount > 0 || phase3InProgress.length > 0 ? "In progress" : "Not started"}
+              </span>
+              <button type="button" onClick={() => void load(true)} className="text-xs text-[var(--color-grey)] underline hover:text-[var(--color-ink)]">
+                Refresh status
+              </button>
+            </div>
           </div>
+          {dashboardRefreshError && <p className="text-sm text-amber-700" role="status">{dashboardRefreshError}</p>}
 
           {/* ── a. SHARED PURPOSE — with the team's roles in their own words ── */}
           <SharedPurposePanel tier1={tier1} tier2={interpretation} />
@@ -620,6 +649,7 @@ export default function TeamDashboardPage() {
               completedCount={phase3CompletedCount}
               totalCount={phase3TotalCount}
               outstanding={phase3Outstanding}
+              finished={phase3Finished}
               inProgress={phase3InProgress}
               notStarted={phase3NotStarted}
               tier1={tier1}

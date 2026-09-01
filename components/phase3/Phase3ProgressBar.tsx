@@ -1,5 +1,7 @@
 "use client";
 
+import type { Phase3StepId } from "@/lib/phase3Progress";
+
 // Phase 3 report progress bar — mirrors the Phase 1 interview ProgressBar,
 // grouping the member's Phase 3 steps into sections. Clicking a reached section
 // jumps back (or forward, up to the furthest step reached).
@@ -7,36 +9,7 @@
 // The old single "Building Psych Safety" section is now split into
 // "Team Stories" and "Team Agreement", with a final "Finish" section.
 
-export type Phase3Step =
-  | "intro"
-  | "sp_intro"
-  | "shared_purpose"
-  | "results"
-  | "zone1"
-  | "zone2"
-  | "zone3"
-  // Team Stories
-  | "focus"
-  | "focus2"
-  | "stories_intro"
-  | "chat"
-  | "impact"
-  | "frequency"
-  | "story_consent"
-  // Team Agreement
-  | "agreement_intro"
-  | "examples_meaning"
-  | "examples_behaviors"
-  | "board"
-  | "commit_praise"
-  | "commit_ask"
-  | "commit_sync"
-  // Finish
-  | "finish_wellDone"
-  | "finish_next"
-  | "behavior_consent"
-  | "finish_review"
-  | "review";
+export type Phase3Step = Phase3StepId;
 
 const SECTIONS: { label: string; steps: Phase3Step[]; color: string }[] = [
   {
