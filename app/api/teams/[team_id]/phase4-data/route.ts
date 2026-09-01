@@ -19,7 +19,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!earlyAccess.ok) return earlyAccess.response;
 
   const privacyParticipants = await getCurrentPrivacyParticipants(teamId);
-  const memberIds = currentPrivacyParticipantIds(privacyParticipants);
+  const currentMemberIds = currentPrivacyParticipantIds(privacyParticipants);
+  if (currentMemberIds.length === 0) {
+    return NextResponse.json({ context: [], pulse_checks: [], behaviors: [], story_tags: [] });
+  }
+
+  const { data: completedMembers, error: completionError } = await supabaseAdmin
+    .from("members")
+    .select("member_id")
+    .eq("team_id", teamId)
+    .in("member_id", currentMemberIds)
+    .not("phase3_completed_at", "is", null);
+  if (completionError) {
+    return NextResponse.json({ error: "Unable to verify Phase 3 submissions." }, { status: 500 });
+  }
+  const completedMemberIdSet = new Set((completedMembers ?? []).map((member) => member.member_id));
+  const completedPrivacyParticipants = privacyParticipants.filter((participant) =>
+    completedMemberIdSet.has(participant.memberId)
+  );
+  const memberIds = currentPrivacyParticipantIds(completedPrivacyParticipants);
   if (memberIds.length === 0) {
     return NextResponse.json({ context: [], pulse_checks: [], behaviors: [], story_tags: [] });
   }
@@ -34,7 +52,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Unable to load Phase 4 data." }, { status: 500 });
   }
   const canQuote = new Set(
-    privacyParticipants
+    completedPrivacyParticipants
       .filter((participant) => participant.verbatimPreference === "verbatim")
       .map((participant) => participant.memberId)
   );

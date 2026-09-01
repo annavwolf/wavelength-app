@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const { member_id: memberId, team_id: teamId } = auth.value.session;
 
   const [memberRes, identityRes, analysisRes, contextRes, storiesRes, behaviorsRes, rosterRes, privacyRes] = await Promise.all([
-    supabaseAdmin.from("members").select("member_id, team_id, status").eq("member_id", memberId).maybeSingle(),
+    supabaseAdmin.from("members").select("member_id, team_id, status, phase3_completed_at").eq("member_id", memberId).maybeSingle(),
     supabaseAdmin.from("member_identity").select("display_name").eq("member_id", memberId).maybeSingle(),
     supabaseAdmin.from("analysis").select("tier1_json, tier2_json, phase3_report_json").eq("team_id", teamId).maybeSingle(),
     supabaseAdmin
@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
       member_id: memberId,
       display_name: identityRes.data?.display_name ?? "",
       status: memberRes.data.status,
+      phase3_completed_at: memberRes.data.phase3_completed_at,
     },
     privacy_acknowledgement:
       privacyRes.data?.acknowledged_at &&

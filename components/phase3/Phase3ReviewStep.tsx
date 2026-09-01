@@ -171,6 +171,15 @@ export default function Phase3ReviewStep({
   }
 
   async function submit() {
+    const alwaysCount = behaviors.filter((behavior) => behavior.bucket === "always").length;
+    const neverCount = behaviors.filter((behavior) => behavior.bucket === "never").length;
+    if (alwaysCount < 2 || neverCount < 2) {
+      setError(
+        `Before submitting, please add ${Math.max(0, 2 - alwaysCount)} more ALWAYS and ${Math.max(0, 2 - neverCount)} more NEVER behaviour${Math.max(0, 2 - alwaysCount) + Math.max(0, 2 - neverCount) === 1 ? "" : "s"}.`
+      );
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     try {

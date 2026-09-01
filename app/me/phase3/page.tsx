@@ -30,7 +30,7 @@ import {
   useVoiceParticipantMemberId,
 } from "@/components/interview/VoiceInputContext";
 
-type SessionMember = { member_id: string; display_name: string };
+type SessionMember = { member_id: string; display_name: string; phase3_completed_at?: string | null };
 type PageState = "loading" | "not_ready" | "done" | "withdrawn" | Phase3Step;
 
 // Full linear order of all possible steps. The actual order for a member is
@@ -156,6 +156,13 @@ export default function MemberPhase3Page() {
       setMember(me);
       setTeamId(tid);
       if (!tid) { setPageState("not_ready"); return; }
+
+      // A completed member should return to the terminal confirmation rather
+      // than being sent back into the activity by heuristic resume data.
+      if (me.phase3_completed_at) {
+        setPageState("done");
+        return;
+      }
 
       const verbatimAllowed = data.privacy_acknowledgement?.verbatim_preference === "verbatim";
       setStoryVerbatim(verbatimAllowed);

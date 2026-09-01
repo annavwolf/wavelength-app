@@ -109,22 +109,27 @@ export default function Phase3Board({ memberId, teamId, statementId, placePhrase
     setSaving(bucket);
     setError(null);
 
-    const res = await fetch("/api/phase3/behaviors", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ member_id: memberId, team_id: teamId, statement_id: statementId, bucket, text }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setSaving(null);
+    try {
+      const res = await fetch("/api/phase3/behaviors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, team_id: teamId, statement_id: statementId, bucket, text }),
+      });
+      const data = await res.json().catch(() => ({}));
 
-    if (!res.ok) {
-      if (data?.error === "db_error") console.error("[phase3/behaviors] DB error:", data.detail);
-      setError("Something went wrong. Please try again.");
-      return;
+      if (!res.ok || !data.behavior) {
+        if (data?.error === "db_error") console.error("[phase3/behaviors] DB error:", data.detail);
+        setError("That behaviour was not saved. Please try again.");
+        return;
+      }
+      // Always saved now (warning, if any, rides along on the row as nudge_text).
+      setBehaviors((prev) => [...prev, data.behavior as MemberBehavior]);
+      setDrafts((prev) => ({ ...prev, [bucket]: "" }));
+    } catch {
+      setError("That behaviour was not saved. Check your connection and try again.");
+    } finally {
+      setSaving(null);
     }
-    // Always saved now (warning, if any, rides along on the row as nudge_text).
-    setBehaviors((prev) => [...prev, data.behavior as MemberBehavior]);
-    setDrafts((prev) => ({ ...prev, [bucket]: "" }));
   }
 
   function startEdit(b: MemberBehavior) {
@@ -137,25 +142,42 @@ export default function Phase3Board({ memberId, teamId, statementId, placePhrase
     if (!text) { setEditingId(null); return; }
     if (text === b.text) { setEditingId(null); return; }
     setEditSaving(true);
-    const res = await fetch("/api/phase3/behaviors", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        member_id: memberId, team_id: teamId, statement_id: statementId,
-        bucket: b.bucket, text, behavior_id: b.id,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setEditSaving(false);
-    setEditingId(null);
-    if (res.ok && data.behavior) {
+    setError(null);
+    try {
+      const res = await fetch("/api/phase3/behaviors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          member_id: memberId, team_id: teamId, statement_id: statementId,
+          bucket: b.bucket, text, behavior_id: b.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.behavior) {
+        setError("That edit was not saved. Please try again.");
+        return;
+      }
       setBehaviors((prev) => prev.map((x) => (x.id === b.id ? (data.behavior as MemberBehavior) : x)));
+      setEditingId(null);
+    } catch {
+      setError("That edit was not saved. Check your connection and try again.");
+    } finally {
+      setEditSaving(false);
     }
   }
 
-  function removeBehavior(id: string) {
-    setBehaviors((prev) => prev.filter((b) => b.id !== id));
-    void fetch(`/api/phase3/behaviors?id=${id}&member_id=${memberId}`, { method: "DELETE" });
+  async function removeBehavior(id: string) {
+    setError(null);
+    try {
+      const response = await fetch(`/api/phase3/behaviors?id=${id}&member_id=${memberId}`, { method: "DELETE" });
+      if (!response.ok) {
+        setError("That behaviour could not be removed. Please try again.");
+        return;
+      }
+      setBehaviors((prev) => prev.filter((behavior) => behavior.id !== id));
+    } catch {
+      setError("That behaviour could not be removed. Check your connection and try again.");
+    }
   }
 
   function handleDone() {
@@ -296,7 +318,7 @@ export default function Phase3Board({ memberId, teamId, statementId, placePhrase
                           )}
                           <button
                             type="button"
-                            onClick={() => removeBehavior(b.id)}
+                            onClick={() => void removeBehavior(b.id)}
                             className="text-[var(--color-grey)] hover:text-red-600 text-xs mt-0.5 flex-shrink-0"
                             aria-label="Remove"
                           >

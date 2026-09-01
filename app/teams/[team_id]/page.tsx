@@ -84,6 +84,7 @@ export default function TeamDashboardPage() {
   const [members, setMembers] = useState<MemberWithIdentity[]>([]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [phase3DoneIds, setPhase3DoneIds] = useState<Set<string>>(new Set());
+  const [phase3StartedIds, setPhase3StartedIds] = useState<Set<string>>(new Set());
   const [earlyAccess, setEarlyAccess] = useState(false);
 
   const [loading, setLoading] = useState(true);
@@ -115,6 +116,7 @@ export default function TeamDashboardPage() {
       setTeam(data.team as Team);
       setMembers((data.members as MemberWithIdentity[] | undefined) ?? []);
       setPhase3DoneIds(new Set((data.phase3_done_member_ids as string[] | undefined) ?? []));
+      setPhase3StartedIds(new Set((data.phase3_started_member_ids as string[] | undefined) ?? []));
       setEarlyAccess(data.early_access === true);
       const analysisRow = (data.analysis as Analysis | null | undefined) ?? null;
       setAnalysis(analysisRow);
@@ -429,13 +431,19 @@ export default function TeamDashboardPage() {
   );
   const focus = interpretation?.focus_hypothesis;
 
-  // Phase 3 completion — keyed off phase3_context_responses.synchronicity (the
-  // reliable signal; doesn't depend on the members-table write of phase3_completed_at).
+  // Phase 3 completion comes only from the explicit Finish & Submit action.
+  // Partial saved work is reported separately as in progress.
   const phase3Participants = members.filter((m) => m.status === "complete");
   const phase3CompletedCount = phase3Participants.filter((m) => phase3DoneIds.has(m.member_id)).length;
   const phase3TotalCount = phase3Participants.length;
   const phase3AllComplete = phase3TotalCount > 0 && phase3CompletedCount === phase3TotalCount;
   const phase3Outstanding = phase3Participants.filter((m) => !phase3DoneIds.has(m.member_id)).map((m) => m.display_name);
+  const phase3InProgress = phase3Participants
+    .filter((m) => !phase3DoneIds.has(m.member_id) && phase3StartedIds.has(m.member_id))
+    .map((m) => m.display_name);
+  const phase3NotStarted = phase3Participants
+    .filter((m) => !phase3DoneIds.has(m.member_id) && !phase3StartedIds.has(m.member_id))
+    .map((m) => m.display_name);
 
   return (
     <main className="flex-1">
@@ -559,12 +567,11 @@ export default function TeamDashboardPage() {
           <div className="flex flex-col items-start gap-3 rounded-xl border border-black/10 px-5 py-3 sm:flex-row sm:items-center sm:justify-between" style={{ background: "rgba(20,32,60,0.04)" }}>
             <div className="min-w-0">
               <span className="break-words text-sm font-medium">Results &amp; Team Agreement Activity: {phase3CompletedCount}/{phase3TotalCount} members finished</span>
-              {phase3TotalCount > 0 && phase3CompletedCount < phase3TotalCount && (
-                <p className="text-xs text-[var(--color-grey)] mt-0.5">Waiting on: {phase3Outstanding.join(", ")}</p>
-              )}
+              {phase3InProgress.length > 0 && <p className="text-xs text-amber-700 mt-0.5">In progress: {phase3InProgress.join(", ")}</p>}
+              {phase3NotStarted.length > 0 && <p className="text-xs text-[var(--color-grey)] mt-0.5">Not started: {phase3NotStarted.join(", ")}</p>}
             </div>
             <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap flex-shrink-0 ${phase3AllComplete ? "bg-green-100 text-green-800" : phase3CompletedCount > 0 ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-600"}`}>
-              {phase3AllComplete ? "All finished" : phase3CompletedCount > 0 ? "In progress" : "Not started"}
+              {phase3AllComplete ? "All finished" : phase3CompletedCount > 0 || phase3InProgress.length > 0 ? "In progress" : "Not started"}
             </span>
           </div>
 
@@ -613,6 +620,8 @@ export default function TeamDashboardPage() {
               completedCount={phase3CompletedCount}
               totalCount={phase3TotalCount}
               outstanding={phase3Outstanding}
+              inProgress={phase3InProgress}
+              notStarted={phase3NotStarted}
               tier1={tier1}
               tier2={interpretation}
               report={(analysis?.phase3_report_json as Phase3ReportJson | null) ?? null}

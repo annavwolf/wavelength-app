@@ -63,6 +63,8 @@ type Props = {
   completedCount: number;
   totalCount: number;
   outstanding: string[];
+  inProgress: string[];
+  notStarted: string[];
   tier1: Tier1Result | null;
   tier2: Tier2Result | null;
   report: Phase3ReportJson | null;
@@ -378,7 +380,7 @@ function FormattedAgreement({ a }: { a: Phase4Agreement }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Phase4Panel({
-  teamId, initial, allComplete, completedCount, totalCount, outstanding,
+  teamId, initial, allComplete, completedCount, totalCount, outstanding, inProgress, notStarted,
   tier1, tier2, report,
 }: Props) {
   const [json, setJson] = useState<Phase4SelfServeJson | null>(initial);
@@ -530,9 +532,10 @@ export default function Phase4Panel({
               <div className="h-full rounded-full" style={{ width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`, background: NAVY }} />
             </div>
             {!allComplete && outstanding.length > 0 && (
-              <p className="text-xs text-amber-700 mt-2">
-                {totalCount - completedCount} of {totalCount} haven&apos;t finished yet.
-              </p>
+              <div className="mt-2 space-y-1 text-left">
+                {inProgress.length > 0 && <p className="text-xs text-amber-700">In progress: {inProgress.join(", ")}</p>}
+                {notStarted.length > 0 && <p className="text-xs text-[var(--color-grey)]">Not started: {notStarted.join(", ")}</p>}
+              </div>
             )}
           </div>
           <button type="button" onClick={() => void generate()} disabled={completedCount === 0 || generating} className="btn-primary">

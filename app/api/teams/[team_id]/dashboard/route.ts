@@ -73,7 +73,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const auth = await requireTeamOwner(request, teamId);
   if (!auth.ok) return auth.response;
 
-  const [teamRes, membersRes, identityRes, privacyRes, analysisRes, missingRes, phase3DoneRes] = await Promise.all([
+  const [
+    teamRes,
+    membersRes,
+    identityRes,
+    privacyRes,
+    analysisRes,
+    missingRes,
+    phase3StoriesRes,
+    phase3BehaviorsRes,
+    phase3ContextRes,
+    phase3PulseRes,
+    phase3ConversationRes,
+  ] = await Promise.all([
     supabaseAdmin.from("teams").select("*").eq("team_id", teamId).maybeSingle(),
     supabaseAdmin.from("members").select("*").eq("team_id", teamId).order("created_at", { ascending: true }),
     supabaseAdmin.from("member_identity").select("member_id, email, display_name").eq("team_id", teamId),
@@ -83,10 +95,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .eq("team_id", teamId),
     supabaseAdmin.from("analysis").select("*").eq("team_id", teamId).maybeSingle(),
     supabaseAdmin.from("missing_member_flags").select("missing_role").eq("team_id", teamId),
+    // These response tables establish that a participant has started Phase 3.
+    // Completion itself comes only from members.phase3_completed_at, which is
+    // written by the explicit Finish & Submit action.
+    supabaseAdmin.from("member_stories").select("member_id").eq("team_id", teamId),
     supabaseAdmin.from("member_behaviors").select("member_id").eq("team_id", teamId),
+    supabaseAdmin.from("phase3_context_responses").select("member_id").eq("team_id", teamId),
+    supabaseAdmin.from("phase3_pulse_checks").select("member_id").eq("team_id", teamId),
+    supabaseAdmin.from("phase3_conversation_messages").select("member_id").eq("team_id", teamId),
   ]);
   if (!teamRes.data) return NextResponse.json({ error: "Team not found." }, { status: 404 });
-  if (teamRes.error || membersRes.error || identityRes.error || privacyRes.error || analysisRes.error || missingRes.error || phase3DoneRes.error) {
+  if (
+    teamRes.error || membersRes.error || identityRes.error || privacyRes.error ||
+    analysisRes.error || missingRes.error || phase3StoriesRes.error ||
+    phase3BehaviorsRes.error || phase3ContextRes.error || phase3PulseRes.error ||
+    phase3ConversationRes.error
+  ) {
     return NextResponse.json({ error: "Unable to load the team dashboard." }, { status: 500 });
   }
 
@@ -144,12 +168,26 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }
     : null;
 
+  const phase3StartedMemberIds = new Set(
+    [
+      ...(phase3StoriesRes.data ?? []),
+      ...(phase3BehaviorsRes.data ?? []),
+      ...(phase3ContextRes.data ?? []),
+      ...(phase3PulseRes.data ?? []),
+      ...(phase3ConversationRes.data ?? []),
+    ].map((row) => row.member_id)
+  );
+  const phase3DoneMemberIds = (membersRes.data ?? [])
+    .filter((member) => Boolean(member.phase3_completed_at))
+    .map((member) => member.member_id);
+
   return NextResponse.json({
     team: teamRes.data,
     members,
     analysis,
     missing_flags: missingRes.data ?? [],
-    phase3_done_member_ids: Array.from(new Set((phase3DoneRes.data ?? []).map((row) => row.member_id))),
+    phase3_started_member_ids: Array.from(phase3StartedMemberIds),
+    phase3_done_member_ids: phase3DoneMemberIds,
     early_access: earlyAccess,
   });
 }

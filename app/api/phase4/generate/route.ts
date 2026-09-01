@@ -86,20 +86,19 @@ export async function POST(req: NextRequest) {
   const earlyAccess = await requireEarlyAccessConsultant(auth.value.userId);
   if (!earlyAccess.ok) return earlyAccess.response;
 
-  // Phase 3 completion signal: a member has submitted at least one behavior to
-  // the team's behavior board. This is the core deliverable of the Phase 3
-  // activity and is present even if later steps (synchronicity, commitment) were
-  // skipped or saved before those questions were added to the flow.
+  // Phase 3 completion is the explicit Finish & Submit marker. Saved drafts
+  // remain resumable, but cannot enter the agreement until the participant has
+  // reviewed and submitted the whole activity.
   const privacyParticipants = await getCurrentPrivacyParticipants(teamId);
   const currentMemberIds = currentPrivacyParticipantIds(privacyParticipants);
   if (currentMemberIds.length === 0) {
     return NextResponse.json({ error: "no_current_privacy_participants" }, { status: 409 });
   }
 
-  const [membersRes, behaviorsRes] = await Promise.all([
-    supabaseAdmin.from("members").select("member_id, status").eq("team_id", teamId),
-    supabaseAdmin.from("member_behaviors").select("member_id").eq("team_id", teamId).in("member_id", currentMemberIds),
-  ]);
+  const membersRes = await supabaseAdmin
+    .from("members")
+    .select("member_id, status, phase3_completed_at")
+    .eq("team_id", teamId);
   if (membersRes.error) return NextResponse.json({ error: "db_error", detail: membersRes.error.message }, { status: 500 });
   const members = membersRes.data ?? [];
   if (members.length === 0) return NextResponse.json({ error: "no_members" }, { status: 400 });
@@ -108,11 +107,10 @@ export async function POST(req: NextRequest) {
   const currentMembers = members.filter((member) => currentMemberIdSet.has(member.member_id));
 
   const participants = currentMembers.filter((m) => m.status === "complete");
-  // Distinct members who have submitted at least one behavior.
   const phase3CompletedIds = new Set(
-    (behaviorsRes.data ?? [])
-      .map((row) => row.member_id)
-      .filter((memberId) => currentMemberIdSet.has(memberId))
+    currentMembers
+      .filter((member) => Boolean(member.phase3_completed_at))
+      .map((member) => member.member_id)
   );
   const completedCount = participants.length > 0
     ? participants.filter((m) => phase3CompletedIds.has(m.member_id)).length
@@ -126,6 +124,10 @@ export async function POST(req: NextRequest) {
   }
   // Soft warning returned with the generated insights if < 80% done (caller decides how to present it).
   const lowParticipation = pctComplete < 0.8;
+  const completedPrivacyParticipants = privacyParticipants.filter((participant) =>
+    phase3CompletedIds.has(participant.memberId)
+  );
+  const completedMemberIds = currentPrivacyParticipantIds(completedPrivacyParticipants);
 
   const { data: analysis, error: aErr } = await supabaseAdmin
     .from("analysis")
@@ -168,7 +170,7 @@ export async function POST(req: NextRequest) {
   const networks: Networks | null = tier1?.networks ?? null;
 
   // Auto-tag any untagged stories so situation data is populated.
-  await autoTagStories(teamId, currentMemberIds);
+  await autoTagStories(teamId, completedMemberIds);
 
   let insights;
   try {
@@ -177,7 +179,7 @@ export async function POST(req: NextRequest) {
       focusStatementId,
       focusText,
       networks,
-      privacyParticipants
+      completedPrivacyParticipants
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
