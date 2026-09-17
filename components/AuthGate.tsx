@@ -48,6 +48,7 @@ export default function AuthGate({
     // code without being bounced to the generic login route first.
     pathname === "/early-access" ||
     pathname === "/privacy" ||
+    pathname === "/how-otis-works" ||
     pathname.startsWith("/interview/") ||
     pathname.startsWith("/me") ||
     pathname.startsWith("/member-login");
@@ -58,7 +59,8 @@ export default function AuthGate({
     }
   }, [checked, session, isPublicRoute, router]);
 
-  // /login and /interview/* are public — members reach /interview/[member_id]
+  // Public information, login, and interview routes always render. Members
+  // reach /interview/[member_id]
   // via their private link and don't have a Wavelength account, so always
   // render these regardless of session state.
   if (isPublicRoute) {

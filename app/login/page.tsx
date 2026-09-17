@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, type FormEvent, Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 
@@ -207,6 +208,13 @@ function LoginForm() {
         I help teams strengthen psychological safety, build better working
         relationships, and coordinate their work with care.
       </p>
+
+      <Link
+        href="/how-otis-works"
+        className="inline-flex min-h-11 items-center text-sm text-[var(--color-purple)] underline underline-offset-4 mb-5"
+      >
+        See how a team moves through Otis →
+      </Link>
 
       <div className="card w-full max-w-sm">
         {mode !== "forgot" && (
