@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { MemberWithIdentity } from "@/types/database";
+import type { ConsultantRosterMember } from "@/types/database";
 
 export default function InviteMembersPage() {
   const { team_id: teamId } = useParams<{ team_id: string }>();
   const router = useRouter();
-  const [members, setMembers] = useState<MemberWithIdentity[]>([]);
+  const [members, setMembers] = useState<ConsultantRosterMember[]>([]);
   const [loading, setLoading] = useState(true);
   // Raw bearer links are deliberately never stored in Supabase or returned in
   // a roster payload. Keep a just-created link only in this consultant tab so

@@ -3,10 +3,123 @@ import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
 import { missingPhase3SubmissionFields } from "@/lib/phase3Submission";
 import { requireTeamOwner } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
-import type { MemberWithIdentity, Phase3ReportJson } from "@/types/database";
+import type { ConsultantRosterMember, Phase3ReportJson } from "@/types/database";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function omitRecordKeys(value: unknown, keys: Set<string>) {
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !keys.has(key)));
+}
+
+// The stored Tier 1 artifact contains participant-level detail needed for
+// server-side interpretation. The consultant browser receives only aggregate
+// scores, approved unattributed excerpts, and the anonymous network payload.
+function sanitizeTier1ForDashboard(value: unknown) {
+  if (!isRecord(value)) return value;
+
+  const participantCodes = new Set<string>();
+  const psStatements = Array.isArray(value.ps_statements)
+    ? value.ps_statements.map((statement) => {
+        if (!isRecord(statement)) return statement;
+        if (Array.isArray(statement.per_member)) {
+          for (const response of statement.per_member) {
+            if (isRecord(response) && typeof response.private_code === "string") {
+              participantCodes.add(response.private_code);
+            }
+          }
+        }
+        return omitRecordKeys(statement, new Set(["per_member"]));
+      })
+    : [];
+
+  const storedNetworks = value.networks;
+  if (isRecord(storedNetworks)) {
+    const coordination = storedNetworks.coordination;
+    if (isRecord(coordination) && Array.isArray(coordination.pairs)) {
+      for (const pair of coordination.pairs) {
+        if (!isRecord(pair)) continue;
+        if (typeof pair.from_private_code === "string") participantCodes.add(pair.from_private_code);
+        if (typeof pair.to_private_code === "string") participantCodes.add(pair.to_private_code);
+      }
+    }
+  }
+
+  const storedGeographic = isRecord(storedNetworks) && isRecord(storedNetworks.geographic)
+    ? storedNetworks.geographic
+    : null;
+  const geographic = storedGeographic
+    ? {
+        nodes: Array.isArray(storedGeographic.nodes)
+          ? storedGeographic.nodes.map((node) => omitRecordKeys(node, new Set(["private_code"])))
+          : [],
+        location_groups: Array.isArray(storedGeographic.location_groups)
+          ? storedGeographic.location_groups.map((group) => {
+              if (!isRecord(group)) return group;
+              return {
+                location: group.location,
+                member_count: Array.isArray(group.private_codes) ? group.private_codes.length : 0,
+              };
+            })
+          : [],
+        distinct_timezones: storedGeographic.distinct_timezones,
+        unplaced_count: Array.isArray(storedGeographic.unplaced_codes)
+          ? storedGeographic.unplaced_codes.length
+          : 0,
+      }
+    : null;
+  const networks = isRecord(storedNetworks)
+    ? { coordination: storedNetworks.coordination, geographic }
+    : storedNetworks;
+
+  const sharedPurpose = isRecord(value.shared_purpose)
+    ? {
+        ...value.shared_purpose,
+        clusters: Array.isArray(value.shared_purpose.clusters)
+          ? value.shared_purpose.clusters.map((cluster) => omitRecordKeys(cluster, new Set(["private_codes"])))
+          : [],
+      }
+    : value.shared_purpose;
+
+  const stripPrivateCodes = (entries: unknown) =>
+    Array.isArray(entries)
+      ? entries.map((entry) => omitRecordKeys(entry, new Set(["private_code"])))
+      : [];
+
+  return {
+    computed_at: value.computed_at,
+    privacy_notice_version: value.privacy_notice_version,
+    participation: value.participation,
+    ps_zones: value.ps_zones,
+    ps_statements: psStatements,
+    participant_codes: Array.from(participantCodes),
+    shared_purpose: sharedPurpose,
+    networks,
+    purpose: stripPrivateCodes(value.purpose),
+    own_roles: stripPrivateCodes(value.own_roles),
+    ps_importance: stripPrivateCodes(value.ps_importance),
+  };
+}
+
+function sanitizeTier2ForDashboard(value: unknown) {
+  if (!isRecord(value)) return value;
+  const allowedKeys = new Set([
+    "generated_at",
+    "privacy_notice_version",
+    "source_tier1_computed_at",
+    "ps_read",
+    "shared_purpose_read",
+    "focus_hypothesis",
+    "focus_candidates",
+    "member_facing_summary",
+    "team_composition_summary",
+    "data_quality_note",
+    "messy_or_insufficient_flag",
+    "welfare_or_sensitive_note",
+  ]);
+  return omitRecordKeys(value, new Set(Object.keys(value).filter((key) => !allowedKeys.has(key))));
 }
 
 function anonymizeSubmission(
@@ -80,22 +193,32 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     identityRes,
     privacyRes,
     analysisRes,
-    missingRes,
     phase3StoriesRes,
     phase3BehaviorsRes,
     phase3ContextRes,
     phase3PulseRes,
     phase3ConversationRes,
   ] = await Promise.all([
-    supabaseAdmin.from("teams").select("*").eq("team_id", teamId).maybeSingle(),
-    supabaseAdmin.from("members").select("*").eq("team_id", teamId).order("created_at", { ascending: true }),
+    supabaseAdmin
+      .from("teams")
+      .select("team_id, team_name, industry, roster_size")
+      .eq("team_id", teamId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("members")
+      .select("member_id, team_id, role, location, timezone, status, invited_at, phase3_completed_at")
+      .eq("team_id", teamId)
+      .order("created_at", { ascending: true }),
     supabaseAdmin.from("member_identity").select("member_id, email, display_name").eq("team_id", teamId),
     supabaseAdmin
       .from("member_privacy_acknowledgements")
       .select("member_id, acknowledged_at, privacy_notice_version, verbatim_preference")
       .eq("team_id", teamId),
-    supabaseAdmin.from("analysis").select("*").eq("team_id", teamId).maybeSingle(),
-    supabaseAdmin.from("missing_member_flags").select("missing_role").eq("team_id", teamId),
+    supabaseAdmin
+      .from("analysis")
+      .select("id, team_id, tier1_json, tier2_json, phase3_report_json, phase4_selfserve_json")
+      .eq("team_id", teamId)
+      .maybeSingle(),
     // These response tables establish that a participant has started Phase 3.
     // Completion itself comes only from members.phase3_completed_at, which is
     // written by the explicit Finish & Submit action.
@@ -108,7 +231,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!teamRes.data) return NextResponse.json({ error: "Team not found." }, { status: 404 });
   if (
     teamRes.error || membersRes.error || identityRes.error || privacyRes.error ||
-    analysisRes.error || missingRes.error || phase3StoriesRes.error ||
+    analysisRes.error || phase3StoriesRes.error ||
     phase3BehaviorsRes.error || phase3ContextRes.error || phase3PulseRes.error ||
     phase3ConversationRes.error
   ) {
@@ -126,14 +249,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       )
       .map((privacy) => privacy.member_id)
   );
-  const members: MemberWithIdentity[] = (membersRes.data ?? []).map((member) => {
+  const members: ConsultantRosterMember[] = (membersRes.data ?? []).map((member) => {
     const identity = identityById.get(member.member_id);
     const privacy = privacyById.get(member.member_id);
     const identityNameMissing = !identity?.display_name?.trim();
     return {
-      ...member,
-      // Keep identity/response linkage off the consultant dashboard payload.
-      private_code: "",
+      member_id: member.member_id,
+      team_id: member.team_id,
+      role: member.role,
+      location: member.location,
+      timezone: member.timezone,
+      status: member.status,
+      invited_at: member.invited_at,
       display_name: identityNameMissing ? "Name to be confirmed" : (identity?.display_name ?? ""),
       email: identity?.email ?? null,
       identity_name_missing: identityNameMissing,
@@ -142,7 +269,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       privacy_acknowledged_currently: Boolean(
         privacy?.acknowledged_at && privacy.privacy_notice_version === PRIVACY_NOTICE_VERSION
       ),
-      verbatim_preference: null,
     };
   });
 
@@ -159,6 +285,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const analysis = analysisRes.data
     ? {
         ...analysisRes.data,
+        tier1_json: sanitizeTier1ForDashboard(analysisRes.data.tier1_json),
+        tier2_json: sanitizeTier2ForDashboard(analysisRes.data.tier2_json),
         phase3_report_json: anonymizePhase3Report(analysisRes.data.phase3_report_json),
         // The draft agreement contains the beta-only pre-agreement material;
         // do not ship it to a non-entitled consultant merely because a prior
@@ -197,13 +325,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     })
     .map((member) => member.member_id);
 
-  return NextResponse.json({
-    team: teamRes.data,
-    members,
-    analysis,
-    missing_flags: missingRes.data ?? [],
-    phase3_started_member_ids: Array.from(phase3StartedMemberIds),
-    phase3_done_member_ids: phase3DoneMemberIds,
-    early_access: earlyAccess,
-  });
+  return NextResponse.json(
+    {
+      team: teamRes.data,
+      members,
+      analysis,
+      phase3_started_member_ids: Array.from(phase3StartedMemberIds),
+      phase3_done_member_ids: phase3DoneMemberIds,
+      early_access: earlyAccess,
+    },
+    { headers: { "Cache-Control": "private, no-store" } }
+  );
 }

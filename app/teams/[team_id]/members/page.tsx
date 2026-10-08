@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { MemberWithIdentity, Team } from "@/types/database";
+import type { ConsultantRosterMember, Team } from "@/types/database";
 import LocationAutocomplete from "@/components/LocationAutocomplete";
 
 function statusBadgeClasses(status: string) {
@@ -41,7 +41,7 @@ export default function TeamMembersPage() {
   const router = useRouter();
 
   const [team, setTeam] = useState<Team | null>(null);
-  const [members, setMembers] = useState<MemberWithIdentity[]>([]);
+  const [members, setMembers] = useState<ConsultantRosterMember[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [name, setName] = useState("");
@@ -103,7 +103,7 @@ export default function TeamMembersPage() {
       return;
     }
 
-    const newMember: MemberWithIdentity = await res.json();
+    const newMember: ConsultantRosterMember = await res.json();
     setMembers((prev) => [...prev, newMember]);
     setName("");
     setEmail("");

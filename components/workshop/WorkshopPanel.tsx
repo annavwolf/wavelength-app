@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from "react";
 import type {
-  Member, WorkshopSession, PairSubmission, BehaviourItem, FocusFrame,
+  ConsultantRosterMember, WorkshopSession, PairSubmission, BehaviourItem, FocusFrame,
   CaptureSheet, WorkshopPhase, Zone,
 } from "@/types/database";
 import type { Tier2Result } from "@/components/dashboard/types";
@@ -27,7 +27,7 @@ import {
 type Props = {
   teamId: string;
   teamName: string;
-  members: Member[];
+  members: ConsultantRosterMember[];
   focus?: Tier2Result["focus_hypothesis"];
 };
 
@@ -317,7 +317,7 @@ function OrientMovement({ session, patch }: {
 // ── M2 Pairs ──────────────────────────────────────────────────────────────
 function PairsMovement({ session, participants, nameById, pairSubs, patch }: {
   session: WorkshopSession;
-  participants: Member[];
+  participants: ConsultantRosterMember[];
   nameById: Map<string, string>;
   pairSubs: PairSubmission[];
   patch: (u: Partial<WorkshopSession>) => void;

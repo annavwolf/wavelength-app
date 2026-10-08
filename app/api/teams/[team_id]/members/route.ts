@@ -4,7 +4,7 @@ import { resolveCityLocation } from "@/lib/cities";
 import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy";
 import { requireTeamOwner } from "@/lib/requestAuth";
 import { supabaseAdmin } from "@/lib/supabase";
-import type { MemberWithIdentity } from "@/types/database";
+import type { ConsultantRosterMember } from "@/types/database";
 
 function nextPrivateCode(codes: string[]) {
   const occupied = new Set(codes);
@@ -26,7 +26,11 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const [membersRes, identityRes, privacyRes] = await Promise.all([
-    supabaseAdmin.from("members").select("*").eq("team_id", teamId).order("created_at", { ascending: true }),
+    supabaseAdmin
+      .from("members")
+      .select("member_id, team_id, role, location, timezone, status, invited_at")
+      .eq("team_id", teamId)
+      .order("created_at", { ascending: true }),
     supabaseAdmin.from("member_identity").select("member_id, email, display_name").eq("team_id", teamId),
     supabaseAdmin.from("member_privacy_acknowledgements").select("member_id, acknowledged_at, privacy_notice_version").eq("team_id", teamId),
   ]);
@@ -36,15 +40,18 @@ export async function GET(
 
   const identityById = new Map((identityRes.data ?? []).map((identity) => [identity.member_id, identity]));
   const privacyById = new Map((privacyRes.data ?? []).map((record) => [record.member_id, record]));
-  const members: MemberWithIdentity[] = (membersRes.data ?? []).map((member) => {
+  const members: ConsultantRosterMember[] = (membersRes.data ?? []).map((member) => {
     const identity = identityById.get(member.member_id);
     const privacy = privacyById.get(member.member_id);
     const identityNameMissing = !identity?.display_name?.trim();
     return {
-      ...member,
-      // Participant codes remain only in the pseudonymous analysis payload.
-      // Never return a roster-to-code lookup to the consultant browser.
-      private_code: "",
+      member_id: member.member_id,
+      team_id: member.team_id,
+      role: member.role,
+      location: member.location,
+      timezone: member.timezone,
+      status: member.status,
+      invited_at: member.invited_at,
       display_name: identityNameMissing ? "Name to be confirmed" : (identity?.display_name ?? ""),
       email: identity?.email ?? null,
       identity_name_missing: identityNameMissing,
@@ -53,13 +60,10 @@ export async function GET(
       privacy_acknowledged_currently: Boolean(
         privacy?.acknowledged_at && privacy.privacy_notice_version === PRIVACY_NOTICE_VERSION
       ),
-      // Consultants can see acknowledgement status, not a named participant's
-      // exact-excerpt choice.
-      verbatim_preference: null,
     };
   });
   await logIdentityLookups(members.map((member) => member.member_id), "roster_get", `team ${teamId}`);
-  return NextResponse.json(members);
+  return NextResponse.json(members, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function POST(
@@ -104,7 +108,7 @@ export async function POST(
       phase3_story_verbatim: false,
       phase3_behavior_verbatim: false,
     })
-    .select("*")
+    .select("member_id, team_id, role, location, timezone, status, invited_at")
     .single();
   if (memberError || !member) return NextResponse.json({ error: "Unable to create participant." }, { status: 500 });
 
@@ -118,14 +122,25 @@ export async function POST(
     await supabaseAdmin.from("members").delete().eq("member_id", member.member_id);
     return NextResponse.json({ error: "Unable to create participant identity." }, { status: 500 });
   }
-  const result: MemberWithIdentity = {
-    ...member,
-    private_code: "",
+  const result: ConsultantRosterMember = {
+    member_id: member.member_id,
+    team_id: member.team_id,
+    role: member.role,
+    location: member.location,
+    timezone: member.timezone,
+    status: member.status,
+    invited_at: member.invited_at,
     display_name: displayName || "Name to be confirmed",
     email,
     identity_name_missing: !displayName,
+    privacy_acknowledged_at: null,
+    privacy_notice_version: null,
+    privacy_acknowledged_currently: false,
   };
-  return NextResponse.json(result, { status: 201 });
+  return NextResponse.json(result, {
+    status: 201,
+    headers: { "Cache-Control": "private, no-store" },
+  });
 }
 
 export async function DELETE(

@@ -101,11 +101,11 @@ export default function TeamConnectivityPanel({
                 <GeographicMap geo={geo} />
               )}
 
-              {geo.unplaced_codes.length > 0 && (
+              {geo.unplaced_count > 0 && (
                 <div className="mt-4 rounded-xl border border-dashed border-black/20 bg-black/[0.015] p-4">
                   <p className="text-xs uppercase tracking-widest text-[var(--color-grey)] mb-1">No location on file</p>
                   <p className="text-sm text-[var(--color-grey)]">
-                    {geo.unplaced_codes.length} member{geo.unplaced_codes.length !== 1 ? "s have" : " has"} no location on file.
+                    {geo.unplaced_count} member{geo.unplaced_count !== 1 ? "s have" : " has"} no location on file.
                   </p>
                 </div>
               )}

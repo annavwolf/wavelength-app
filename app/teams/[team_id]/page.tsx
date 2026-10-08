@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import type { Analysis, MemberWithIdentity, Team } from "@/types/database";
+import type { Analysis, ConsultantRosterMember, Team } from "@/types/database";
 import {
   hasText, ZONE_BADGE, ZONE_SHORT,
   type Tier1Result, type Tier2Result,
@@ -53,13 +53,19 @@ const WORKSHOP_ACCENT = "#8A6D1F";
 const WORKSHOP_BG = "rgba(138,109,31,0.07)";
 const WORKSHOP_BORDER = "rgba(138,109,31,0.35)";
 
-function memberStatusCls(m: MemberWithIdentity) {
+type DashboardTeam = Pick<Team, "team_id" | "team_name" | "industry" | "roster_size">;
+type DashboardAnalysis = Pick<
+  Analysis,
+  "id" | "team_id" | "tier1_json" | "tier2_json" | "phase3_report_json" | "phase4_selfserve_json"
+>;
+
+function memberStatusCls(m: ConsultantRosterMember) {
   if (m.status === "complete") return "bg-green-100 text-green-700";
   if (m.status === "in_progress") return "bg-blue-100 text-blue-700";
   if (m.status === "invited") return "bg-amber-100 text-amber-700";
   return "bg-gray-200 text-[var(--color-ink)]";
 }
-function memberStatusLabel(m: MemberWithIdentity) {
+function memberStatusLabel(m: ConsultantRosterMember) {
   if (m.status === "complete") return "Complete ✓";
   if (m.status === "in_progress") return "In progress";
   if (m.status === "invited") {
@@ -80,9 +86,9 @@ function formatDate(iso: string) {
 export default function TeamDashboardPage() {
   const { team_id: teamId } = useParams<{ team_id: string }>();
 
-  const [team, setTeam] = useState<Team | null>(null);
-  const [members, setMembers] = useState<MemberWithIdentity[]>([]);
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [team, setTeam] = useState<DashboardTeam | null>(null);
+  const [members, setMembers] = useState<ConsultantRosterMember[]>([]);
+  const [analysis, setAnalysis] = useState<DashboardAnalysis | null>(null);
   const [phase3DoneIds, setPhase3DoneIds] = useState<Set<string>>(new Set());
   const [phase3StartedIds, setPhase3StartedIds] = useState<Set<string>>(new Set());
   const [earlyAccess, setEarlyAccess] = useState(false);
@@ -130,12 +136,12 @@ export default function TeamDashboardPage() {
         return;
       }
       setDashboardRefreshError(null);
-      setTeam(data.team as Team);
-      setMembers((data.members as MemberWithIdentity[] | undefined) ?? []);
+      setTeam(data.team as DashboardTeam);
+      setMembers((data.members as ConsultantRosterMember[] | undefined) ?? []);
       setPhase3DoneIds(new Set((data.phase3_done_member_ids as string[] | undefined) ?? []));
       setPhase3StartedIds(new Set((data.phase3_started_member_ids as string[] | undefined) ?? []));
       setEarlyAccess(data.early_access === true);
-      const analysisRow = (data.analysis as Analysis | null | undefined) ?? null;
+      const analysisRow = (data.analysis as DashboardAnalysis | null | undefined) ?? null;
       setAnalysis(analysisRow);
       setInterpretation((analysisRow?.tier2_json as unknown as Tier2Result | null) ?? null);
     } catch {
@@ -203,21 +209,6 @@ export default function TeamDashboardPage() {
       setInterpretError("Something went wrong reaching Otis. Please try again.");
     }
     setInterpreting(false);
-  }
-
-  async function adoptTeamName(name: string) {
-    if (!team || !name.trim() || name.trim() === team.team_name) return;
-    const next = name.trim();
-    const response = await fetch(`/api/teams/${teamId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ team_name: next }),
-    });
-    if (!response.ok) {
-      console.error("[team] failed to adopt suggested name");
-      return;
-    }
-    setTeam(await response.json());
   }
 
   async function handleSendInvite(memberId: string) {
@@ -297,34 +288,6 @@ export default function TeamDashboardPage() {
                   Invite page
                 </Link>
               </div>
-              {(() => {
-                const suggestions = Array.from(
-                  new Set(
-                    members
-                      .map((m) => m.team_name_suggestion?.trim())
-                      .filter((s): s is string => !!s && s !== team.team_name)
-                  )
-                );
-                if (suggestions.length === 0) return null;
-                return (
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-[var(--color-grey)]">
-                      Members suggested:
-                    </span>
-                    {suggestions.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => adoptTeamName(s)}
-                        title="Use this as the team name"
-                        className="text-xs px-3 py-1 rounded-full border border-black/15 hover:border-[var(--color-purple)] hover:text-[var(--color-purple)] transition-colors"
-                      >
-                        {s} <span className="opacity-60">· use</span>
-                      </button>
-                    ))}
-                  </div>
-                );
-              })()}
             </div>
             <Link href="/" className="inline-flex min-h-11 items-center text-sm text-[var(--color-grey)] hover:text-[var(--color-ink)] sm:mt-2">
               ← My Teams
@@ -447,9 +410,7 @@ export default function TeamDashboardPage() {
   }
 
   // ── ANALYSIS MODE ─────────────────────────────────────────────────────────
-  const completedCodes = Array.from(
-    new Set((tier1.ps_statements ?? []).flatMap((statement) => statement.per_member.map((response) => response.private_code)))
-  );
+  const completedCodes = tier1.participant_codes ?? [];
   const focus = interpretation?.focus_hypothesis;
 
   // Phase 3 completion comes only from the explicit Finish & Submit action.

@@ -24,14 +24,13 @@ export type PsStatementScore = {
   distribution: Record<string, number>; // keys "1".."5" → count at each effective value
   counts: ZoneCounts;
   mean_effective: number;
-  per_member: Array<{ private_code: string; effective_value: number; label: string }>;
 };
 
 export type SharedPurpose = {
   classification: "aligned" | "broadly_aligned" | "fuzzy" | "bifurcated" | "fragmented" | "insufficient";
   mean_pairwise_similarity: number | null;
   n_statements: number;
-  clusters: Array<{ size: number; private_codes: string[] }>;
+  clusters: Array<{ size: number }>;
 };
 
 export type CoordinationPair = {
@@ -48,7 +47,6 @@ export type AsymmetricPair = {
 };
 
 export type GeoNode = {
-  private_code: string;
   location: string | null;
   timezone: string | null;
   has_location: boolean;
@@ -62,14 +60,14 @@ export type Networks = {
   };
   geographic: {
     nodes: GeoNode[];
-    location_groups: Array<{ location: string; private_codes: string[] }>;
+    location_groups: Array<{ location: string; member_count: number }>;
     distinct_timezones: number;
-    unplaced_codes: string[];
+    unplaced_count: number;
   };
 };
 
-export type PurposeEntry = { private_code: string; purpose_text: string; share_verbatim: boolean };
-export type FreeTextEntry = { private_code: string; text: string; share_verbatim?: boolean };
+export type PurposeEntry = { purpose_text: string; share_verbatim: boolean };
+export type FreeTextEntry = { text: string; share_verbatim?: boolean };
 
 export type Tier1Result = {
   computed_at: string;
@@ -83,6 +81,9 @@ export type Tier1Result = {
   };
   ps_zones: ZoneScore[];
   ps_statements: PsStatementScore[];
+  // Anonymous codes used only to draw the team connectivity maps. Individual
+  // psychological-safety answers are removed by the dashboard API.
+  participant_codes?: string[];
   shared_purpose: SharedPurpose;
   networks: Networks;
   purpose: PurposeEntry[];

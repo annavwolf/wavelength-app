@@ -44,9 +44,13 @@ export type MemberIdentityInsert = {
   display_name: string;
 }
 
-// Combined shape returned by the /api/teams/[team_id]/members roster route —
-// merges Member (response data) with MemberIdentity (identity data).
-export type MemberWithIdentity = Member & {
+// Deliberately narrow shape returned to consultant roster screens. Do not
+// widen this to `Member`: that row also contains participant responses,
+// demographics, consent choices, resume state, and the analysis private code.
+export type ConsultantRosterMember = Pick<
+  Member,
+  "member_id" | "team_id" | "role" | "location" | "timezone" | "status" | "invited_at"
+> & {
   display_name: string;
   email: string | null;
   privacy_acknowledged_at?: string | null;
@@ -55,7 +59,6 @@ export type MemberWithIdentity = Member & {
   // Consultants can use it to follow up without seeing a participant's
   // exact-word or voice-input choices.
   privacy_acknowledged_currently?: boolean;
-  verbatim_preference?: "summary_only" | "verbatim" | null;
   identity_name_missing?: boolean;
 };
 

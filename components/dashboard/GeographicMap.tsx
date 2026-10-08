@@ -35,7 +35,7 @@ export default function GeographicMap({ geo }: { geo: Geo }) {
     const a = (i / N) * 2 * Math.PI - Math.PI / 2;
     const gx = cx + clusterR * Math.cos(a);
     const gy = cy + clusterR * Math.sin(a);
-    const codes = g.private_codes ?? [];
+    const codes = Array.from({ length: g.member_count }, (_, memberIndex) => `${i}-${memberIndex}`);
     const m = codes.length;
     const ring = m <= 1 ? 0 : Math.min(48, 14 + m * 5);
     const nodes: Node[] = codes.map((c, j) => {
